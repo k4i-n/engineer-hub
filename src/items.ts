@@ -47,8 +47,21 @@ function findItem(db: DatabaseSync, key: string): ItemRow {
   return item;
 }
 
-function describe(i: { source: string; kind: string; title: string | null; ref: string }): string {
-  return `${i.source}/${i.kind}: ${cut(i.title ?? i.ref, 120)}`;
+export const KIND_NAME: Record<string, string> = {
+  pr: "PR",
+  issue: "Issue",
+  review_request: "Review request",
+  thread: "Thread",
+  message: "Message",
+  mail: "Mail",
+  alert: "Alert",
+  doc: "Doc",
+  run: "Run",
+  other: "Link",
+};
+
+function describe(i: { kind: string; title: string | null; ref: string }): string {
+  return `${KIND_NAME[i.kind] ?? i.kind} ${cut(i.title ?? i.ref, 120)}`;
 }
 
 function event(ctx: Ctx, ticketId: string, text: string, ref: string): void {
@@ -77,7 +90,7 @@ export function upsertItem(ctx: Ctx, input: ItemInput, withEvents: boolean): Ups
   const ref = input.url ?? input.ref;
   if (!existing) {
     const ticketId = input.ticket_id ?? matchTicket(ctx, [input.title, input.url, input.ref]);
-    if (withEvents && ticketId !== null) event(ctx, ticketId, `new ${describe(input)}`, ref);
+    if (withEvents && ticketId !== null) event(ctx, ticketId, `New ${describe(input)}`, ref);
     db.prepare(
       `INSERT INTO item(source, ref, kind, title, url, state, author, ticket_id, needs_me, first_seen, changed_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -119,9 +132,10 @@ export function upsertItem(ctx: Ctx, input: ItemInput, withEvents: boolean): Ups
   ).run(...values, closedAt, snoozedUntil, at, existing.id);
   if (!withEvents || next.ticket_id === null) return "changed";
   const merged = { ...existing, ...next };
-  if (next.ticket_id !== existing.ticket_id) event(ctx, next.ticket_id, `attached ${describe(merged)}`, ref);
+  if (next.ticket_id !== existing.ticket_id) event(ctx, next.ticket_id, `Attached ${describe(merged)}`, ref);
   if (stateChanged) {
-    event(ctx, next.ticket_id, `${describe(merged)}: ${existing.state ?? "-"} -> ${next.state ?? "-"}`, ref);
+    const change = existing.state === null ? `is ${next.state}` : `${existing.state} → ${next.state ?? "-"}`;
+    event(ctx, next.ticket_id, `${describe(merged)}: ${change}`, ref);
   }
   return "changed";
 }
@@ -220,6 +234,12 @@ export function snooze(ctx: Ctx, key: string, duration: string): Result {
   };
 }
 
+export function reopen(ctx: Ctx, key: string): Result {
+  const item = findItem(ctx.db, key);
+  ctx.db.prepare("UPDATE item SET closed_at = NULL, snoozed_until = NULL WHERE id = ?").run(item.id);
+  return { text: `#${item.id} reopened`, json: { id: item.id } };
+}
+
 export function attach(ctx: Ctx, key: string, ticketId: string): Result {
   getTicket(ctx.db, ticketId);
   const item = findItem(ctx.db, key);
@@ -228,7 +248,7 @@ export function attach(ctx: Ctx, key: string, ticketId: string): Result {
     ctx.db
       .prepare("UPDATE item SET ticket_id = ?, changed_at = ? WHERE id = ?")
       .run(ticketId, nowIso(ctx.now), item.id);
-    event(ctx, ticketId, `attached ${describe(item)}`, item.url ?? item.ref);
+    event(ctx, ticketId, `Attached ${describe(item)}`, item.url ?? item.ref);
   });
   return { text: `#${item.id} attached to ${ticketId}`, json: { id: item.id, ticket_id: ticketId } };
 }
