@@ -560,8 +560,7 @@ function ticketRow(ctx: Ctx, t: Ticket, done = false, needing: Need[] = []): str
       ? `${p.next.n}. ${p.next.title}`
       : (t.next ?? "");
   const priority = (t.tracker_priority ?? "").trim();
-  const search = [t.id, t.title, t.status, t.next, p.next?.title].join(" ").toLowerCase();
-  return `<li class="ticket${done ? " is-closed" : ""}" data-key="t-${esc(t.id)}" data-href="/t/${encodeURIComponent(t.id)}" data-search="${esc(search)}">
+  return `<li class="ticket${done ? " is-closed" : ""}" data-key="t-${esc(t.id)}" data-href="/t/${encodeURIComponent(t.id)}">
 <div class="t-top">${ticketLink(t.id)}<span class="t-title">${esc(t.title)}</span>${needPill(needing)}${priority ? pill(priority, PRIORITY_TONE[priority.toLowerCase()] ?? "grey") : ""}${pill(DIR_LABEL[t.dir ?? ""] ?? t.dir ?? "", DIR_TONE[t.dir ?? ""] ?? "grey")}</div>
 <div class="t-meta"><span class="t-progress${p.total > 0 && p.done === p.total ? " complete" : ""}"><span class="bar"><span style="width:${pct}%"></span></span><span class="frac">${p.total === 0 ? "–" : `${p.done}/${p.total}`}</span></span><span class="t-next">${esc(cut(next || "–", 160))}</span><span class="chips">${chips}</span></div>
 </li>`;
@@ -577,8 +576,7 @@ function ticketsSection(ctx: Ctx, tickets: Ticket[], needing: Map<string, Need[]
   const tab = (name: string, label: string, n: number, on: boolean) =>
     `<button type="button" role="tab" class="tab${on ? " on" : ""}" data-tab="${name}" aria-selected="${on}">${label} <b>${n}</b></button>`;
   const tabs = `<span class="tabs" role="tablist">${tab("ongoing", "Ongoing", tickets.length, true)}${tab("done", "Done", done.length, false)}</span>`;
-  const filter = `<input class="filter" type="search" data-filter placeholder="/" aria-label="Filter tickets">`;
-  return `<section class="tickets"><div class="sec-head"><h2>Tickets</h2>${tabs}${filter}</div>${ticketList(ctx, "ongoing", tickets, false, needing)}${ticketList(ctx, "done", done, true, needing)}</section>`;
+  return `<section class="tickets"><div class="sec-head"><h2>Tickets</h2>${tabs}</div>${ticketList(ctx, "ongoing", tickets, false, needing)}${ticketList(ctx, "done", done, true, needing)}</section>`;
 }
 
 function todaySection(ctx: Ctx): string {
@@ -680,8 +678,9 @@ function header(ctx: Ctx, sync: SyncState, active: "home" | "settings" | "ticket
   return `<header class="top${running ? " syncing" : ""}">
 <a class="brand" href="/"><span class="logo"></span>hub${needCount > 0 ? `<span class="count hot" title="needs you">${needCount}</span>` : ""}</a>
 <div class="sources">${sourcesLine(ctx, sources)}</div>
+<div class="search" role="search"><input type="search" data-search-box placeholder="Search" aria-label="Search everything" autocomplete="off" spellcheck="false"><div class="search-pop" role="listbox" hidden></div></div>
 <div class="sync"${started}>${result}<span class="live" title="live"></span>${button(running ? "Syncing" : "Sync", { act: "sync" }, { cls: "primary sync-btn", disabled: running })}</div>
-<a class="gear${active === "settings" ? " on" : ""}" href="/settings" title="Settings" aria-label="Settings">⚙</a>
+<a class="gear${active === "settings" ? " on" : ""}" href="${active === "settings" ? "/" : "/settings"}" title="Settings" aria-label="Settings">⚙</a>
 <div class="strip"></div>
 </header>`;
 }
@@ -821,7 +820,7 @@ export function settingsBody(ctx: Ctx, sync: SyncState, db: DbInfo): string {
     ["y / n", "yes / no"],
     ["p", "pin to top"],
     ["u", "undo"],
-    ["/", "filter tickets"],
+    ["/", "search"],
     [",", "settings"],
     ["Esc", "back"],
   ];

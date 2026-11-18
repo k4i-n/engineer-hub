@@ -161,20 +161,25 @@ async function refresh() {
     const scroll = new Map(
       [...app.querySelectorAll("[data-keep-scroll][data-key]")].map((e) => [e.dataset.key, e.scrollTop]),
     );
-    const filter = app.querySelector("[data-filter]");
-    const filterValue = filter?.value ?? "";
-    const filterFocused = document.activeElement === filter;
+    const box = app.querySelector("[data-search-box]");
+    const query = box?.value ?? "";
+    const boxFocused = document.activeElement === box;
+    const caret = box?.selectionStart ?? null;
     const focusKey = document.activeElement?.closest?.("[data-key]")?.dataset.key;
     app.innerHTML = html;
     for (const d of app.querySelectorAll("details[data-key]")) if (open.has(d.dataset.key)) d.open = true;
     for (const e of app.querySelectorAll("[data-keep-scroll][data-key]")) e.scrollTop = scroll.get(e.dataset.key) ?? 0;
-    const newFilter = app.querySelector("[data-filter]");
-    if (newFilter) {
-      newFilter.value = filterValue;
-      applyFilter(newFilter);
-      if (filterFocused) newFilter.focus();
+    const newBox = app.querySelector("[data-search-box]");
+    if (newBox && query !== "") {
+      newBox.value = query;
+      if (boxFocused) {
+        newBox.focus();
+        if (caret !== null) newBox.setSelectionRange(caret, caret);
+        showResults(lastResults);
+        runSearch(query, true);
+      }
     }
-    if (focusKey && !filterFocused)
+    if (focusKey && !boxFocused)
       app.querySelector(`[data-key="${CSS.escape(focusKey)}"] button`)?.focus({ preventScroll: true });
     afterRender(false);
   } finally {
@@ -262,10 +267,114 @@ function applyTab() {
   for (const ul of app.querySelectorAll("[data-tab-panel]")) ul.hidden = ul.dataset.tabPanel !== ticketTab;
 }
 
-function applyFilter(input) {
-  const q = input.value.trim().toLowerCase();
-  for (const li of app.querySelectorAll(".ticket-list > li[data-search]"))
-    li.hidden = q !== "" && !li.dataset.search.includes(q);
+let lastResults = [];
+let activeHit = 0;
+let searchTimer = null;
+let searchSeq = 0;
+
+function withQuery(text, query) {
+  if (/[\uE000\uE001]/.test(text)) return text;
+  const words = query.match(/[\p{L}\p{N}_-]+/gu) ?? [];
+  if (words.length === 0) return text;
+  return text.replace(new RegExp(`(${words.join("|")})`, "giu"), "\uE000$1\uE001");
+}
+
+function marked(text) {
+  const out = document.createDocumentFragment();
+  for (const [i, part] of text.split(/[\uE000\uE001]/).entries()) {
+    if (part === "") continue;
+    if (i % 2 === 1) {
+      const m = document.createElement("mark");
+      m.textContent = part;
+      out.append(m);
+    } else out.append(part);
+  }
+  return out;
+}
+
+function showResults(results) {
+  const pop = app.querySelector(".search-pop");
+  if (!pop) return;
+  lastResults = results;
+  activeHit = Math.min(activeHit, Math.max(results.length - 1, 0));
+  pop.replaceChildren();
+  if (results.length === 0) {
+    const none = document.createElement("div");
+    none.className = "hit-none";
+    none.textContent = "No matches";
+    pop.append(none);
+  }
+  results.forEach((r, i) => {
+    const a = document.createElement("a");
+    a.className = `hit${i === activeHit ? " on" : ""}`;
+    a.setAttribute("role", "option");
+    if (r.href) a.href = r.href;
+    if (r.href && /^https?:/.test(r.href)) {
+      a.target = "_blank";
+      a.rel = "noreferrer";
+    }
+    const kind = document.createElement("span");
+    kind.className = "hit-kind";
+    kind.textContent = r.kind;
+    const main = document.createElement("span");
+    main.className = "hit-main";
+    const title = document.createElement("span");
+    title.className = "hit-title";
+    title.append(marked(withQuery(r.title, app.querySelector("[data-search-box]")?.value ?? "")));
+    main.append(title);
+    if (r.sub) {
+      const sub = document.createElement("span");
+      sub.className = "hit-sub";
+      sub.append(marked(r.sub));
+      main.append(sub);
+    }
+    const tid = document.createElement("span");
+    tid.className = "hit-tid";
+    tid.textContent = r.ticket ?? "";
+    a.append(kind, main, tid);
+    pop.append(a);
+  });
+  pop.hidden = false;
+}
+
+function hideResults() {
+  const pop = app.querySelector(".search-pop");
+  if (pop) pop.hidden = true;
+}
+
+async function runSearch(q, keepActive = false) {
+  const seq = ++searchSeq;
+  if (q.trim() === "") {
+    lastResults = [];
+    hideResults();
+    return;
+  }
+  const r = await fetch(`/api/search?q=${encodeURIComponent(q)}`, { cache: "no-store" });
+  if (!r.ok || seq !== searchSeq) return;
+  if (!keepActive) activeHit = 0;
+  showResults(await r.json());
+}
+
+function searchKey(e) {
+  const hits = [...app.querySelectorAll(".search-pop .hit")];
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    if (hits.length === 0) return;
+    activeHit = (activeHit + (e.key === "ArrowDown" ? 1 : -1) + hits.length) % hits.length;
+    hits.forEach((h, i) => {
+      h.classList.toggle("on", i === activeHit);
+    });
+    hits[activeHit].scrollIntoView({ block: "nearest" });
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    const hit = hits[activeHit];
+    if (hit?.href) open(hit.getAttribute("href"), true);
+  } else if (e.key === "Escape") {
+    if (e.target.value !== "") {
+      e.target.value = "";
+      runSearch("");
+    } else e.target.blur();
+  }
 }
 
 function open(href, newTab) {
@@ -310,6 +419,7 @@ async function saveConfig(key, value, el) {
 
 document.addEventListener("click", async (e) => {
   closeMenus(e.target.closest("details.menu"));
+  if (!e.target.closest(".search")) hideResults();
   const b = e.target.closest("button");
   if (b?.dataset.todayToggle !== undefined) {
     store("hub.todayExpanded", !stored("hub.todayExpanded", false));
@@ -463,11 +573,22 @@ document.addEventListener("change", (e) => {
 });
 
 document.addEventListener("input", (e) => {
-  if (e.target.matches("[data-filter]")) applyFilter(e.target);
+  if (!e.target.matches("[data-search-box]")) return;
+  clearTimeout(searchTimer);
+  const q = e.target.value;
+  searchTimer = setTimeout(() => runSearch(q), 120);
+});
+
+document.addEventListener("focusin", (e) => {
+  if (e.target.matches?.("[data-search-box]") && e.target.value.trim() !== "") showResults(lastResults);
 });
 
 document.addEventListener("keydown", (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.target.matches?.("[data-search-box]")) {
+    searchKey(e);
+    return;
+  }
   const typing = e.target.closest("input, textarea");
   if (typing) {
     if (e.key === "Escape") e.target.blur();
@@ -490,10 +611,11 @@ document.addEventListener("keydown", (e) => {
       lastUndo = null;
     }
   } else if (e.key === "/") {
-    const f = app.querySelector("[data-filter]");
-    if (!f) return;
-    f.focus();
-  } else if (e.key === ",") location.href = "/settings";
+    const box = app.querySelector("[data-search-box]");
+    if (!box) return;
+    box.focus();
+    box.select();
+  } else if (e.key === ",") location.href = location.pathname === "/settings" ? "/" : "/settings";
   else if (e.key === "Escape") {
     if (app.querySelector("details.menu[open]")) closeMenus();
     else if (location.pathname !== "/") location.href = "/";

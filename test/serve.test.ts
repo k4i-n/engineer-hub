@@ -250,6 +250,42 @@ describe("serve", () => {
     assert.equal((await post("/api/config", { key: "layout", value: '{"left":["nope"],"right":[]}' })).status, 400);
   });
 
+  test("search finds tickets, items, steps and notes from one box", async () => {
+    hub(
+      ["item", "put", "--stdin"],
+      JSON.stringify({
+        source: "github",
+        kind: "pr",
+        url: "https://github.com/acme/web/pull/77",
+        title: "Webhook retry jitter",
+        ticket: "ENG-42",
+        needs_me: true,
+      }),
+    );
+    hub(["step", "add", "ENG-7", "measure webhook latency"]);
+    const find = async (q: string) =>
+      (await (await fetch(`${server.url}/api/search?q=${encodeURIComponent(q)}`)).json()) as {
+        kind: string;
+        title: string;
+        sub: string;
+        href: string | null;
+      }[];
+    const sync = await find("sync login");
+    assert.equal(sync[0]?.kind, "Ticket");
+    assert.equal(sync[0]?.href, "/t/ENG-42");
+    const migration = await find("migration");
+    assert.ok(migration.some((h) => h.kind === "Ticket" && /\uE000migration\uE001/i.test(h.sub)));
+    const hook = await find("webhook");
+    assert.ok(hook.some((h) => h.kind === "Item" && h.href === "https://github.com/acme/web/pull/77"));
+    assert.ok(hook.some((h) => h.kind === "Step" && h.href === "/t/ENG-7"));
+    assert.deepEqual(await find("   "), []);
+    assert.ok(Array.isArray(await find('"%_\\')));
+    const page = await (await fetch(`${server.url}/`)).text();
+    assert.match(page, /data-search-box/);
+    assert.doesNotMatch(page, /data-filter/);
+    assert.match(await (await fetch(`${server.url}/settings`)).text(), /<a class="gear on" href="\/"/);
+  });
+
   test("text from the DB is escaped", async () => {
     hub(["ticket-new", "NEW-xss", "<script>alert(1)</script>"]);
     const html = await (await fetch(`${server.url}/`)).text();
