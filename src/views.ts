@@ -324,6 +324,11 @@ button.err{border-color:var(--bad);color:var(--bad)}
 details{border-top:1px solid var(--line);padding:6px 0}details:first-of-type{border-top:0}
 summary{cursor:pointer}
 .timeline .rows{max-height:60vh;overflow:auto}
+@media (max-width:600px){
+.rows>li>.main,.d-head>.main{flex-basis:100%;order:2}
+.sources{order:3;flex-basis:100%}
+.t-page-head{padding:12px 16px 0}
+}
 `;
 
 const SCRIPT = `
@@ -344,6 +349,7 @@ async function refresh() {
 const events = new EventSource('/events');
 events.addEventListener('change', refresh);
 events.addEventListener('open', refresh);
+setInterval(refresh, 60000);
 document.addEventListener('click', async (e) => {
   const b = e.target.closest('button');
   if (!b || b.disabled) return;
