@@ -86,7 +86,7 @@ describe("serve", () => {
     assert.match(html, /^<!doctype html>/);
     assert.match(
       html,
-      /<div class="col" data-col="left"><div class="block" data-block="today">[\s\S]*?<div class="block" data-block="tickets">/,
+      /<div class="col" data-col="left"><div class="block" data-block="today">[\s\S]*?<div class="block" data-block="tickets">[\s\S]*?<div class="block" data-block="activity">[\s\S]*?<div class="col" data-col="right">/,
     );
     assert.match(html, /href="\/t\/ENG-42">ENG-42<\/a><span class="t-title">Sync login sessions across devices/);
     assert.match(html, /waiting on design review/);
