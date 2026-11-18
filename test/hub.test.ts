@@ -415,6 +415,46 @@ describe("sources", () => {
   });
 });
 
+describe("sync", () => {
+  test("brief lists what a sync needs to judge the delta, in fixed sections", () => {
+    imported();
+    stdin = "Can we cap exports at 10 a minute?";
+    ok("draft", "ENG-7", "ask product", "--stdin", "--channel", "#product");
+    ok("posted", "ENG-7", "ask product");
+    ok("wait", "ENG-7", "product", "https://acme.slack.com/archives/C1/p1");
+    ok("source", "slack", "--cursor", "1763011200.0001");
+    const text = ok("brief");
+    assert.match(text, /^sources:\n {2}slack \| since 2026-11-13 14:20 \| cursor 1763011200.0001$/m);
+    assert.match(text, /^tickets:\n {2}ENG-42 Sync login sessions across devices\n {2}ENG-7 /m);
+    assert.match(text, /^drafts not sent:\n {2}ENG-42 \| D24/m);
+    assert.match(text, /^sent, wording pending:\n {2}ENG-7 \| ask product \| #product \| Can we cap exports/m);
+    assert.match(text, /^waits:\n {2}#1 ENG-7 \| product \| /m);
+    assert.match(text, /^tracked:\n {2}#\d+ /m);
+    assert.ok(text.split("\n").every((line) => line.length <= 162));
+  });
+
+  test("a proposed match is confirmed with yes or dropped with no", () => {
+    imported();
+    stdin = "Can we cap exports at 10 a minute?";
+    ok("draft", "ENG-7", "ask product", "--stdin", "--channel", "#product");
+    const permalink = "https://acme.slack.com/archives/C1/p1763011200";
+    stdin = "ok to limit exports to ten a minute?";
+    ok("match", "ENG-7", "ask product", "--ref", permalink, "--stdin");
+    assert.equal(ok("drafts", "ENG-7"), "ask product | draft | #product | match proposed");
+    ok("match", "ENG-7", "ask product", "no");
+    assert.equal(ok("drafts", "ENG-7"), "ask product | draft | #product");
+    ok("match", "ENG-7", "ask product", "--ref", permalink, "--stdin");
+    ok("match", "ENG-7", "ask product", "yes");
+    assert.equal(ok("drafts", "ENG-7"), "ask product | posted | #product | 2026-11-13 14:20");
+    assert.match(ok("draft-show", "ENG-7", "ask product"), /--- sent .*\nok to limit exports to ten a minute\?$/);
+    assert.match(hub("match", "ENG-7", "ask product", "yes").err, /no proposed match/);
+    assert.match(
+      hub("match", "ENG-7", "ask product", "--ref", permalink, "--stdin").err,
+      /already has its sent wording/,
+    );
+  });
+});
+
 describe("reads", () => {
   test("board prints the exact line for the rich ticket", () => {
     imported();
