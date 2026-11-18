@@ -2,16 +2,8 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join, relative, sep } from "node:path";
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import type { Config } from "./config.ts";
-import { all, LIMITED_FIELDS, one, type Ticket, transaction } from "./db.ts";
-import {
-  type ParsedDraft,
-  type ParsedNote,
-  parseChanges,
-  parseTeamFile,
-  parseTicket,
-  splitResume,
-  type Tracker,
-} from "./parse.ts";
+import { LIMITED_FIELDS, one, type Ticket, transaction } from "./db.ts";
+import { type ParsedDraft, type ParsedNote, parseTicket, splitResume, type Tracker } from "./parse.ts";
 import { HubError, linkKind, linkSource, nowIso, today } from "./util.ts";
 
 const TICKET_COLUMNS = [
@@ -36,19 +28,8 @@ const TICKET_COLUMNS = [
   "tracker_json",
 ] as const;
 
-const TRACKER_COLUMNS = [
-  "tracker_state",
-  "tracker_priority",
-  "tracker_assignee",
-  "tracker_url",
-  "tracker_updated",
-  "tracker_json",
-] as const;
-
 type Column = (typeof TICKET_COLUMNS)[number];
-type TrackerColumn = (typeof TRACKER_COLUMNS)[number];
 type TicketRec = { id: string } & Record<Column, string | null>;
-type TrackerUpdate = { id: string } & Record<TrackerColumn, string | null>;
 type EventRec = { ticket_id: string; ts: string; kind: string; text: string; source: string };
 type NoteRec = { ticket_id: string } & ParsedNote;
 type DraftRec = { ticket_id: string } & ParsedDraft;
@@ -60,14 +41,11 @@ export type ImportReport = {
   unclassified: { id: string; heading: string }[];
   duplicates: { id: string; paths: string[] }[];
   noState: string[];
-  mineMissing: string[];
-  unknownChanges: number;
 };
 
 export type ImportPlan = {
   root: string;
   tickets: TicketRec[];
-  trackerUpdates: TrackerUpdate[];
   events: EventRec[];
   notes: NoteRec[];
   drafts: DraftRec[];
@@ -120,15 +98,6 @@ function emptyTicket(id: string): TicketRec {
 function trackerJson(tracker: Tracker): string {
   const { attachments, raw, ...fields } = tracker;
   return JSON.stringify({ raw, ...fields, attachments });
-}
-
-function mergeTracker(base: Record<TrackerColumn, string | null>, update: TrackerUpdate): TrackerUpdate {
-  const merged = { ...update };
-  for (const column of TRACKER_COLUMNS) merged[column] = update[column] ?? base[column];
-  const baseJson = base.tracker_json ? (JSON.parse(base.tracker_json) as Record<string, unknown>) : {};
-  const teamJson = JSON.parse(update.tracker_json ?? "{}") as Record<string, unknown>;
-  merged.tracker_json = JSON.stringify({ ...baseJson, team: teamJson.team });
-  return merged;
 }
 
 function stateNoteTitle(db: DatabaseSync, id: string, date: string): string {
@@ -207,57 +176,6 @@ function collectTickets(db: DatabaseSync, root: string, config: Config, now: Dat
   }
 }
 
-function collectTeam(root: string, config: Config, known: Set<string>, plan: ImportPlan): void {
-  if (!config.teamDir) return;
-  const teamRoot = join(root, config.teamDir);
-  if (!existsSync(teamRoot)) return;
-  const match = idMatcher(config);
-  const stateDirs = readdirSync(teamRoot, { withFileTypes: true })
-    .filter((d) => d.isDirectory() && d.name !== "changes")
-    .map((d) => d.name)
-    .sort();
-
-  for (const stateDir of stateDirs) {
-    for (const file of markdownFiles(join(teamRoot, stateDir))) {
-      const stem = basename(file, ".md");
-      const id = match(stem) ?? stem;
-      const raw = readFileSync(file, "utf8");
-      const team = parseTeamFile(raw, stateDir, stem);
-      const update: TrackerUpdate = {
-        id,
-        tracker_state: team.tracker.state ?? null,
-        tracker_priority: team.tracker.priority ?? null,
-        tracker_assignee: team.tracker.assignee ?? null,
-        tracker_url: team.tracker.url ?? null,
-        tracker_updated: team.tracker.updated ?? null,
-        tracker_json: JSON.stringify({ team: JSON.parse(trackerJson(team.tracker)) }),
-      };
-      if (known.has(id)) {
-        plan.trackerUpdates.push(update);
-        continue;
-      }
-      const mine = config.teamOwnerMatch !== "" && (team.tracker.assignee ?? "").includes(config.teamOwnerMatch);
-      if (!mine) continue;
-      const rec = { ...emptyTicket(id), ...update, title: team.title, dir: "unfiled" };
-      plan.tickets.push(rec);
-      plan.report.mineMissing.push(id);
-      known.add(id);
-    }
-  }
-
-  for (const file of markdownFiles(join(teamRoot, "changes"))) {
-    const date = basename(file, ".md");
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
-    for (const change of parseChanges(readFileSync(file, "utf8"), date, config.teamOwnerMatch)) {
-      if (!known.has(change.id)) {
-        plan.report.unknownChanges++;
-        continue;
-      }
-      plan.events.push({ ticket_id: change.id, ts: change.ts, kind: "tracker", text: change.text, source: "sync" });
-    }
-  }
-}
-
 function collectDays(root: string, config: Config, plan: ImportPlan): void {
   if (!config.planDir) return;
   const dir = join(root, config.planDir);
@@ -274,13 +192,12 @@ function emptyPlan(root: string): ImportPlan {
   return {
     root,
     tickets: [],
-    trackerUpdates: [],
     events: [],
     notes: [],
     drafts: [],
     links: [],
     days: [],
-    report: { oversize: [], unclassified: [], duplicates: [], noState: [], mineMissing: [], unknownChanges: 0 },
+    report: { oversize: [], unclassified: [], duplicates: [], noState: [] },
   };
 }
 
@@ -292,21 +209,7 @@ export function collectImport(db: DatabaseSync, root: string, config: Config, no
   requireRoot(root);
   const plan = emptyPlan(root);
   collectTickets(db, root, config, now, plan);
-  collectTeam(root, config, new Set(plan.tickets.map((t) => t.id)), plan);
-  for (const update of plan.trackerUpdates) {
-    const rec = plan.tickets.find((t) => t.id === update.id);
-    if (rec) Object.assign(rec, mergeTracker(rec, update));
-  }
-  plan.trackerUpdates = [];
   collectDays(root, config, plan);
-  return plan;
-}
-
-export function collectTeamSync(db: DatabaseSync, root: string, config: Config): ImportPlan {
-  requireRoot(root);
-  const plan = emptyPlan(root);
-  const known = new Set(all<{ id: string }>(db, "SELECT id FROM ticket").map((t) => t.id));
-  collectTeam(root, config, known, plan);
   return plan;
 }
 
@@ -314,12 +217,8 @@ function differs(existing: Record<string, unknown>, rec: Record<string, unknown>
   return columns.some((c) => (existing[c] ?? null) !== (rec[c] ?? null));
 }
 
-function upsertTicket(
-  db: DatabaseSync,
-  rec: Record<string, string | null>,
-  columns: readonly string[],
-  at: string,
-): number {
+function upsertTicket(db: DatabaseSync, rec: TicketRec, at: string): number {
+  const columns = TICKET_COLUMNS;
   const existing = one<Ticket>(db, "SELECT * FROM ticket WHERE id = ?", rec.id ?? "");
   if (!existing) {
     const cols = ["id", ...columns, "created_at", "updated_at"];
@@ -341,11 +240,7 @@ export function applyImport(db: DatabaseSync, plan: ImportPlan, now: Date): numb
   const at = nowIso(now);
   return transaction(db, () => {
     let changes = 0;
-    for (const rec of plan.tickets) changes += upsertTicket(db, rec, TICKET_COLUMNS, at);
-    for (const update of plan.trackerUpdates) {
-      const existing = one<Ticket>(db, "SELECT * FROM ticket WHERE id = ?", update.id);
-      changes += upsertTicket(db, existing ? mergeTracker(existing, update) : update, TRACKER_COLUMNS, at);
-    }
+    for (const rec of plan.tickets) changes += upsertTicket(db, rec, at);
 
     for (const e of plan.events) {
       const seen = one(
@@ -427,7 +322,6 @@ export function applyImport(db: DatabaseSync, plan: ImportPlan, now: Date): numb
 
 export type ImportCounts = {
   tickets: number;
-  unfiled: number;
   events: number;
   notes: number;
   drafts: number;
@@ -438,7 +332,6 @@ export type ImportCounts = {
 export function countPlan(plan: ImportPlan): ImportCounts {
   return {
     tickets: plan.tickets.length,
-    unfiled: plan.tickets.filter((t) => t.dir === "unfiled").length,
     events: plan.events.length,
     notes: plan.notes.length,
     drafts: plan.drafts.length,
@@ -452,7 +345,7 @@ export function formatSummary(plan: ImportPlan, changes: number | null): string 
   const r = plan.report;
   const lines = [
     `import from ${plan.root} (${changes === null ? "dry run; --apply writes" : "applied"})`,
-    `tickets ${c.tickets} (unfiled ${c.unfiled}), tracker updates ${plan.trackerUpdates.length}, events ${c.events}, notes ${c.notes}, drafts ${c.drafts}, links ${c.links}, days ${c.days}`,
+    `tickets ${c.tickets}, events ${c.events}, notes ${c.notes}, drafts ${c.drafts}, links ${c.links}, days ${c.days}`,
   ];
   if (r.oversize.length > 0) {
     lines.push(
@@ -466,8 +359,6 @@ export function formatSummary(plan: ImportPlan, changes: number | null): string 
     lines.push(`duplicate ids: ${r.duplicates.map((d) => `${d.id} (${d.paths.join(", ")})`).join("; ")}`);
   }
   if (r.noState.length > 0) lines.push(`no State block: ${r.noState.join(", ")}`);
-  if (r.mineMissing.length > 0) lines.push(`mine in tracker, no local file (unfiled): ${r.mineMissing.join(", ")}`);
-  if (r.unknownChanges > 0) lines.push(`change lines for unknown tickets: ${r.unknownChanges}`);
   if (changes !== null) lines.push(`changes: ${changes}`);
   return lines.join("\n");
 }

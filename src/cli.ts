@@ -6,7 +6,7 @@ import type { Ctx, Result } from "./commands.ts";
 import * as commands from "./commands.ts";
 import { dbPath, loadConfig } from "./config.ts";
 import { openDb } from "./db.ts";
-import { applyImport, collectImport, collectTeamSync, countPlan, formatSummary } from "./importer.ts";
+import { applyImport, collectImport, countPlan, formatSummary } from "./importer.ts";
 import { HubError } from "./util.ts";
 
 export type Io = {
@@ -28,7 +28,7 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         link <id> <url> [--kind <k>] [--title <t>] [--by agent]
         day set <date> (--file <path> | --stdin) | ticket-new <id> <title> [--dir todo]
         move <id> <dir> | config <key> <json>
-import: import --root <dir> [--apply] | sync-team --root <dir>`;
+import: import --root <dir> [--apply]`;
 
 const OPTIONS = {
   json: { type: "boolean" },
@@ -165,11 +165,6 @@ const COMMANDS: Record<string, Handler> = {
   import: (ctx, _a, v) => {
     const plan = collectImport(ctx.db, root(v), ctx.config, ctx.now);
     const changes = v.apply ? applyImport(ctx.db, plan, ctx.now) : null;
-    return { text: formatSummary(plan, changes), json: { counts: countPlan(plan), report: plan.report, changes } };
-  },
-  "sync-team": (ctx, _a, v) => {
-    const plan = collectTeamSync(ctx.db, root(v), ctx.config);
-    const changes = applyImport(ctx.db, plan, ctx.now);
     return { text: formatSummary(plan, changes), json: { counts: countPlan(plan), report: plan.report, changes } };
   },
 };

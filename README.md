@@ -86,13 +86,11 @@ Config lives in the database. `hub config` lists every key with its value:
 | `openDirs` | `["inprogress","todo","triage","backlog","unfiled"]` | dirs `hub board` shows, in order |
 | `limits` | see Limits | write-time field limits |
 | `trackerHosts` | `["linear.app"]` | URLs whose links count as the tracker |
-| `teamOwnerMatch` | `""` | substring of a tracker assignee that means "mine" |
-| `stateFields`, `sections`, `trackerSyncMarkers`, `teamDir`, `planDir`, `resumeHeading` | | markdown conventions the importer reads |
+| `stateFields`, `sections`, `trackerSyncMarkers`, `planDir`, `resumeHeading` | | markdown conventions the importer reads |
 
 ## Import from a markdown ticket folder
 
 ```sh
-hub config teamOwnerMatch '"Sam"'
 hub import --root ~/work/agent           # dry run: counts and findings
 hub import --root ~/work/agent --apply   # writes; a second --apply reports changes: 0
 ```
@@ -100,10 +98,9 @@ hub import --root ~/work/agent --apply   # writes; a second --apply reports chan
 The importer reads, and never writes:
 
 - `tasks/<dir>/**/<id>*.md`: a `Status:` / `Repo:` / `Next:` … state block, `## Log` entries (`- 2026-11-12 14:20: text`), `## Messages` drafts (`### label`), and a tracker block between the sync markers.
-- `team/<state>/<id>.md` and `team/changes/<date>.md`: tracker state and change lines.
 - `plan/plan-YYYY-MM-DD.md`: day plans.
 
-Every section lands in the database. Other headings become notes. A state field over its limit is cut and its full text kept in a `State notes` note. After the import, move the markdown folder to a backup: from then on the database is the only source of truth. `hub sync-team --root <dir>` re-reads only the team folder.
+Every section lands in the database. Other headings become notes. A state field over its limit is cut and its full text kept in a `State notes` note. After the import, move the markdown folder to a backup: from then on the database is the only source of truth.
 
 ## For agents
 

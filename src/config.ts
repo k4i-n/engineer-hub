@@ -14,8 +14,6 @@ export type Config = {
   sections: Record<string, string>;
   trackerSyncMarkers: string[];
   trackerHosts: string[];
-  teamDir: string;
-  teamOwnerMatch: string;
   planDir: string;
   resumeHeading: string;
 };
@@ -31,8 +29,6 @@ export const DEFAULTS: Config = {
   sections: { body: "Ticket body as filed", detail: "Detail", log: "Log", messages: "Messages" },
   trackerSyncMarkers: ["<!-- linear-sync:start", "<!-- linear-sync:end"],
   trackerHosts: ["linear.app"],
-  teamDir: "team",
-  teamOwnerMatch: "",
   planDir: "plan",
   resumeHeading: "RESUME",
 };

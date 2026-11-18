@@ -58,7 +58,6 @@ function sql<T>(query: string, ...params: string[]): T[] {
 }
 
 function configure(): void {
-  ok("config", "teamOwnerMatch", '"Sam"');
   ok("config", "trackerHosts", '["tracker.example.com"]');
 }
 
@@ -82,7 +81,6 @@ function checksums(path: string): string {
 
 type Counts = {
   tickets: number;
-  unfiled: number;
   events: number;
   notes: number;
   drafts: number;
@@ -95,7 +93,7 @@ type ImportJson = {
   changes: number | null;
 };
 
-const EXPECTED: Counts = { tickets: 3, unfiled: 1, events: 5, notes: 5, drafts: 2, links: 2, days: 1 };
+const EXPECTED: Counts = { tickets: 2, events: 3, notes: 5, drafts: 2, links: 2, days: 1 };
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "hub-test-"));
@@ -186,7 +184,6 @@ describe("import", () => {
     assert.equal(t?.tracker_url, "https://tracker.example.com/acme/issue/ENG-42");
     const trackerJson = JSON.parse(t?.tracker_json ?? "{}") as Record<string, unknown>;
     assert.match(String(trackerJson.raw), /\*\*Attachments:\*\*/);
-    assert.match(String((trackerJson.team as Record<string, unknown>).raw), /In Review/);
     const drafts = sql<{ label: string; status: string; posted_at: string | null }>(
       "SELECT label, status, posted_at FROM draft WHERE ticket_id = 'ENG-42' ORDER BY id",
     );
@@ -202,33 +199,6 @@ describe("import", () => {
       { ts: "2026-11-12 15:00", text: "drafted the schema" },
       { ts: "2026-11-13", text: "decided on a shared table" },
     ]);
-  });
-
-  test("team folder: a mine ticket with no local file becomes unfiled, someone else's is ignored", () => {
-    imported();
-    const tickets = sql<{ id: string; dir: string; tracker_state: string }>(
-      "SELECT id, dir, tracker_state FROM ticket ORDER BY id",
-    );
-    assert.deepEqual(tickets, [
-      { id: "ENG-42", dir: "inprogress", tracker_state: "In Review" },
-      { id: "ENG-7", dir: "todo", tracker_state: null },
-      { id: "ENG-99", dir: "unfiled", tracker_state: "Todo" },
-    ]);
-    const changes = sql<{ ticket_id: string; ts: string; source: string }>(
-      "SELECT ticket_id, ts, source FROM event WHERE kind = 'tracker' ORDER BY ticket_id",
-    );
-    assert.deepEqual(changes, [
-      { ticket_id: "ENG-42", ts: "2026-11-12 10:32", source: "sync" },
-      { ticket_id: "ENG-99", ts: "2026-11-12", source: "sync" },
-    ]);
-  });
-
-  test("sync-team re-reads only the tracker side and keeps local state", () => {
-    imported();
-    ok("set", "ENG-42", "next", "ship it");
-    const out = ok("sync-team", "--root", ROOT);
-    assert.match(out, /changes: 0/);
-    assert.equal(sql<{ next: string }>("SELECT next FROM ticket WHERE id = 'ENG-42'")[0]?.next, "ship it");
   });
 
   test("a missing root is an error", () => {
@@ -314,7 +284,7 @@ describe("reads", () => {
     const lines = ok("board").split("\n");
     assert.deepEqual(
       lines.filter((l) => l.startsWith("==")),
-      ["== inprogress", "== todo", "== unfiled"],
+      ["== inprogress", "== todo"],
     );
     assert.equal(lines[1], expected);
     assert.equal(lines[3], "  [-] ENG-7 | - | next: read the export handler");
@@ -323,6 +293,8 @@ describe("reads", () => {
 
   test("board hides unfiled tickets the tracker closed", () => {
     imported();
+    ok("ticket-new", "ENG-99", "Rotate the staging signing key", "--dir", "unfiled");
+    assert.match(ok("board"), /ENG-99/);
     const db = new DatabaseSync(dbFile);
     db.prepare("UPDATE ticket SET tracker_state = 'Done' WHERE id = 'ENG-99'").run();
     db.close();
@@ -388,10 +360,11 @@ describe("reads", () => {
 
   test("lint reports missing and oversize fields and exits 1", () => {
     imported();
+    ok("ticket-new", "NEW-audit", "Audit export usage");
     const result = hub("lint");
     assert.equal(result.code, 1);
     assert.match(result.out, /ENG-42: status is 258 chars \(max 240\)/);
-    assert.match(result.out, /ENG-99: missing status/);
+    assert.match(result.out, /NEW-audit: missing status/);
   });
 });
 

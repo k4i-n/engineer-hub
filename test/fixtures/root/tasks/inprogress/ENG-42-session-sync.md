@@ -46,7 +46,7 @@ Can we show a banner when a session moves?
 - token refresh job
 
 <!-- linear-sync:start id=ENG-42 -->
-**State:** In Progress
+**State:** In Review
 **Priority:** High
 **Assignee:** Sam Owner
 **Created:** 2026-11-01 | **Updated:** 2026-11-12

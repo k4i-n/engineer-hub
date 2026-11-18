@@ -277,54 +277,6 @@ export function parseTicket(text: string, fallbackTitle: string, config: Config)
   return parsed;
 }
 
-export type TeamFile = { title: string; tracker: Tracker };
-
-const TEAM_STATES: Record<string, string> = {
-  "in-progress": "In Progress",
-  todo: "Todo",
-  triage: "Triage",
-  backlog: "Backlog",
-  done: "Done",
-  canceled: "Canceled",
-  duplicate: "Duplicate",
-};
-
-export function parseTeamFile(text: string, stateDir: string, fallbackTitle: string): TeamFile {
-  const normalized = text.replace(/\r\n/g, "\n");
-  const first = normalized.split("\n")[0] ?? "";
-  const titleMatch = first.match(TITLE);
-  const title = titleMatch?.[2]?.trim() ?? (first.replace(/^#\s*/, "").trim() || fallbackTitle);
-  const tracker = parseTracker(normalized);
-  if (!tracker.state) {
-    const mapped = TEAM_STATES[stateDir];
-    if (mapped) tracker.state = mapped;
-  }
-  return { title, tracker };
-}
-
-export type ChangeLine = { id: string; ts: string; text: string };
-
-export function parseChanges(text: string, date: string, owner: string): ChangeLine[] {
-  if (!owner) return [];
-  const changes: ChangeLine[] = [];
-  let inOwner = false;
-  for (const line of text.replace(/\r\n/g, "\n").split("\n")) {
-    const heading = line.match(/^#{2,3} (.+)$/);
-    if (heading) {
-      inOwner = line.startsWith("### ") && (heading[1] ?? "").includes(owner);
-      continue;
-    }
-    if (!inOwner) continue;
-    const entry = line.match(/^- (\S+)\s*(.*)$/);
-    if (!entry || entry[1] === "none") continue;
-    const rest = (entry[2] ?? "").trim();
-    const meta = rest.split(/:\s/, 1)[0] ?? "";
-    const time = meta.match(/\b(\d{2}:\d{2})\b/)?.[1];
-    changes.push({ id: (entry[1] ?? "").replace(/:$/, ""), ts: time ? `${date} ${time}` : date, text: rest });
-  }
-  return changes;
-}
-
 export function splitResume(text: string, heading: string): string | null {
   const lines = text.replace(/\r\n/g, "\n").split("\n");
   const start = lines.findIndex((l) => l.trim() === `## ${heading}` || l.startsWith(`## ${heading} `));
