@@ -312,7 +312,7 @@ describe("items", () => {
     assert.deepEqual(sql<{ changed_at: string }>("SELECT changed_at FROM item WHERE ref = ?", url), before);
     ok("link", "ENG-42", url);
     assert.equal(ok("items", "--ticket", "ENG-7"), "no items");
-    assert.match(ok("ticket", "ENG-42"), /^items: 3 open, 0 need you$/m);
+    assert.match(ok("ticket", "ENG-42"), /^items: 3 open, 0 need you \| waits: 0 open$/m);
     assert.match(hub("link", "ENG-7", url, "--kind", "page").err, /--kind must be one of/);
   });
   test("item put stores a sync delta once, matches tickets by id and logs new and changed items", () => {
@@ -364,6 +364,31 @@ describe("items", () => {
     assert.match(refused('{"source":"slack","kind":"thread","url":"u","needs_me":"yes"}'), /needs_me must be/);
     assert.equal(ok("items", "--source", "slack"), "no items");
     assert.match(hub("item", "close", "99").err, /no item 99/);
+  });
+});
+
+describe("waits", () => {
+  test("a wait shows ping now once its time passes and closes by number or url", () => {
+    imported();
+    const thread = "https://acme.slack.com/archives/C1/p1763011200";
+    assert.equal(
+      ok("wait", "ENG-7", "product", thread, "--ping-after", "1d"),
+      "wait #1 on ENG-7: product, ping after 2026-11-14 14:20",
+    );
+    assert.equal(
+      ok("wait", "ENG-7", "product", thread, "--ping-after", "2h"),
+      "wait #1 on ENG-7: product, ping after 2026-11-13 16:20",
+    );
+    ok("wait", "ENG-42", "design", "https://acme.slack.com/archives/C2/p1");
+    assert.equal(ok("waits", "--due"), "no waits due");
+    assert.match(ok("ticket", "ENG-7"), /\| waits: 1 open$/m);
+    now = new Date("2026-11-13T08:00:00Z");
+    assert.equal(ok("waits", "--due"), `#1 ENG-7 | product | asked 2026-11-13 14:20 | ping now | ${thread}`);
+    assert.equal(ok("wait", "close", thread), "closed #1");
+    assert.equal(ok("wait", "close", "2"), "closed #2");
+    assert.equal(ok("waits"), "no open waits");
+    assert.match(hub("wait", "close", "2").err, /no open wait 2/);
+    assert.match(hub("wait", "ENG-7", "a", "u", "--ping-after", "tomorrow").err, /--ping-after takes a duration/);
   });
 });
 

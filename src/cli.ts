@@ -9,6 +9,7 @@ import { openDb } from "./db.ts";
 import { applyImport, collectImport, countPlan, formatSummary } from "./importer.ts";
 import * as items from "./items.ts";
 import { HubError } from "./util.ts";
+import * as waits from "./waits.ts";
 
 export type Io = {
   stdout: (text: string) => void;
@@ -22,13 +23,14 @@ const USAGE = `usage: hub <command> [args] [--json] [--db <path>]
 read:   ticket <id> | board [regex] | next | gates | changed --since <YYYY-MM-DD|yesterday|today>
         search <query> [-n 10] | events <id> [-n 20] [--full] | notes <id> | note-show <id> <title>
         drafts [id] | draft-show <id> <label> | day [date] | lint | config [key]
-        items [--needs-me] [--source <s>] [--ticket <id>] [--all]
+        items [--needs-me] [--source <s>] [--ticket <id>] [--all] | waits [--due]
 write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent] [--ref <url>]
         note <id> <title> (--file <path> | --stdin) [--kind detail]
         draft <id> <label> (--file <path> | --stdin) [--channel <c>]
         posted <id> <label> [--at <when>] [--channel <c>] [--answer <text>] [--ref <url>] [--file | --stdin]
         link <id> <url> [--kind <k>] [--title <t>]
         item put --stdin | item close <item>... | item attach <item> <id>
+        wait <id> <who> <url> [--ping-after 1d] | wait close <wait | url>
         day set <date> (--file <path> | --stdin) | ticket-new <id> <title> [--dir todo]
         move <id> <dir> | config <key> <json>
 import: import --root <dir> [--apply]`;
@@ -51,6 +53,8 @@ const OPTIONS = {
   "needs-me": { type: "boolean" },
   all: { type: "boolean" },
   ticket: { type: "string" },
+  "ping-after": { type: "string" },
+  due: { type: "boolean" },
   dir: { type: "string" },
   since: { type: "string" },
   n: { type: "string", short: "n" },
@@ -74,6 +78,8 @@ type Values = {
   "needs-me"?: boolean;
   all?: boolean;
   ticket?: string;
+  "ping-after"?: string;
+  due?: boolean;
   dir?: string;
   since?: string;
   n?: string;
@@ -176,6 +182,12 @@ const COMMANDS: Record<string, Handler> = {
     if (sub === "attach") return items.attach(ctx, arg(a, 1, usage), arg(a, 2, usage));
     throw new HubError(`usage: hub ${usage}`);
   },
+  wait: (ctx, a, v) => {
+    if (a[0] === "close") return waits.closeWait(ctx, arg(a, 1, "wait close <wait | url>"));
+    const usage = "wait <id> <who> <url> [--ping-after 1d]";
+    return waits.wait(ctx, arg(a, 0, usage), arg(a, 1, usage), arg(a, 2, usage), v["ping-after"] ?? null);
+  },
+  waits: (ctx, _a, v) => waits.waits(ctx, v.due === true),
   "ticket-new": (ctx, a, v) => {
     const usage = "ticket-new <id> <title>";
     return commands.ticketNew(ctx, arg(a, 0, usage), a.slice(1).join(" ") || arg(a, 1, usage), v.dir ?? "todo");

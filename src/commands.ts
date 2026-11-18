@@ -82,6 +82,8 @@ export function ticket(ctx: Ctx, id: string): Result {
     "SELECT count(*) AS open, coalesce(sum(needs_me), 0) AS needsMe FROM item WHERE ticket_id = ? AND closed_at IS NULL",
     id,
   ) ?? { open: 0, needsMe: 0 };
+  const openWaits =
+    one<{ n: number }>(ctx.db, "SELECT count(*) AS n FROM wait WHERE ticket_id = ? AND closed_at IS NULL", id)?.n ?? 0;
   const notes = all<{ title: string }>(ctx.db, "SELECT title FROM note WHERE ticket_id = ? ORDER BY position, id", id);
   const lines = [
     `${t.id} | ${v(t.dir)} | ${v(t.title)}`,
@@ -97,12 +99,12 @@ export function ticket(ctx: Ctx, id: string): Result {
     `events: ${eventCount}, last:`,
     ...events.map((e) => `  ${e.ts} ${cut(e.text, 100)}`),
     `drafts: ${drafts.length} (${cut(drafts.map((d) => d.label).join(", "), 150)})`,
-    `items: ${itemCounts.open} open, ${itemCounts.needsMe} need you`,
+    `items: ${itemCounts.open} open, ${itemCounts.needsMe} need you | waits: ${openWaits} open`,
     `notes: ${cut(notes.map((n) => n.title).join("; "), 200)}`,
   ];
   return {
     text: lines.join("\n"),
-    json: { ticket: t, events, eventCount, drafts, items: itemCounts, notes: notes.map((n) => n.title) },
+    json: { ticket: t, events, eventCount, drafts, items: itemCounts, openWaits, notes: notes.map((n) => n.title) },
   };
 }
 
