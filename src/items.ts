@@ -134,7 +134,7 @@ export function upsertItem(ctx: Ctx, input: ItemInput, withEvents: boolean): Ups
   const merged = { ...existing, ...next };
   if (next.ticket_id !== existing.ticket_id) event(ctx, next.ticket_id, `Attached ${describe(merged)}`, ref);
   if (stateChanged) {
-    const change = existing.state === null ? `is ${next.state}` : `${existing.state} → ${next.state ?? "-"}`;
+    const change = existing.state === null ? `${next.state}` : `${existing.state} → ${next.state ?? "-"}`;
     event(ctx, next.ticket_id, `${describe(merged)}: ${change}`, ref);
   }
   return "changed";
