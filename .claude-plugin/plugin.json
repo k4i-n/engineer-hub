@@ -1,0 +1,10 @@
+{
+  "name": "engineer-hub",
+  "version": "0.1.0",
+  "description": "Skills that sync an engineer's GitHub, Slack, tracker and mail into the local hub record through the agent's own connectors, and plan the day from it",
+  "author": {
+    "name": "nhkhai-vn"
+  },
+  "license": "Apache-2.0",
+  "repository": "https://github.com/nhkhai-vn/engineer-hub"
+}
