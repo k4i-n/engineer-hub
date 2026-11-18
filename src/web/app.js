@@ -206,7 +206,6 @@ async function saveConfig(key, value, el) {
     if (key === "notifyNew" && value === "true" && "Notification" in window && Notification.permission === "default") {
       await Notification.requestPermission();
     }
-    toast("Saved");
   } catch (error) {
     toast(error.message, { bad: true });
     if (el) el.classList.add("invalid");
