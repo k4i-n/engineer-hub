@@ -47,6 +47,7 @@ type Need = {
 };
 
 const MAX_ACTIVITY = 40;
+const ACTIVITY_SHOWN = 5;
 const MAX_TIMELINE = 200;
 const STALE_MS = 6 * 3_600_000;
 const DIR_LABEL: Record<string, string> = {
@@ -190,7 +191,7 @@ function rail(n: Need, pinned: boolean): string {
     menuItem(
       "pin",
       pinned ? "Unpin" : "Pin to top",
-      { act: "pin", key: n.key, on: pinned ? "0" : "1", hotkey: "p" },
+      { act: "pin", row: n.key, on: pinned ? "0" : "1", hotkey: "p" },
       "p",
     ),
     ...(later === null
@@ -248,6 +249,12 @@ function itemVerb(i: ItemRow): { verb: string; tone: Tone; rank: number } {
   return { verb: KIND_NAME[i.kind] ?? i.kind, tone: "grey", rank: 9 };
 }
 
+function withoutTicket(title: string, ticket: string | null): string {
+  if (ticket === null || !title.startsWith(ticket)) return title;
+  const rest = title.slice(ticket.length).replace(/^[\s:–-]+/, "");
+  return rest === "" ? title : rest;
+}
+
 function sourceLine(parts: (string | null)[]): string {
   return parts
     .filter((p): p is string => p !== null && p !== "")
@@ -289,8 +296,8 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
       since: i.first_seen,
       verb: v.verb,
       tone: v.tone,
-      title: link(url, i.title ?? i.ref, "need-title"),
-      sub: sourceLine([githubRef(url) ?? i.source, i.author, i.state && i.kind !== "pr" ? i.state : null]),
+      title: link(url, withoutTicket(i.title ?? i.ref, i.ticket_id), "need-title"),
+      sub: sourceLine([githubRef(url) ?? i.source, i.author, i.state]),
       ask: "",
       ticket: i.ticket_id,
       href: url,
@@ -419,14 +426,14 @@ function waitNeed(ctx: Ctx, w: WaitRow): Need {
   };
 }
 
-function needRow(ctx: Ctx, n: Need, pinned: boolean): string {
+function needRow(ctx: Ctx, n: Need, pinned: boolean, showVerb = true): string {
   const href = n.href === null ? "" : ` data-href="${esc(n.href)}"`;
   const dim = n.dim === null ? "" : `<span class="dim-label">${esc(n.dim)}</span>${n.sub === "" ? "" : " · "}`;
   const finished = n.dim !== null && ["done", "answered", "yes", "no"].includes(n.dim);
   const pin = pinned ? `<span class="pinmark" title="Pinned">${svg("pin")}</span>` : "";
   const cls = `need tone-${n.tone}${n.dim === null ? "" : " is-dim"}${finished ? " is-done" : ""}${pinned ? " pinned" : ""}`;
   return `<li class="${cls}" data-key="${esc(n.key)}"${href}>
-<span class="verb">${esc(n.verb)}</span>
+${showVerb ? `<span class="verb">${esc(n.verb)}</span>` : ""}
 <span class="need-main"><span class="need-line">${pin}${n.title}</span><span class="need-sub">${dim}${n.sub}</span>${n.ask}</span>
 <span class="need-ticket">${ticketLink(n.ticket)}</span>
 <span class="need-age">${esc(ago(ctx, n.since))}</span>
@@ -434,23 +441,37 @@ ${rail(n, pinned)}
 </li>`;
 }
 
+type Group = { key: string; label: string; tone: Tone; verbs: string[] };
+
+const GROUPS: Group[] = [
+  { key: "fix", label: "Fix now", tone: "red", verbs: ["Alert"] },
+  { key: "review", label: "Review", tone: "violet", verbs: ["Review"] },
+  { key: "reply", label: "Reply", tone: "teal", verbs: ["Reply", "Sent?"] },
+  { key: "prs", label: "My PRs", tone: "orange", verbs: ["Fix PR", "Merge?", "Merged", "Closed", "PR"] },
+  { key: "triage", label: "Triage", tone: "blue", verbs: ["Triage"] },
+  { key: "waiting", label: "Waiting on", tone: "orange", verbs: ["Ping"] },
+  { key: "decide", label: "Decide", tone: "amber", verbs: ["Approve?", "Decide"] },
+];
+const PINNED_GROUP: Group = { key: "pinned", label: "Pinned", tone: "violet", verbs: [] };
+const OTHER_GROUP: Group = { key: "other", label: "Other", tone: "grey", verbs: [] };
+
+function needsGroup(ctx: Ctx, g: Group, rows: Need[], pinned: Set<string>): string {
+  const active = rows.filter((n) => n.dim === null).length;
+  const list = rows.map((n) => needRow(ctx, n, pinned.has(n.key), false)).join("");
+  return `<details class="ngroup tone-${g.tone}" data-key="group-${g.key}" data-group="${g.key}" open><summary><span class="g-label">${esc(g.label)}</span><span class="g-count">${active}</span></summary><ul class="rows needs-list">${list}</ul></details>`;
+}
+
 function needsSection(ctx: Ctx, tickets: Ticket[]): string {
   const list = needs(ctx, tickets);
   const active = list.filter((n) => n.dim === null);
-  const counts = new Map<string, { tone: Tone; n: number }>();
-  for (const n of active) {
-    const c = counts.get(n.verb) ?? { tone: n.tone, n: 0 };
-    counts.set(n.verb, { tone: c.tone, n: c.n + 1 });
-  }
-  const summary = [...counts.entries()]
-    .map(([verb, c]) => `<span class="stat tone-${c.tone}"><b>${c.n}</b> ${esc(verb)}</span>`)
-    .join("");
-  const pinned = pins(ctx.db);
-  const body =
-    list.length === 0
-      ? empty()
-      : `<ul class="rows needs-list">${list.map((n) => needRow(ctx, n, pinned.has(n.key))).join("")}</ul>`;
-  return `<section class="needs" data-needs-count="${active.length}"><div class="sec-head"><h2>Needs you</h2><span class="count${active.length > 0 ? " hot" : ""}">${active.length}</span><span class="stats">${summary}</span></div>${body}</section>`;
+  const pinned = new Set(pins(ctx.db).keys());
+  const groupOf = (n: Need) =>
+    pinned.has(n.key) ? PINNED_GROUP : (GROUPS.find((g) => g.verbs.includes(n.verb)) ?? OTHER_GROUP);
+  const groups = [PINNED_GROUP, ...GROUPS, OTHER_GROUP]
+    .map((g) => ({ g, rows: list.filter((n) => groupOf(n) === g) }))
+    .filter((x) => x.rows.length > 0);
+  const body = groups.length === 0 ? empty() : groups.map(({ g, rows }) => needsGroup(ctx, g, rows, pinned)).join("");
+  return `<section class="needs" data-needs-count="${active.length}"><div class="sec-head"><h2>Needs you</h2><span class="count${active.length > 0 ? " hot" : ""}">${active.length}</span></div>${body}</section>`;
 }
 
 function prChip(ctx: Ctx, i: ItemRow): string {
@@ -491,9 +512,7 @@ function ticketRow(ctx: Ctx, t: Ticket, done = false): string {
   const search = [t.id, t.title, t.status, t.next, p.next?.title].join(" ").toLowerCase();
   return `<li class="ticket${done ? " is-closed" : ""}" data-key="t-${esc(t.id)}" data-href="/t/${encodeURIComponent(t.id)}" data-search="${esc(search)}">
 <div class="t-top">${ticketLink(t.id)}<span class="t-title">${esc(t.title)}</span>${priority ? pill(priority, PRIORITY_TONE[priority.toLowerCase()] ?? "grey") : ""}${pill(DIR_LABEL[t.dir ?? ""] ?? t.dir ?? "", DIR_TONE[t.dir ?? ""] ?? "grey")}</div>
-<div class="t-progress${p.total > 0 && p.done === p.total ? " complete" : ""}"><span class="bar"><span style="width:${pct}%"></span></span><span class="frac">${p.total === 0 ? "–" : `${p.done}/${p.total}`}</span></div>
-<div class="t-next">${esc(cut(next || "–", 160))}</div>
-<div class="chips">${chips}</div>
+<div class="t-meta"><span class="t-progress${p.total > 0 && p.done === p.total ? " complete" : ""}"><span class="bar"><span style="width:${pct}%"></span></span><span class="frac">${p.total === 0 ? "–" : `${p.done}/${p.total}`}</span></span><span class="t-next">${esc(cut(next || "–", 160))}</span><span class="chips">${chips}</span></div>
 </li>`;
 }
 
@@ -530,13 +549,13 @@ function todaySection(ctx: Ctx): string {
 function draftsSection(ctx: Ctx): string {
   const rows = all<DraftRow>(
     ctx.db,
-    "SELECT * FROM draft WHERE status = 'draft' OR sent_text IS NULL ORDER BY status != 'draft', ticket_id, label",
+    "SELECT * FROM draft WHERE (status = 'draft' OR sent_text IS NULL) AND match_ref IS NULL ORDER BY status != 'draft', ticket_id, label",
   ).map((d) => {
     const sent = d.status !== "draft";
     const state = d.match_ref !== null ? pill("sent?", "blue") : sent ? pill("wording pending", "grey") : "";
     return `<li class="draft${sent ? " is-dim" : ""}" data-key="d-${esc(d.ticket_id)}-${esc(d.label)}">
 <div class="d-head">${ticketLink(d.ticket_id)}<span class="d-label">${esc(d.label)}</span>${d.channel ? pill(d.channel, "teal") : ""}${state}<span class="d-actions">${button("Copy", { copy: d.body })}${button(sent ? "Sent" : "Sent", { act: "sent", ticket: d.ticket_id, label: d.label }, { cls: sent ? "" : "primary", disabled: sent || d.match_ref !== null })}</span></div>
-<pre class="d-body">${esc(d.body)}</pre>
+<details class="d-fold" data-key="dfold-${esc(d.ticket_id)}-${esc(d.label)}"><summary><pre class="d-body">${esc(d.body)}</pre></summary></details>
 </li>`;
   });
   return section(
@@ -561,16 +580,36 @@ function activitySection(ctx: Ctx): string {
     from,
     MAX_ACTIVITY,
   );
-  const body =
-    events.length === 0
-      ? empty()
-      : `<ul class="rows events" data-keep-scroll data-key="activity">${events.map((e) => eventRow(ctx, e, true)).join("")}</ul>`;
-  return section("Activity", events.length, body, "activity");
+  const rows = events.map((e) => eventRow(ctx, e, true));
+  const first = `<ul class="rows events">${rows.slice(0, ACTIVITY_SHOWN).join("")}</ul>`;
+  const rest =
+    rows.length <= ACTIVITY_SHOWN
+      ? ""
+      : `<details class="more-fold" data-key="activity-more"><summary><span class="when-closed">Show all ${rows.length}</span><span class="when-open">Show less</span></summary><ul class="rows events">${rows.slice(ACTIVITY_SHOWN).join("")}</ul></details>`;
+  return section("Activity", events.length, events.length === 0 ? empty() : first + rest, "activity");
+}
+
+function sourceState(ctx: Ctx, s: SourceRow): "ok" | "stale" | "bad" {
+  if (s.last_error !== null) return "bad";
+  return ctx.now.getTime() - new Date(s.last_sync).getTime() > STALE_MS ? "stale" : "ok";
+}
+
+function sourcesLine(ctx: Ctx, sources: SourceRow[]): string {
+  if (sources.length === 0) return "";
+  const latest =
+    sources
+      .map((s) => s.last_sync)
+      .sort()
+      .at(-1) ?? nowIso(ctx.now);
+  const detail = sources
+    .map((s) => `${s.name} ${when(ctx, s.last_sync)}${s.last_error ? `: ${s.last_error}` : ""}`)
+    .join("\n");
+  const problems = sources.filter((s) => sourceState(ctx, s) !== "ok").map((s) => sourceChip(ctx, s));
+  return `<span class="synced" title="${esc(detail)}">${ago(ctx, latest) === "now" ? "synced just now" : `synced ${esc(ago(ctx, latest))} ago`}</span>${problems.join("")}`;
 }
 
 function sourceChip(ctx: Ctx, s: SourceRow): string {
-  const stale = ctx.now.getTime() - new Date(s.last_sync).getTime() > STALE_MS;
-  const state = s.last_error !== null ? "bad" : stale ? "stale" : "ok";
+  const state = sourceState(ctx, s);
   const title = [`last sync ${when(ctx, s.last_sync)}`, s.cursor ? `cursor ${s.cursor}` : null, s.last_error]
     .filter(Boolean)
     .join("\n");
@@ -589,8 +628,7 @@ function header(ctx: Ctx, sync: SyncState, active: "home" | "settings" | "ticket
   const started = running && sync.at ? ` data-started="${esc(sync.at)}"` : "";
   return `<header class="top${running ? " syncing" : ""}">
 <a class="brand" href="/"><span class="logo"></span>hub</a>
-<span class="date">${esc(today(ctx.now, ctx.config.timezone))}</span>
-<div class="sources">${sources.map((s) => sourceChip(ctx, s)).join("")}</div>
+<div class="sources">${sourcesLine(ctx, sources)}</div>
 <div class="sync"${started}>${result}<span class="live" title="live"></span>${button(running ? "Syncing" : "Sync", { act: "sync" }, { cls: "primary sync-btn", disabled: running })}</div>
 <a class="gear${active === "settings" ? " on" : ""}" href="/settings" title="Settings" aria-label="Settings">⚙</a>
 <div class="strip"></div>
