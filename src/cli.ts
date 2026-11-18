@@ -35,8 +35,8 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         match <id> <label> --ref <url> (--file | --stdin) | match <id> <label> (yes | no)
         posted <id> <label> [--at <when>] [--channel <c>] [--answer <text>] [--ref <url>] [--file | --stdin]
         link <id> <url> [--kind <k>] [--title <t>]
-        item put --stdin | item close <item>... | item snooze <item> [--for 1d] | item reopen <item> | item attach <item> <id>
-        wait <id> <who> <url> [--ping-after 1d] | wait close <wait | url> | wait pinged <wait> [--for 1d] | wait reopen <wait>
+        item put --stdin | item close <item>... | item snooze <item> [--for 1d|tomorrow] | item reopen <item> | item attach <item> <id>
+        wait <id> <who> <url> [--ping-after 1d] | wait close <wait | url> | wait pinged <wait> [--for 1d|tomorrow] | wait reopen <wait>
         source <name> [--cursor <c>] [--error <text>]
         step add <id> <title> | step done <id> <n> [--evidence <url>]
         day set <date> (--file <path> | --stdin) | ticket-new <id> <title> [--dir todo]
@@ -195,7 +195,7 @@ const COMMANDS: Record<string, Handler> = {
   },
   item: (ctx, a, v, io) => {
     const usage =
-      "item put --stdin | item close <item>... | item snooze <item> [--for 1d] | item reopen <item> | item attach <item> <id>";
+      "item put --stdin | item close <item>... | item snooze <item> [--for 1d|tomorrow] | item reopen <item> | item attach <item> <id>";
     const sub = arg(a, 0, usage);
     if (sub === "put") return items.put(ctx, body(v, io));
     if (sub === "close") return items.close(ctx, a.slice(1));
@@ -206,7 +206,7 @@ const COMMANDS: Record<string, Handler> = {
   },
   wait: (ctx, a, v) => {
     if (a[0] === "close") return waits.closeWait(ctx, arg(a, 1, "wait close <wait | url>"));
-    if (a[0] === "pinged") return waits.pinged(ctx, arg(a, 1, "wait pinged <wait> [--for 1d]"), v.for ?? "1d");
+    if (a[0] === "pinged") return waits.pinged(ctx, arg(a, 1, "wait pinged <wait> [--for 1d|tomorrow]"), v.for ?? "1d");
     if (a[0] === "reopen") return waits.reopenWait(ctx, arg(a, 1, "wait reopen <wait>"));
     const usage = "wait <id> <who> <url> [--ping-after 1d]";
     return waits.wait(ctx, arg(a, 0, usage), arg(a, 1, usage), arg(a, 2, usage), v["ping-after"] ?? null);

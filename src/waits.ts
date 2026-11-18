@@ -1,6 +1,6 @@
 import type { Ctx, Result } from "./commands.ts";
 import { all, getTicket, one, transaction, type WaitRow } from "./db.ts";
-import { afterDuration, HubError, nowIso, nowTs } from "./util.ts";
+import { afterDuration, HubError, laterTime, nowIso, nowTs } from "./util.ts";
 
 const MAX_WHO = 120;
 const MAX_URL = 2048;
@@ -64,7 +64,7 @@ function openWait(ctx: Ctx, key: string): WaitRow {
 export function pinged(ctx: Ctx, key: string, again: string): Result {
   const w = openWait(ctx, key);
   if (w.closed_at !== null) throw new HubError(`wait #${w.id} is closed`);
-  const after = afterDuration(ctx.now, again, "--for");
+  const after = laterTime(ctx.now, again, ctx.config.timezone, "--for");
   const at = nowIso(ctx.now);
   transaction(ctx.db, () => {
     ctx.db.prepare("UPDATE wait SET ping_after = ?, pinged_at = ? WHERE id = ?").run(after, at, w.id);

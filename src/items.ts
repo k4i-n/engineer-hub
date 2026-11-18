@@ -2,7 +2,7 @@ import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import type { Ctx, Result } from "./commands.ts";
 import { all, getTicket, type ItemRow, one, transaction } from "./db.ts";
 import { SOURCE_NAME } from "./sources.ts";
-import { afterDuration, cut, HubError, linkKind, linkSource, nowIso, nowTs } from "./util.ts";
+import { cut, HubError, laterTime, linkKind, linkSource, nowIso, nowTs } from "./util.ts";
 
 export const ITEM_KINDS = [
   "pr",
@@ -226,7 +226,7 @@ export function close(ctx: Ctx, keys: string[]): Result {
 
 export function snooze(ctx: Ctx, key: string, duration: string): Result {
   const item = findItem(ctx.db, key);
-  const until = afterDuration(ctx.now, duration, "--for");
+  const until = laterTime(ctx.now, duration, ctx.config.timezone, "--for");
   ctx.db.prepare("UPDATE item SET snoozed_until = ? WHERE id = ?").run(until, item.id);
   return {
     text: `#${item.id} snoozed until ${nowTs(new Date(until), ctx.config.timezone)}`,
