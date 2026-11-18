@@ -45,8 +45,8 @@ export const BLOCKS = [
 ];
 
 export const DEFAULT_LAYOUT: Layout = {
-  left: ["pinned", "fix", "review", "reply", "prs", "triage", "waiting", "decide", "other", "tickets"],
-  right: ["today", "drafts", "activity"],
+  left: ["today", "tickets"],
+  right: ["pinned", "fix", "review", "reply", "prs", "triage", "waiting", "decide", "other", "drafts", "activity"],
 };
 
 export const DEFAULTS: Config = {

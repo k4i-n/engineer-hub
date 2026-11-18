@@ -84,7 +84,10 @@ describe("serve", () => {
     assert.equal(index.status, 200);
     const html = await index.text();
     assert.match(html, /^<!doctype html>/);
-    assert.match(html, /<div class="col" data-col="left"><div class="block" data-block="pinned" hidden><\/div>/);
+    assert.match(
+      html,
+      /<div class="col" data-col="left"><div class="block" data-block="today">[\s\S]*?<div class="block" data-block="tickets">/,
+    );
     assert.match(html, /href="\/t\/ENG-42">ENG-42<\/a><span class="t-title">Sync login sessions across devices/);
     assert.match(html, /waiting on design review/);
     assert.match(index.headers.get("content-security-policy") ?? "", /script-src 'self'/);
