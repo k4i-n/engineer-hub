@@ -9,14 +9,13 @@ import {
   ftsQuery,
   getTicket,
   LIMITED_FIELDS,
-  type LinkRow,
   type NoteRow,
   one,
   SETTABLE_FIELDS,
   type Ticket,
 } from "./db.ts";
 import { splitResume } from "./parse.ts";
-import { cut, HubError, linkKind, linkSource, nowIso, nowTs, sinceDate, startOfDayIso, today } from "./util.ts";
+import { cut, HubError, nowIso, nowTs, sinceDate, startOfDayIso, today } from "./util.ts";
 
 export type Ctx = { db: DatabaseSync; config: Config; now: Date };
 export type Result = { text: string; json: unknown; exitCode?: number };
@@ -24,7 +23,6 @@ export type Result = { text: string; json: unknown; exitCode?: number };
 const EVENT_KINDS = ["log", "reading", "decision", "tracker", "pr", "slack", "sync", "import"];
 const EVENT_SOURCES = ["agent", "human", "sync", "import"];
 const NOTE_KINDS = ["ticket_body", "detail", "state_notes", "other"];
-const LINK_KINDS = ["pr", "issue", "thread", "doc", "run", "other"];
 const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
 const CLOSED_TRACKER_STATES = ["done", "canceled", "cancelled", "duplicate"];
 
@@ -79,7 +77,13 @@ export function ticket(ctx: Ctx, id: string): Result {
     "SELECT * FROM draft WHERE ticket_id = ? AND status = 'draft' ORDER BY label",
     id,
   );
-  const linkCount = one<{ n: number }>(ctx.db, "SELECT count(*) AS n FROM link WHERE ticket_id = ?", id)?.n ?? 0;
+  const itemCounts = one<{ open: number; needsMe: number }>(
+    ctx.db,
+    "SELECT count(*) AS open, coalesce(sum(needs_me), 0) AS needsMe FROM item WHERE ticket_id = ? AND closed_at IS NULL",
+    id,
+  ) ?? { open: 0, needsMe: 0 };
+  const openWaits =
+    one<{ n: number }>(ctx.db, "SELECT count(*) AS n FROM wait WHERE ticket_id = ? AND closed_at IS NULL", id)?.n ?? 0;
   const notes = all<{ title: string }>(ctx.db, "SELECT title FROM note WHERE ticket_id = ? ORDER BY position, id", id);
   const lines = [
     `${t.id} | ${v(t.dir)} | ${v(t.title)}`,
@@ -95,12 +99,12 @@ export function ticket(ctx: Ctx, id: string): Result {
     `events: ${eventCount}, last:`,
     ...events.map((e) => `  ${e.ts} ${cut(e.text, 100)}`),
     `drafts: ${drafts.length} (${cut(drafts.map((d) => d.label).join(", "), 150)})`,
-    `links: ${linkCount}`,
+    `items: ${itemCounts.open} open, ${itemCounts.needsMe} need you | waits: ${openWaits} open`,
     `notes: ${cut(notes.map((n) => n.title).join("; "), 200)}`,
   ];
   return {
     text: lines.join("\n"),
-    json: { ticket: t, events, eventCount, drafts, linkCount, notes: notes.map((n) => n.title) },
+    json: { ticket: t, events, eventCount, drafts, items: itemCounts, openWaits, notes: notes.map((n) => n.title) },
   };
 }
 
@@ -256,13 +260,6 @@ export function draftShow(ctx: Ctx, id: string, label: string): Result {
   };
 }
 
-export function links(ctx: Ctx, id: string): Result {
-  getTicket(ctx.db, id);
-  const rows = all<LinkRow>(ctx.db, "SELECT * FROM link WHERE ticket_id = ? ORDER BY id", id);
-  const lines = rows.map((l) => `${l.source}/${l.kind} ${l.url}${l.title ? ` ${l.title}` : ""}`);
-  return { text: lines.join("\n") || "no links", json: rows };
-}
-
 export function day(ctx: Ctx, date: string | undefined): Result {
   const row = date
     ? one<DayRow>(ctx.db, "SELECT * FROM day WHERE date = ?", date)
@@ -372,23 +369,6 @@ export function posted(ctx: Ctx, id: string, label: string, options: PostedOptio
   touch(ctx, id);
   const pending = options.sentText === null && existing.sent_text === null ? ", wording pending" : "";
   return { text: `${id} draft "${label}" ${status}${pending}`, json: { ticket_id: id, label, status, posted_at: at } };
-}
-
-export type LinkOptions = { kind: string | null; title: string | null; by: string };
-
-export function link(ctx: Ctx, id: string, url: string, options: LinkOptions): Result {
-  if (options.kind !== null) oneOf("--kind", options.kind, LINK_KINDS);
-  getTicket(ctx.db, id);
-  const source = linkSource(url, ctx.config.trackerHosts);
-  const kind = options.kind ?? linkKind(url, source);
-  ctx.db
-    .prepare(
-      `INSERT INTO link(ticket_id, source, kind, url, title, added_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(ticket_id, url) DO UPDATE SET kind = excluded.kind, title = coalesce(excluded.title, link.title)`,
-    )
-    .run(id, source, kind, url, options.title, options.by, nowIso(ctx.now));
-  touch(ctx, id);
-  return { text: `${id} link ${source}/${kind} ${url}`, json: { ticket_id: id, url, source, kind } };
 }
 
 export function daySet(ctx: Ctx, date: string, body: string): Result {

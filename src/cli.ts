@@ -7,7 +7,10 @@ import * as commands from "./commands.ts";
 import { dbPath, loadConfig } from "./config.ts";
 import { openDb } from "./db.ts";
 import { applyImport, collectImport, countPlan, formatSummary } from "./importer.ts";
+import * as items from "./items.ts";
+import * as sources from "./sources.ts";
 import { HubError } from "./util.ts";
+import * as waits from "./waits.ts";
 
 export type Io = {
   stdout: (text: string) => void;
@@ -20,12 +23,16 @@ export type Io = {
 const USAGE = `usage: hub <command> [args] [--json] [--db <path>]
 read:   ticket <id> | board [regex] | next | gates | changed --since <YYYY-MM-DD|yesterday|today>
         search <query> [-n 10] | events <id> [-n 20] [--full] | notes <id> | note-show <id> <title>
-        drafts [id] | draft-show <id> <label> | links <id> | day [date] | lint | config [key]
+        drafts [id] | draft-show <id> <label> | day [date] | lint | config [key]
+        items [--needs-me] [--source <s>] [--ticket <id>] [--all] | waits [--due] | sources
 write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent] [--ref <url>]
         note <id> <title> (--file <path> | --stdin) [--kind detail]
         draft <id> <label> (--file <path> | --stdin) [--channel <c>]
         posted <id> <label> [--at <when>] [--channel <c>] [--answer <text>] [--ref <url>] [--file | --stdin]
-        link <id> <url> [--kind <k>] [--title <t>] [--by agent]
+        link <id> <url> [--kind <k>] [--title <t>]
+        item put --stdin | item close <item>... | item attach <item> <id>
+        wait <id> <who> <url> [--ping-after 1d] | wait close <wait | url>
+        source <name> [--cursor <c>] [--error <text>]
         day set <date> (--file <path> | --stdin) | ticket-new <id> <title> [--dir todo]
         move <id> <dir> | config <key> <json>
 import: import --root <dir> [--apply]`;
@@ -45,7 +52,13 @@ const OPTIONS = {
   at: { type: "string" },
   answer: { type: "string" },
   title: { type: "string" },
-  by: { type: "string" },
+  "needs-me": { type: "boolean" },
+  all: { type: "boolean" },
+  ticket: { type: "string" },
+  "ping-after": { type: "string" },
+  due: { type: "boolean" },
+  cursor: { type: "string" },
+  error: { type: "string" },
   dir: { type: "string" },
   since: { type: "string" },
   n: { type: "string", short: "n" },
@@ -66,7 +79,13 @@ type Values = {
   at?: string;
   answer?: string;
   title?: string;
-  by?: string;
+  "needs-me"?: boolean;
+  all?: boolean;
+  ticket?: string;
+  "ping-after"?: string;
+  due?: boolean;
+  cursor?: string;
+  error?: string;
   dir?: string;
   since?: string;
   n?: string;
@@ -115,7 +134,13 @@ const COMMANDS: Record<string, Handler> = {
   drafts: (ctx, a) => commands.drafts(ctx, a[0]),
   "draft-show": (ctx, a) =>
     commands.draftShow(ctx, arg(a, 0, "draft-show <id> <label>"), arg(a, 1, "draft-show <id> <label>")),
-  links: (ctx, a) => commands.links(ctx, arg(a, 0, "links <id>")),
+  items: (ctx, _a, v) =>
+    items.items(ctx, {
+      needsMe: v["needs-me"] === true,
+      source: v.source ?? null,
+      ticket: v.ticket ?? null,
+      all: v.all === true,
+    }),
   day: (ctx, a, v, io) => {
     if (a[0] !== "set") return commands.day(ctx, a[0]);
     return commands.daySet(ctx, arg(a, 1, "day set <date> (--file <path> | --stdin)"), body(v, io));
@@ -153,12 +178,28 @@ const COMMANDS: Record<string, Handler> = {
   },
   link: (ctx, a, v) => {
     const usage = "link <id> <url>";
-    return commands.link(ctx, arg(a, 0, usage), arg(a, 1, usage), {
-      kind: v.kind ?? null,
-      title: v.title ?? null,
-      by: v.by ?? "agent",
-    });
+    return items.link(ctx, arg(a, 0, usage), arg(a, 1, usage), { kind: v.kind ?? null, title: v.title ?? null });
   },
+  item: (ctx, a, v, io) => {
+    const usage = "item put --stdin | item close <item>... | item attach <item> <id>";
+    const sub = arg(a, 0, usage);
+    if (sub === "put") return items.put(ctx, body(v, io));
+    if (sub === "close") return items.close(ctx, a.slice(1));
+    if (sub === "attach") return items.attach(ctx, arg(a, 1, usage), arg(a, 2, usage));
+    throw new HubError(`usage: hub ${usage}`);
+  },
+  wait: (ctx, a, v) => {
+    if (a[0] === "close") return waits.closeWait(ctx, arg(a, 1, "wait close <wait | url>"));
+    const usage = "wait <id> <who> <url> [--ping-after 1d]";
+    return waits.wait(ctx, arg(a, 0, usage), arg(a, 1, usage), arg(a, 2, usage), v["ping-after"] ?? null);
+  },
+  waits: (ctx, _a, v) => waits.waits(ctx, v.due === true),
+  source: (ctx, a, v) =>
+    sources.synced(ctx, arg(a, 0, "source <name> [--cursor <c>] [--error <text>]"), {
+      cursor: v.cursor ?? null,
+      error: v.error ?? null,
+    }),
+  sources: (ctx) => sources.sources(ctx),
   "ticket-new": (ctx, a, v) => {
     const usage = "ticket-new <id> <title>";
     return commands.ticketNew(ctx, arg(a, 0, usage), a.slice(1).join(" ") || arg(a, 1, usage), v.dir ?? "todo");

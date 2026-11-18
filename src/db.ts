@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { HubError } from "./util.ts";
 
-export const SCHEMA_VERSION = "1";
+export const SCHEMA_VERSION = "2";
 
 export type Ticket = {
   id: string;
@@ -44,7 +44,31 @@ export type DraftRow = {
   sent_ref: string | null;
   answer: string | null;
 };
-export type LinkRow = { ticket_id: string; source: string; kind: string; url: string; title: string | null };
+export type ItemRow = {
+  id: number;
+  source: string;
+  ref: string;
+  kind: string;
+  title: string | null;
+  url: string | null;
+  state: string | null;
+  author: string | null;
+  ticket_id: string | null;
+  needs_me: number;
+  first_seen: string;
+  changed_at: string;
+  closed_at: string | null;
+};
+export type WaitRow = {
+  id: number;
+  ticket_id: string;
+  who: string;
+  url: string;
+  asked_at: string;
+  ping_after: string | null;
+  closed_at: string | null;
+};
+export type SourceRow = { name: string; cursor: string | null; last_sync: string; last_error: string | null };
 export type DayRow = { date: string; resume: string | null; body: string };
 
 export const LIMITED_FIELDS = ["status", "repo", "prs", "gate", "decide", "next", "owner"] as const;
@@ -91,8 +115,13 @@ CREATE TABLE note(id INTEGER PRIMARY KEY, ticket_id TEXT, title TEXT, body TEXT,
 CREATE TABLE draft(id INTEGER PRIMARY KEY, ticket_id TEXT, label TEXT, body TEXT, status TEXT, channel TEXT, posted_at TEXT,
   sent_text TEXT, sent_ref TEXT, answer TEXT,
   created_at TEXT, updated_at TEXT, UNIQUE(ticket_id, label));
-CREATE TABLE link(id INTEGER PRIMARY KEY, ticket_id TEXT, source TEXT, kind TEXT, url TEXT, title TEXT, added_by TEXT, created_at TEXT,
-  UNIQUE(ticket_id, url));
+CREATE TABLE item(id INTEGER PRIMARY KEY, source TEXT NOT NULL, ref TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, title TEXT,
+  url TEXT, state TEXT, author TEXT, ticket_id TEXT, needs_me INTEGER NOT NULL DEFAULT 0,
+  first_seen TEXT NOT NULL, changed_at TEXT NOT NULL, closed_at TEXT);
+CREATE INDEX item_ticket ON item(ticket_id);
+CREATE TABLE wait(id INTEGER PRIMARY KEY, ticket_id TEXT NOT NULL, who TEXT NOT NULL, url TEXT NOT NULL,
+  asked_at TEXT NOT NULL, ping_after TEXT, closed_at TEXT);
+CREATE TABLE source(name TEXT PRIMARY KEY, cursor TEXT, last_sync TEXT NOT NULL, last_error TEXT);
 CREATE TABLE day(date TEXT PRIMARY KEY, resume TEXT, body TEXT, updated_at TEXT);
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE config(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT);
@@ -108,9 +137,16 @@ export function openDb(path: string): DatabaseSync {
   const db = new DatabaseSync(path);
   db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
   const hasMeta = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'").get();
-  if (hasMeta) return db;
-  transaction(db, () => db.exec(SCHEMA));
-  return db;
+  if (!hasMeta) {
+    transaction(db, () => db.exec(SCHEMA));
+    return db;
+  }
+  const version = one<{ value: string }>(db, "SELECT value FROM meta WHERE key = 'schema_version'")?.value;
+  if (version === SCHEMA_VERSION) return db;
+  db.close();
+  throw new HubError(
+    `${path} has schema v${version ?? "?"}, this hub needs v${SCHEMA_VERSION}: move the file aside and re-import`,
+  );
 }
 
 export function transaction<T>(db: DatabaseSync, work: () => T): T {

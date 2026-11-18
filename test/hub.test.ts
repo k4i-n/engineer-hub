@@ -131,7 +131,7 @@ describe("import", () => {
     assert.ok((first.changes ?? 0) > 0);
     assert.equal(second.changes, 0);
     const rows = (table: string) => sql<{ n: number }>(`SELECT count(*) AS n FROM ${table}`)[0]?.n;
-    assert.deepEqual(["ticket", "event", "note", "draft", "link", "day"].map(rows), [
+    assert.deepEqual(["ticket", "event", "note", "draft", "item", "day"].map(rows), [
       EXPECTED.tickets,
       EXPECTED.events,
       EXPECTED.notes,
@@ -249,7 +249,7 @@ describe("writes", () => {
     assert.match(hub("log", "ENG-7", "x", "--kind", "chat").err, /--kind must be one of/);
   });
 
-  test("note, draft, posted, link and day set round-trip through the DB", () => {
+  test("note, draft, posted and day set round-trip through the DB", () => {
     imported();
     stdin = "# Runbook\nrestart the worker";
     ok("note", "ENG-7", "Runbook", "--stdin");
@@ -260,9 +260,6 @@ describe("writes", () => {
     assert.match(ok("drafts"), /ENG-7 \| ask product \| Can we cap exports/);
     ok("posted", "ENG-7", "ask product", "--at", "2026-11-13 15:00", "--answer", "yes, 10");
     assert.equal(ok("drafts", "ENG-7"), "ask product | answered | #product | 2026-11-13 15:00 | wording pending");
-
-    ok("link", "ENG-7", "https://github.com/acme/web/pull/120");
-    assert.equal(ok("links", "ENG-7"), "github/pr https://github.com/acme/web/pull/120");
 
     const file = join(dir, "plan.md");
     writeFileSync(file, "# Plan\n\n## RESUME\nstart with ENG-7\n\n## Later\n- other\n");
@@ -300,6 +297,121 @@ describe("writes", () => {
     assert.match(hub("ticket-new", "ENG-8", "x", "--dir", "later").err, /dir must be one of/);
     ok("move", "NEW-export-audit", "inprogress");
     assert.equal(sql<{ dir: string }>("SELECT dir FROM ticket WHERE id = 'NEW-export-audit'")[0]?.dir, "inprogress");
+  });
+});
+
+describe("items", () => {
+  test("link stores an item on the ticket, a second link changes nothing, a later link moves it", () => {
+    imported();
+    const url = "https://github.com/acme/web/pull/120";
+    ok("link", "ENG-7", url, "--title", "Rate limit exports");
+    assert.equal(ok("items", "--ticket", "ENG-7"), `#3 github/pr | Rate limit exports | ENG-7 | ${url}`);
+    const before = sql<{ changed_at: string }>("SELECT changed_at FROM item WHERE ref = ?", url);
+    now = new Date("2026-11-14T00:00:00Z");
+    ok("link", "ENG-7", url);
+    assert.deepEqual(sql<{ changed_at: string }>("SELECT changed_at FROM item WHERE ref = ?", url), before);
+    ok("link", "ENG-42", url);
+    assert.equal(ok("items", "--ticket", "ENG-7"), "no items");
+    assert.match(ok("ticket", "ENG-42"), /^items: 3 open, 0 need you \| waits: 0 open$/m);
+    assert.match(hub("link", "ENG-7", url, "--kind", "page").err, /--kind must be one of/);
+  });
+  test("item put stores a sync delta once, matches tickets by id and logs new and changed items", () => {
+    imported();
+    const review = "https://github.com/acme/web/pull/130";
+    stdin = [
+      JSON.stringify({
+        source: "github",
+        kind: "review_request",
+        url: review,
+        title: "ENG-7: cap exports",
+        state: "open",
+        needs_me: true,
+      }),
+      JSON.stringify({ source: "grafana", kind: "alert", ref: "alert-991", title: "API 5xx above 2%" }),
+    ].join("\n");
+    assert.equal(ok("item", "put", "--stdin"), "items: 2 new, 0 changed, 0 unchanged");
+    assert.equal(ok("item", "put", "--stdin"), "items: 0 new, 0 changed, 2 unchanged");
+    assert.equal(
+      ok("items", "--needs-me"),
+      `#3 github/review_request | needs you | ENG-7: cap exports | open | ENG-7 | ${review}`,
+    );
+    assert.match(ok("events", "ENG-7"), /\[sync\] new github\/review_request: ENG-7: cap exports/);
+
+    ok("item", "close", "3");
+    assert.equal(ok("items", "--needs-me"), "no items");
+    stdin = JSON.stringify({ source: "github", kind: "review_request", url: review, state: "open", needs_me: true });
+    assert.equal(ok("item", "put", "--stdin"), "items: 0 new, 0 changed, 1 unchanged");
+    assert.equal(ok("items", "--needs-me"), "no items");
+    stdin = JSON.stringify({ source: "github", kind: "review_request", url: review, state: "merged" });
+    assert.equal(ok("item", "put", "--stdin"), "items: 0 new, 1 changed, 0 unchanged");
+    assert.match(ok("items", "--ticket", "ENG-7"), /^#3 .* \| merged \| ENG-7 \|/);
+    assert.match(ok("events", "ENG-7", "-n", "1"), /review_request: ENG-7: cap exports: open -> merged$/);
+
+    ok("item", "attach", "alert-991", "ENG-42");
+    assert.match(ok("events", "ENG-42", "-n", "1"), /attached grafana\/alert: API 5xx above 2%$/);
+  });
+
+  test("item put refuses a bad line and writes nothing from the batch", () => {
+    imported();
+    const good = JSON.stringify({ source: "slack", kind: "thread", url: "https://acme.slack.com/archives/C1/p1" });
+    const refused = (line: string) => {
+      stdin = `${good}\n${line}`;
+      return hub("item", "put", "--stdin").err;
+    };
+    assert.match(refused("{nope"), /^line 2: not JSON$/);
+    assert.match(refused('{"source":"slack","kind":"thread","url":"u","colour":1}'), /unknown key colour/);
+    assert.match(refused('{"source":"slack","kind":"chat","url":"u"}'), /kind must be one of/);
+    assert.match(refused('{"source":"Slack!","kind":"thread","url":"u"}'), /source must be a lowercase name/);
+    assert.match(refused('{"source":"slack","kind":"thread"}'), /give ref or url/);
+    assert.match(refused('{"source":"slack","kind":"thread","url":"u","ticket":"ENG-9"}'), /no ticket ENG-9/);
+    assert.match(refused('{"source":"slack","kind":"thread","url":"u","needs_me":"yes"}'), /needs_me must be/);
+    assert.equal(ok("items", "--source", "slack"), "no items");
+    assert.match(hub("item", "close", "99").err, /no item 99/);
+  });
+});
+
+describe("waits", () => {
+  test("a wait shows ping now once its time passes and closes by number or url", () => {
+    imported();
+    const thread = "https://acme.slack.com/archives/C1/p1763011200";
+    assert.equal(
+      ok("wait", "ENG-7", "product", thread, "--ping-after", "1d"),
+      "wait #1 on ENG-7: product, ping after 2026-11-14 14:20",
+    );
+    assert.equal(
+      ok("wait", "ENG-7", "product", thread, "--ping-after", "2h"),
+      "wait #1 on ENG-7: product, ping after 2026-11-13 16:20",
+    );
+    ok("wait", "ENG-42", "design", "https://acme.slack.com/archives/C2/p1");
+    assert.equal(ok("waits", "--due"), "no waits due");
+    assert.match(ok("ticket", "ENG-7"), /\| waits: 1 open$/m);
+    now = new Date("2026-11-13T08:00:00Z");
+    assert.equal(ok("waits", "--due"), `#1 ENG-7 | product | asked 2026-11-13 14:20 | ping now | ${thread}`);
+    assert.equal(ok("wait", "close", thread), "closed #1");
+    assert.equal(ok("wait", "close", "2"), "closed #2");
+    assert.equal(ok("waits"), "no open waits");
+    assert.match(hub("wait", "close", "2").err, /no open wait 2/);
+    assert.match(hub("wait", "ENG-7", "a", "u", "--ping-after", "tomorrow").err, /--ping-after takes a duration/);
+  });
+});
+
+describe("sources", () => {
+  test("a sync records its time and cursor, an error keeps the cursor, the next clean sync clears the error", () => {
+    assert.equal(ok("sources"), "no sources synced yet");
+    ok("source", "github", "--cursor", "2026-11-13T05:00:00Z");
+    now = new Date("2026-11-13T06:00:00Z");
+    assert.equal(ok("source", "github", "--error", "gh: rate limited"), "source github synced, with error");
+    ok("source", "slack", "--cursor", "1763011200.0001");
+    assert.equal(
+      ok("sources"),
+      [
+        "github | last sync 2026-11-13 15:00 | cursor 2026-11-13T05:00:00Z | error: gh: rate limited",
+        "slack | last sync 2026-11-13 15:00 | cursor 1763011200.0001",
+      ].join("\n"),
+    );
+    ok("source", "github");
+    assert.match(ok("sources"), /^github \| last sync 2026-11-13 15:00 \| cursor 2026-11-13T05:00:00Z$/m);
+    assert.match(hub("source", "GitHub").err, /source must be a lowercase name/);
   });
 });
 
@@ -407,6 +519,16 @@ describe("config", () => {
     assert.match(hub("config", "timezone", '"Mars/Base"').err, /not an IANA time zone/);
     assert.match(hub("config", "limits", '{"title":10}').err, /limits.title is not a known key/);
     assert.match(hub("config", "taskDirs", "[1]").err, /array of strings/);
+  });
+});
+
+describe("db", () => {
+  test("a database from another schema version is refused", () => {
+    ok("board");
+    const db = new DatabaseSync(dbFile);
+    db.exec("UPDATE meta SET value = '1' WHERE key = 'schema_version'");
+    db.close();
+    assert.match(hub("board").err, /has schema v1, this hub needs v2: move the file aside and re-import/);
   });
 });
 

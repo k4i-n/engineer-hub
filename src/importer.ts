@@ -33,7 +33,7 @@ type TicketRec = { id: string } & Record<Column, string | null>;
 type EventRec = { ticket_id: string; ts: string; kind: string; text: string; source: string };
 type NoteRec = { ticket_id: string } & ParsedNote;
 type DraftRec = { ticket_id: string } & ParsedDraft;
-type LinkRec = { ticket_id: string; url: string; source: string; kind: string; added_by: string };
+type LinkRec = { ticket_id: string; url: string; source: string; kind: string };
 type DayRec = { date: string; resume: string | null; body: string };
 
 export type ImportReport = {
@@ -144,7 +144,7 @@ function collectTickets(db: DatabaseSync, root: string, config: Config, now: Dat
       rec.tracker_json = trackerJson(ticket.tracker);
       for (const url of ticket.tracker.attachments) {
         const source = linkSource(url, config.trackerHosts);
-        plan.links.push({ ticket_id: id, url, source, kind: linkKind(url, source), added_by: "sync" });
+        plan.links.push({ ticket_id: id, url, source, kind: linkKind(url, source) });
       }
     }
     if (!ticket.hasState) plan.report.noState.push(id);
@@ -297,10 +297,10 @@ export function applyImport(db: DatabaseSync, plan: ImportPlan, now: Date): numb
     for (const l of plan.links) {
       const result = db
         .prepare(
-          `INSERT INTO link(ticket_id, source, kind, url, added_by, created_at) VALUES (?, ?, ?, ?, ?, ?)
-           ON CONFLICT(ticket_id, url) DO NOTHING`,
+          `INSERT INTO item(source, ref, kind, url, ticket_id, first_seen, changed_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(ref) DO NOTHING`,
         )
-        .run(l.ticket_id, l.source, l.kind, l.url, l.added_by, at);
+        .run(l.source, l.url, l.kind, l.url, l.ticket_id, at, at);
       changes += Number(result.changes);
     }
 
