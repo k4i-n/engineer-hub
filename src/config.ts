@@ -23,6 +23,30 @@ export type Config = {
   notifyNew: boolean;
   notifySound: boolean;
   theme: string;
+  layout: Layout;
+};
+
+export type Layout = { left: string[]; right: string[] };
+
+export const BLOCKS = [
+  "pinned",
+  "fix",
+  "review",
+  "reply",
+  "prs",
+  "triage",
+  "waiting",
+  "decide",
+  "other",
+  "tickets",
+  "today",
+  "drafts",
+  "activity",
+];
+
+export const DEFAULT_LAYOUT: Layout = {
+  left: ["pinned", "fix", "review", "reply", "prs", "triage", "waiting", "decide", "other", "tickets"],
+  right: ["today", "drafts", "activity"],
 };
 
 export const DEFAULTS: Config = {
@@ -51,6 +75,7 @@ export const DEFAULTS: Config = {
   notifyNew: false,
   notifySound: false,
   theme: "system",
+  layout: DEFAULT_LAYOUT,
 };
 
 const CHOICES: Partial<Record<keyof Config, string[]>> = {
@@ -112,6 +137,12 @@ function semanticError(key: Key, value: unknown): string | undefined {
   }
   if (key === "syncCommand" && Array.isArray(value) && value.length === 0) {
     return 'syncCommand takes the program and its arguments, e.g. ["claude","-p","/engineer-hub:hub-sync"]';
+  }
+  if (key === "layout") {
+    const ids = Object.values(value as Layout).flat();
+    const unknown = ids.find((id) => !BLOCKS.includes(String(id)));
+    if (unknown !== undefined) return `layout has an unknown block ${String(unknown)} (${BLOCKS.join(", ")})`;
+    if (new Set(ids).size !== ids.length) return "layout lists a block twice";
   }
   if (key === "trackerSyncMarkers" && Array.isArray(value) && value.length !== 2) {
     return "trackerSyncMarkers takes exactly two strings: start and end";
