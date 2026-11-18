@@ -16,6 +16,7 @@ export type Config = {
   trackerHosts: string[];
   planDir: string;
   resumeHeading: string;
+  syncCommand: string[];
 };
 
 export const DEFAULTS: Config = {
@@ -31,6 +32,13 @@ export const DEFAULTS: Config = {
   trackerHosts: ["linear.app"],
   planDir: "plan",
   resumeHeading: "RESUME",
+  syncCommand: [
+    "claude",
+    "-p",
+    "/engineer-hub:hub-sync",
+    "--allowedTools",
+    "Bash(hub:*),Bash(gh search:*),Bash(gh pr view:*)",
+  ],
 };
 
 type Key = keyof Config;
@@ -78,6 +86,9 @@ function semanticError(key: Key, value: unknown): string | undefined {
     } catch {
       return `ticketIdPattern is not a valid regular expression`;
     }
+  }
+  if (key === "syncCommand" && Array.isArray(value) && value.length === 0) {
+    return 'syncCommand takes the program and its arguments, e.g. ["claude","-p","/engineer-hub:hub-sync"]';
   }
   if (key === "trackerSyncMarkers" && Array.isArray(value) && value.length !== 2) {
     return "trackerSyncMarkers takes exactly two strings: start and end";
