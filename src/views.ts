@@ -144,6 +144,7 @@ const ICON: Record<string, string> = {
   more: '<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>',
   pin: '<path d="M12 17v5"/><path d="M9 10.8V4h6v6.8l3 3.2v2H6v-2z"/>',
   open: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+  sync: '<path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 21v-5h5"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/>',
   grip: '<circle cx="9" cy="6" r="1.2"/><circle cx="15" cy="6" r="1.2"/><circle cx="9" cy="12" r="1.2"/><circle cx="15" cy="12" r="1.2"/><circle cx="9" cy="18" r="1.2"/><circle cx="15" cy="18" r="1.2"/>',
   link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
 };
@@ -675,11 +676,12 @@ function header(ctx: Ctx, sync: SyncState, active: "home" | "settings" | "ticket
         ? `<span class="sync-result" title="${esc(sync.detail ?? "")}">${esc(cut(sync.detail || `Synced ${when(ctx, sync.at ?? nowIso(ctx.now))}`, 90))}</span>`
         : "";
   const started = running && sync.at ? ` data-started="${esc(sync.at)}"` : "";
+  const syncTitle = ctx.config.autoSync ? `Sync (auto every ${ctx.config.syncEvery})` : "Sync";
   return `<header class="top${running ? " syncing" : ""}">
 <a class="brand" href="/"><span class="logo"></span>hub${needCount > 0 ? `<span class="count hot" title="needs you">${needCount}</span>` : ""}</a>
 <div class="sources">${sourcesLine(ctx, sources)}</div>
 <div class="search" role="search"><input type="search" data-search-box placeholder="Search" aria-label="Search everything" autocomplete="off" spellcheck="false"><div class="search-pop" role="listbox" hidden></div></div>
-<div class="sync"${started}>${result}<span class="live" title="live"></span>${button(running ? "Syncing" : "Sync", { act: "sync" }, { cls: "primary sync-btn", disabled: running })}</div>
+<div class="sync"${started}>${result}<span class="live" title="live"></span><button type="button" class="ic ic-sync sync-btn" data-act="sync" title="${running ? "Syncing" : syncTitle}" aria-label="${running ? "Syncing" : "Sync"}"${running ? " disabled" : ""}>${svg("sync")}</button></div>
 <a class="gear${active === "settings" ? " on" : ""}" href="${active === "settings" ? "/" : "/settings"}" title="Settings" aria-label="Settings">⚙</a>
 <div class="strip"></div>
 </header>`;
@@ -872,7 +874,22 @@ ${section(
 )}
 </div>
 <div class="col">
-${section("Sync", null, `<pre class="text code">${esc(JSON.stringify(c.syncCommand))}</pre>`, "set-sec")}
+${section(
+  "Sync",
+  null,
+  row("Auto sync", toggle("autoSync", c.autoSync)) +
+    row(
+      "Every",
+      segmented("syncEvery", c.syncEvery, [
+        ["15m", "15 min"],
+        ["30m", "30 min"],
+        ["1h", "1 hour"],
+        ["2h", "2 hours"],
+      ]),
+    ) +
+    row("Command", `<pre class="text code">${esc(JSON.stringify(c.syncCommand))}</pre>`),
+  "set-sec",
+)}
 ${section(
   "Database",
   null,

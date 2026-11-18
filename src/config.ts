@@ -24,6 +24,8 @@ export type Config = {
   notifySound: boolean;
   theme: string;
   layout: Layout;
+  autoSync: boolean;
+  syncEvery: string;
 };
 
 export type Layout = { left: string[]; right: string[] };
@@ -76,12 +78,15 @@ export const DEFAULTS: Config = {
   notifySound: false,
   theme: "system",
   layout: DEFAULT_LAYOUT,
+  autoSync: true,
+  syncEvery: "15m",
 };
 
 const CHOICES: Partial<Record<keyof Config, string[]>> = {
   openSlackIn: ["browser", "app"],
   openLinearIn: ["browser", "app"],
   theme: ["system", "light", "dark"],
+  syncEvery: ["15m", "30m", "1h", "2h"],
 };
 
 type Key = keyof Config;

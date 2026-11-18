@@ -592,8 +592,7 @@ button.busy {
   color: transparent;
   pointer-events: none;
 }
-button.busy::after,
-.sync-btn:disabled::after {
+button.busy::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -607,19 +606,6 @@ button.busy::after,
 }
 button.busy::after {
   border-color: var(--muted);
-  border-right-color: transparent;
-}
-.sync-btn {
-  min-width: 92px;
-}
-.sync-btn:disabled {
-  opacity: 1;
-  padding-left: 28px;
-}
-.sync-btn:disabled::after {
-  right: auto;
-  left: 10px;
-  border-color: #fff;
   border-right-color: transparent;
 }
 @keyframes spin {
@@ -1510,6 +1496,26 @@ kbd {
   }
 }
 
+.sync-btn {
+  width: 34px;
+  height: 34px;
+  color: var(--accent);
+}
+.sync-btn svg {
+  width: 19px;
+  height: 19px;
+}
+.sync-btn:hover:not(:disabled) {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+}
+.sync-btn:disabled {
+  opacity: 1;
+  cursor: progress;
+}
+.sync-btn:disabled svg {
+  animation: spin 0.9s linear infinite;
+}
 @media (max-width: 960px) {
   .grid {
     grid-template-columns: minmax(0, 1fr);

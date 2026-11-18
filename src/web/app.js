@@ -249,7 +249,9 @@ function tick() {
   const b = sync?.querySelector(".sync-btn");
   if (!sync || !b) return;
   const s = Math.max(0, Math.floor((Date.now() - Date.parse(sync.dataset.started)) / 1000));
-  b.textContent = `Syncing ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  const label = `Syncing ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  b.title = label;
+  b.setAttribute("aria-label", label);
 }
 setInterval(tick, 1000);
 
