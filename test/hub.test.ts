@@ -339,6 +339,9 @@ describe("items", () => {
 
     ok("item", "close", "3");
     assert.equal(ok("items", "--needs-me"), "no items");
+    stdin = JSON.stringify({ source: "github", kind: "review_request", url: review, state: "open", needs_me: true });
+    assert.equal(ok("item", "put", "--stdin"), "items: 0 new, 0 changed, 1 unchanged");
+    assert.equal(ok("items", "--needs-me"), "no items");
     stdin = JSON.stringify({ source: "github", kind: "review_request", url: review, state: "merged" });
     assert.equal(ok("item", "put", "--stdin"), "items: 0 new, 1 changed, 0 unchanged");
     assert.match(ok("items", "--ticket", "ENG-7"), /^#3 .* \| merged \| ENG-7 \|/);

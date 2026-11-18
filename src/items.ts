@@ -116,10 +116,10 @@ export function upsertItem(ctx: Ctx, input: ItemInput, withEvents: boolean): Ups
     `UPDATE item SET ${fields.map((f) => `${f} = ?`).join(", ")}, closed_at = ?, changed_at = ? WHERE id = ?`,
   ).run(...values, closedAt, at, existing.id);
   if (!withEvents || next.ticket_id === null) return "changed";
-  const now = { ...existing, ...next };
-  if (next.ticket_id !== existing.ticket_id) event(ctx, next.ticket_id, `attached ${describe(now)}`, ref);
+  const merged = { ...existing, ...next };
+  if (next.ticket_id !== existing.ticket_id) event(ctx, next.ticket_id, `attached ${describe(merged)}`, ref);
   if (stateChanged) {
-    event(ctx, next.ticket_id, `${describe(now)}: ${existing.state ?? "-"} -> ${next.state ?? "-"}`, ref);
+    event(ctx, next.ticket_id, `${describe(merged)}: ${existing.state ?? "-"} -> ${next.state ?? "-"}`, ref);
   }
   return "changed";
 }
@@ -202,7 +202,7 @@ export function close(ctx: Ctx, keys: string[]): Result {
   const at = nowIso(ctx.now);
   transaction(ctx.db, () => {
     for (const i of found) {
-      ctx.db.prepare("UPDATE item SET needs_me = 0, closed_at = coalesce(closed_at, ?) WHERE id = ?").run(at, i.id);
+      ctx.db.prepare("UPDATE item SET closed_at = coalesce(closed_at, ?) WHERE id = ?").run(at, i.id);
     }
   });
   return { text: `closed ${found.map((i) => `#${i.id}`).join(", ")}`, json: found.map((i) => i.id) };
