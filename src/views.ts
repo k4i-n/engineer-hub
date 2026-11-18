@@ -1,4 +1,4 @@
-import { byPriorityThenRecent, type Ctx, has, openTickets } from "./commands.ts";
+import { byPriorityThenRecent, type Ctx, has, openTickets, recentlyDone } from "./commands.ts";
 import {
   all,
   type DayRow,
@@ -459,7 +459,15 @@ function prChip(ctx: Ctx, i: ItemRow): string {
   return linker(ctx)(i.url, label, `chip tone-${prTone(i.state).tone}`);
 }
 
-function ticketRow(ctx: Ctx, t: Ticket): string {
+function doneDay(ctx: Ctx, iso: string): string {
+  const day = today(new Date(iso), ctx.config.timezone);
+  const now = today(ctx.now, ctx.config.timezone);
+  if (day === now) return "today";
+  if (day === sinceDate("yesterday", ctx.now, ctx.config.timezone)) return "yesterday";
+  return day.slice(5);
+}
+
+function ticketRow(ctx: Ctx, t: Ticket, done = false): string {
   const p = progress(ctx.db, t.id);
   const items = all<ItemRow>(ctx.db, "SELECT * FROM item WHERE ticket_id = ? AND closed_at IS NULL ORDER BY id", t.id);
   const waiting =
@@ -474,10 +482,14 @@ function ticketRow(ctx: Ctx, t: Ticket): string {
     has(t.decide) ? `<span class="chip tone-amber">decide</span>` : "",
   ].join("");
   const pct = p.total === 0 ? 0 : Math.round((p.done / p.total) * 100);
-  const next = p.next ? `${p.next.n}. ${p.next.title}` : (t.next ?? "");
+  const next = done
+    ? `done ${doneDay(ctx, t.updated_at ?? nowIso(ctx.now))}`
+    : p.next
+      ? `${p.next.n}. ${p.next.title}`
+      : (t.next ?? "");
   const priority = (t.tracker_priority ?? "").trim();
   const search = [t.id, t.title, t.status, t.next, p.next?.title].join(" ").toLowerCase();
-  return `<li class="ticket" data-key="t-${esc(t.id)}" data-href="/t/${encodeURIComponent(t.id)}" data-search="${esc(search)}">
+  return `<li class="ticket${done ? " is-closed" : ""}" data-key="t-${esc(t.id)}" data-href="/t/${encodeURIComponent(t.id)}" data-search="${esc(search)}">
 <div class="t-top">${ticketLink(t.id)}<span class="t-title">${esc(t.title)}</span>${priority ? pill(priority, PRIORITY_TONE[priority.toLowerCase()] ?? "grey") : ""}${pill(DIR_LABEL[t.dir ?? ""] ?? t.dir ?? "", DIR_TONE[t.dir ?? ""] ?? "grey")}</div>
 <div class="t-progress${p.total > 0 && p.done === p.total ? " complete" : ""}"><span class="bar"><span style="width:${pct}%"></span></span><span class="frac">${p.total === 0 ? "–" : `${p.done}/${p.total}`}</span></div>
 <div class="t-next">${esc(cut(next || "–", 160))}</div>
@@ -485,13 +497,18 @@ function ticketRow(ctx: Ctx, t: Ticket): string {
 </li>`;
 }
 
+function ticketList(ctx: Ctx, tab: string, tickets: Ticket[], done: boolean): string {
+  const rows = tickets.map((t) => ticketRow(ctx, t, done)).join("");
+  return `<ul class="rows ticket-list" data-tab-panel="${tab}"${done ? " hidden" : ""}>${rows === "" ? `<li class="empty">—</li>` : rows}</ul>`;
+}
+
 function ticketsSection(ctx: Ctx, tickets: Ticket[]): string {
+  const done = recentlyDone(ctx);
+  const tab = (name: string, label: string, n: number, on: boolean) =>
+    `<button type="button" role="tab" class="tab${on ? " on" : ""}" data-tab="${name}" aria-selected="${on}">${label} <b>${n}</b></button>`;
+  const tabs = `<span class="tabs" role="tablist">${tab("ongoing", "Ongoing", tickets.length, true)}${tab("done", "Done", done.length, false)}</span>`;
   const filter = `<input class="filter" type="search" data-filter placeholder="/" aria-label="Filter tickets">`;
-  const body =
-    tickets.length === 0
-      ? empty()
-      : `<ul class="rows ticket-list">${tickets.map((t) => ticketRow(ctx, t)).join("")}</ul>`;
-  return section("Tickets", tickets.length, body, "tickets", filter);
+  return `<section class="tickets"><div class="sec-head"><h2>Tickets</h2>${tabs}${filter}</div>${ticketList(ctx, "ongoing", tickets, false)}${ticketList(ctx, "done", done, true)}</section>`;
 }
 
 function todaySection(ctx: Ctx): string {
