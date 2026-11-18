@@ -477,6 +477,7 @@ a.need-title:hover {
 }
 .rail {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 2px;
 }
@@ -971,6 +972,8 @@ summary {
 }
 .menu {
   position: relative;
+  padding: 0;
+  border-top: 0;
 }
 .menu > summary {
   list-style: none;
