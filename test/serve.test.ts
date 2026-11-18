@@ -123,7 +123,7 @@ describe("serve", () => {
     assert.deepEqual(verbs(after), verbs(before));
     assert.match(
       after,
-      /is-dim[^>]*data-key="item-\d+"[\s\S]*?<span class="dim-label">done<\/span><button[^>]*data-act="item-reopen"/,
+      /is-dim[^>]*data-key="item-\d+"[\s\S]*?<span class="dim-label">done<\/span>[\s\S]*?<span class="act-main"><button[^>]*data-act="item-reopen"/,
     );
     assert.match(after, /data-needs-count="3"/);
     assert.equal((await post("/api/gate", { ticket: "ENG-42", answer: "yes" })).status, 200);

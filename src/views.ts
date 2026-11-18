@@ -26,6 +26,8 @@ export type SyncState = {
 export type DbInfo = { path: string; size: number; schema: string };
 
 type Tone = "red" | "orange" | "amber" | "green" | "teal" | "blue" | "violet" | "grey";
+type Act = { label: string; data?: Record<string, string | number>; href?: string };
+type Actions = { main: Act[]; more: Act[] };
 type Need = {
   key: string;
   rank: number;
@@ -35,7 +37,7 @@ type Need = {
   title: string;
   sub: string;
   ticket: string | null;
-  actions: string;
+  actions: Actions;
   href: string | null;
   dim: string | null;
 };
@@ -133,6 +135,16 @@ function menu(key: string, buttons: string): string {
   return `<details class="menu" data-key="menu-${esc(key)}"><summary aria-label="More">⋯</summary><div class="menu-pop">${buttons}</div></details>`;
 }
 
+const NO_ACTIONS: Actions = { main: [], more: [] };
+
+function actionCell(key: string, a: Actions): string {
+  const one = (x: Act) =>
+    x.href === undefined ? button(x.label, x.data ?? {}) : `<a class="btn" href="${esc(x.href)}">${esc(x.label)}</a>`;
+  const main = `<span class="act-main${a.main.length > 1 ? " pair" : ""}">${a.main.map(one).join("")}</span>`;
+  const more = `<span class="act-more">${a.more.length === 0 ? "" : menu(key, a.more.map(one).join(""))}</span>`;
+  return `<span class="need-actions">${main}${more}</span>`;
+}
+
 function pill(text: string, tone: Tone): string {
   return `<span class="pill tone-${tone}">${esc(text)}</span>`;
 }
@@ -222,14 +234,15 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
       dim,
       actions:
         dim !== null
-          ? button("Undo", { act: "item-reopen", id: i.id, hotkey: "u" })
-          : button("Done", { act: "item-done", id: i.id, hotkey: "e" }, { cls: "primary" }) +
-            menu(
-              `item-${i.id}`,
-              button("Snooze 1 hour", { act: "item-snooze", id: i.id, for: "1h" }) +
-                button("Snooze 4 hours", { act: "item-snooze", id: i.id, for: "4h" }) +
-                button("Snooze 1 day", { act: "item-snooze", id: i.id, for: "1d", hotkey: "s" }),
-            ),
+          ? { main: [{ label: "Undo", data: { act: "item-reopen", id: i.id, hotkey: "u" } }], more: [] }
+          : {
+              main: [{ label: "Done", data: { act: "item-done", id: i.id, hotkey: "e" } }],
+              more: [
+                { label: "Snooze 1 hour", data: { act: "item-snooze", id: i.id, for: "1h" } },
+                { label: "Snooze 4 hours", data: { act: "item-snooze", id: i.id, for: "4h" } },
+                { label: "Snooze 1 day", data: { act: "item-snooze", id: i.id, for: "1d", hotkey: "s" } },
+              ],
+            },
     });
   }
   for (const d of matches) {
@@ -244,12 +257,13 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
       ticket: d.ticket_id,
       href: d.match_ref,
       dim: null,
-      actions:
-        button(
-          "Yes",
-          { act: "match", ticket: d.ticket_id, label: d.label, answer: "yes", hotkey: "e" },
-          { cls: "primary" },
-        ) + button("No", { act: "match", ticket: d.ticket_id, label: d.label, answer: "no", hotkey: "s" }),
+      actions: {
+        main: [
+          { label: "Yes", data: { act: "match", ticket: d.ticket_id, label: d.label, answer: "yes", hotkey: "e" } },
+          { label: "No", data: { act: "match", ticket: d.ticket_id, label: d.label, answer: "no", hotkey: "s" } },
+        ],
+        more: [],
+      },
     });
   }
   for (const w of waits) {
@@ -270,11 +284,13 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
       href: w.url,
       dim: closed ? "answered" : pinged ? "pinged" : null,
       actions: closed
-        ? button("Undo", { act: "wait-reopen", id: w.id, hotkey: "u" })
+        ? { main: [{ label: "Undo", data: { act: "wait-reopen", id: w.id, hotkey: "u" } }], more: [] }
         : pinged
-          ? ""
-          : button("Pinged", { act: "wait-pinged", id: w.id, hotkey: "e" }, { cls: "primary" }) +
-            menu(`wait-${w.id}`, button("Answered", { act: "wait-close", id: w.id, hotkey: "s" })),
+          ? { main: [{ label: "Answered", data: { act: "wait-close", id: w.id, hotkey: "e" } }], more: [] }
+          : {
+              main: [{ label: "Pinged", data: { act: "wait-pinged", id: w.id, hotkey: "e" } }],
+              more: [{ label: "Answered", data: { act: "wait-close", id: w.id, hotkey: "s" } }],
+            },
     });
   }
   for (const t of tickets) {
@@ -290,9 +306,13 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
         ticket: t.id,
         href: `/t/${encodeURIComponent(t.id)}`,
         dim: null,
-        actions:
-          button("Yes", { act: "gate", ticket: t.id, answer: "yes", hotkey: "e" }, { cls: "primary" }) +
-          button("No", { act: "gate", ticket: t.id, answer: "no", hotkey: "s" }),
+        actions: {
+          main: [
+            { label: "Yes", data: { act: "gate", ticket: t.id, answer: "yes", hotkey: "e" } },
+            { label: "No", data: { act: "gate", ticket: t.id, answer: "no", hotkey: "s" } },
+          ],
+          more: [],
+        },
       });
     }
     if (has(t.decide)) {
@@ -307,7 +327,7 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
         ticket: t.id,
         href: `/t/${encodeURIComponent(t.id)}`,
         dim: null,
-        actions: "",
+        actions: { main: [{ label: "Open", href: `/t/${encodeURIComponent(t.id)}` }], more: [] },
       });
     }
   }
@@ -323,7 +343,7 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
       ticket: e.ticket_id,
       href: null,
       dim: e.text.startsWith("Yes") ? "yes" : "no",
-      actions: "",
+      actions: NO_ACTIONS,
     });
   }
   return list.sort((a, b) => a.rank - b.rank || a.since.localeCompare(b.since) || a.key.localeCompare(b.key));
@@ -331,13 +351,13 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
 
 function needRow(n: Need): string {
   const href = n.href === null ? "" : ` data-href="${esc(n.href)}"`;
-  const dim = n.dim === null ? "" : `<span class="dim-label">${esc(n.dim)}</span>`;
+  const dim = n.dim === null ? "" : `<span class="dim-label">${esc(n.dim)}</span>${n.sub === "" ? "" : " · "}`;
   const finished = n.dim !== null && ["done", "answered", "yes", "no"].includes(n.dim);
   return `<li class="need tone-${n.tone}${n.dim === null ? "" : " is-dim"}${finished ? " is-done" : ""}" data-key="${esc(n.key)}"${href}>
 <span class="verb">${esc(n.verb)}</span>
-<span class="need-main">${n.title}<span class="need-sub">${n.sub}</span></span>
+<span class="need-main">${n.title}<span class="need-sub">${dim}${n.sub}</span></span>
 <span class="need-ticket">${ticketLink(n.ticket)}</span>
-<span class="need-actions">${dim}${n.actions}</span>
+${actionCell(n.key, n.actions)}
 </li>`;
 }
 
@@ -544,7 +564,7 @@ export function ticketBody(ctx: Ctx, id: string, sync: SyncState): string {
   });
   const waitRows = waits.map(
     (w) =>
-      `<li class="need tone-orange" data-key="tw-${w.id}"><span class="verb">Wait</span><span class="need-main">${link(w.url, w.who, "need-title")}<span class="need-sub">asked ${esc(ago(ctx, w.asked_at))} ago${w.ping_after ? ` · ping ${esc(when(ctx, w.ping_after))}` : ""}</span></span><span class="need-ticket"></span><span class="need-actions">${button("Pinged", { act: "wait-pinged", id: w.id })}${button("Answered", { act: "wait-close", id: w.id })}</span></li>`,
+      `<li class="need tone-orange" data-key="tw-${w.id}"><span class="verb">Wait</span><span class="need-main">${link(w.url, w.who, "need-title")}<span class="need-sub">asked ${esc(ago(ctx, w.asked_at))} ago${w.ping_after ? ` · ping ${esc(when(ctx, w.ping_after))}` : ""}</span></span><span class="need-ticket"></span>${actionCell(`tw-${w.id}`, { main: [{ label: "Pinged", data: { act: "wait-pinged", id: w.id } }], more: [{ label: "Answered", data: { act: "wait-close", id: w.id } }] })}</li>`,
   );
   const draftRows = drafts.map(
     (d) =>

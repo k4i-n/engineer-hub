@@ -467,15 +467,34 @@ a.need-title:hover {
   display: flex;
   align-items: center;
   gap: 6px;
-  justify-content: flex-end;
-  min-width: 150px;
+}
+.act-main {
+  display: flex;
+  width: 96px;
+}
+.act-main > * {
+  flex: 1;
+  min-width: 0;
+  padding: 0 6px;
+}
+.act-main.pair > :first-child {
+  border-radius: 7px 0 0 7px;
+}
+.act-main.pair > :last-child {
+  border-radius: 0 7px 7px 0;
+  margin-left: -1px;
+}
+.act-main > :hover {
+  z-index: 1;
+}
+.act-more {
+  width: 28px;
 }
 .dim-label {
-  font-size: 12px;
-  color: var(--muted);
-  font-style: italic;
+  font-weight: 600;
+  color: var(--text);
 }
-.is-dim {
+.is-dim > :not(.need-actions) {
   opacity: 0.55;
 }
 .is-dim .verb {
@@ -532,6 +551,23 @@ button.primary {
 button.primary:hover:not(:disabled) {
   color: var(--on-tone);
   filter: brightness(1.08);
+}
+a.btn {
+  display: grid;
+  place-items: center;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 550;
+  text-decoration: none;
+  position: relative;
+}
+a.btn:hover {
+  border-color: color-mix(in srgb, var(--tone, var(--accent)) 60%, var(--line));
+  color: var(--tone, var(--accent));
 }
 button:disabled {
   opacity: 0.45;
@@ -1165,8 +1201,12 @@ kbd {
   button {
     height: 36px;
   }
-  .menu > summary {
+  .menu > summary,
+  .act-more {
     width: 36px;
+  }
+  .menu > summary,
+  a.btn {
     height: 36px;
   }
   .filter {
