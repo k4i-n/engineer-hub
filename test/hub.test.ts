@@ -335,7 +335,7 @@ describe("items", () => {
       ok("items", "--needs-me"),
       `#3 github/review_request | needs you | ENG-7: cap exports | open | ENG-7 | ${review}`,
     );
-    assert.match(ok("events", "ENG-7"), /\[sync\] new github\/review_request: ENG-7: cap exports/);
+    assert.match(ok("events", "ENG-7"), /\[sync\] New Review request ENG-7: cap exports/);
 
     ok("item", "close", "3");
     assert.equal(ok("items", "--needs-me"), "no items");
@@ -345,7 +345,7 @@ describe("items", () => {
     stdin = JSON.stringify({ source: "github", kind: "review_request", url: review, state: "merged" });
     assert.equal(ok("item", "put", "--stdin"), "items: 0 new, 1 changed, 0 unchanged");
     assert.match(ok("items", "--ticket", "ENG-7"), /^#3 .* \| merged \| ENG-7 \|/);
-    assert.match(ok("events", "ENG-7", "-n", "1"), /review_request: ENG-7: cap exports: open -> merged$/);
+    assert.match(ok("events", "ENG-7", "-n", "1"), /Review request ENG-7: cap exports: open → merged$/);
 
     ok("item", "snooze", "alert-991", "--for", "2h");
     assert.doesNotMatch(ok("items"), /alert-991/);
@@ -354,7 +354,7 @@ describe("items", () => {
     assert.match(hub("item", "snooze", "alert-991", "--for", "soon").err, /--for takes a duration/);
 
     ok("item", "attach", "alert-991", "ENG-42");
-    assert.match(ok("events", "ENG-42", "-n", "1"), /attached grafana\/alert: API 5xx above 2%$/);
+    assert.match(ok("events", "ENG-42", "-n", "1"), /Attached Alert API 5xx above 2%$/);
   });
 
   test("item put refuses a bad line and writes nothing from the batch", () => {
@@ -373,6 +373,22 @@ describe("items", () => {
     assert.match(refused('{"source":"slack","kind":"thread","url":"u","needs_me":"yes"}'), /needs_me must be/);
     assert.equal(ok("items", "--source", "slack"), "no items");
     assert.match(hub("item", "close", "99").err, /no item 99/);
+  });
+
+  test("a closed or snoozed item reopens", () => {
+    imported();
+    stdin = JSON.stringify({
+      source: "slack",
+      kind: "message",
+      url: "https://acme.slack.com/archives/D1/p1",
+      needs_me: true,
+    });
+    ok("item", "put", "--stdin");
+    ok("item", "close", "3");
+    ok("item", "reopen", "3");
+    ok("item", "snooze", "3");
+    ok("item", "reopen", "3");
+    assert.match(ok("items", "--needs-me"), /^#3 slack\/message \| needs you/);
   });
 });
 
@@ -398,6 +414,10 @@ describe("waits", () => {
     assert.equal(ok("waits"), "no open waits");
     assert.match(hub("wait", "close", "2").err, /no open wait 2/);
     assert.match(hub("wait", "ENG-7", "a", "u", "--ping-after", "tomorrow").err, /--ping-after takes a duration/);
+    ok("wait", "reopen", "1");
+    assert.equal(ok("wait", "pinged", "1", "--for", "4h"), "wait #1: pinged product, next ping after 2026-11-13 21:00");
+    assert.equal(ok("waits", "--due"), "no waits due");
+    assert.match(ok("events", "ENG-7", "-n", "1"), /\[log\] Pinged product$/);
   });
 });
 
@@ -574,6 +594,20 @@ describe("reads", () => {
   });
 });
 
+describe("gates", () => {
+  test("a gate answered yes or no is logged as a decision and cleared", () => {
+    imported();
+    ok("set", "ENG-7", "gate", "merge PR #120?");
+    assert.equal(ok("gate", "ENG-7", "yes"), "ENG-7 gate answered yes");
+    assert.match(ok("events", "ENG-7", "-n", "1"), /\[decision\] Yes: merge PR #120\?$/);
+    assert.equal(
+      ok("gates"),
+      "ENG-42 | GATE: waiting on design review | DECIDE: keep refresh tokens in cookie or header",
+    );
+    assert.match(hub("gate", "ENG-7", "yes").err, /has no gate/);
+  });
+});
+
 describe("config", () => {
   test("defaults on an empty DB, a valid write is stored, bad writes are refused", () => {
     assert.equal(ok("config", "timezone"), 'timezone = "Asia/Tokyo"');
@@ -586,6 +620,10 @@ describe("config", () => {
     assert.match(hub("config", "timezone", '"Mars/Base"').err, /not an IANA time zone/);
     assert.match(hub("config", "limits", '{"title":10}').err, /limits.title is not a known key/);
     assert.match(hub("config", "taskDirs", "[1]").err, /array of strings/);
+    ok("config", "openLinearIn", '"app"');
+    assert.match(hub("config", "theme", '"pink"').err, /theme must be one of system, light, dark/);
+    assert.match(hub("config", "notifyNew", '"yes"').err, /notifyNew takes a JSON boolean/);
+    assert.match(hub("config", "slackTeamId", '"acme"').err, /workspace id/);
   });
 });
 
