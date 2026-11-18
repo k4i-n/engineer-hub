@@ -285,11 +285,9 @@ body.offline .top::after {
 /* layout */
 .grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 18px;
   padding: 18px 24px 40px;
-  max-width: 1480px;
-  margin: 0 auto;
 }
 .col {
   display: flex;
@@ -374,8 +372,6 @@ h1 {
   gap: 10px;
   flex-wrap: wrap;
   padding: 20px 24px 0;
-  max-width: 1480px;
-  margin: 0 auto;
 }
 .tid {
   font-weight: 650;
@@ -1224,8 +1220,8 @@ a.chip-btn:hover {
 }
 .grip-menu {
   position: absolute;
-  top: 13px;
-  right: 1px;
+  top: 15px;
+  right: 12px;
   z-index: 3;
 }
 .grip-menu > .grip {
@@ -1250,6 +1246,10 @@ a.chip-btn:hover {
 }
 .ncard {
   padding-top: 10px;
+}
+.block .sec-head,
+.block .ngroup > summary {
+  padding-right: 24px;
 }
 .ncard .ngroup {
   margin-top: 0;
@@ -1498,9 +1498,24 @@ kbd {
     height: 32px;
     padding: 0 16px;
   }
+  .sec-head {
+    flex-wrap: wrap;
+  }
   .filter {
-    width: 120px;
+    order: 5;
+    width: 100%;
     height: 34px;
+    margin-left: 0;
+  }
+  .tabs .tab {
+    white-space: nowrap;
+  }
+  .t-title {
+    flex: 1 1 60%;
+  }
+  .chips {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
   }
   .set-row {
     flex-direction: column;
