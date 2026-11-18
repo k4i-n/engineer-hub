@@ -347,6 +347,12 @@ describe("items", () => {
     assert.match(ok("items", "--ticket", "ENG-7"), /^#3 .* \| merged \| ENG-7 \|/);
     assert.match(ok("events", "ENG-7", "-n", "1"), /review_request: ENG-7: cap exports: open -> merged$/);
 
+    ok("item", "snooze", "alert-991", "--for", "2h");
+    assert.doesNotMatch(ok("items"), /alert-991/);
+    now = new Date("2026-11-13T08:00:00Z");
+    assert.match(ok("items"), /alert-991/);
+    assert.match(hub("item", "snooze", "alert-991", "--for", "soon").err, /--for takes a duration/);
+
     ok("item", "attach", "alert-991", "ENG-42");
     assert.match(ok("events", "ENG-42", "-n", "1"), /attached grafana\/alert: API 5xx above 2%$/);
   });

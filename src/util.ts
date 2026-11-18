@@ -37,6 +37,16 @@ export function nowIso(now: Date): string {
   return now.toISOString();
 }
 
+const DURATION = /^(\d+)([mhd])$/;
+const UNIT_MS: Record<string, number> = { m: 60_000, h: 3_600_000, d: 86_400_000 };
+
+export function afterDuration(now: Date, value: string, flag: string): string {
+  const match = DURATION.exec(value);
+  const unit = UNIT_MS[match?.[2] ?? ""];
+  if (!match || unit === undefined) throw new HubError(`${flag} takes a duration such as 30m, 4h or 2d, not ${value}`);
+  return new Date(now.getTime() + Number(match[1]) * unit).toISOString();
+}
+
 export function cut(value: string, max: number): string {
   const line = value.replace(/\s*\n\s*/g, " ");
   if (line.length <= max) return line;

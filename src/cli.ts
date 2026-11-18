@@ -34,7 +34,7 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         match <id> <label> --ref <url> (--file | --stdin) | match <id> <label> (yes | no)
         posted <id> <label> [--at <when>] [--channel <c>] [--answer <text>] [--ref <url>] [--file | --stdin]
         link <id> <url> [--kind <k>] [--title <t>]
-        item put --stdin | item close <item>... | item attach <item> <id>
+        item put --stdin | item close <item>... | item snooze <item> [--for 1d] | item attach <item> <id>
         wait <id> <who> <url> [--ping-after 1d] | wait close <wait | url>
         source <name> [--cursor <c>] [--error <text>]
         step add <id> <title> | step done <id> <n> [--evidence <url>]
@@ -65,6 +65,7 @@ const OPTIONS = {
   cursor: { type: "string" },
   error: { type: "string" },
   evidence: { type: "string" },
+  for: { type: "string" },
   dir: { type: "string" },
   since: { type: "string" },
   n: { type: "string", short: "n" },
@@ -93,6 +94,7 @@ type Values = {
   cursor?: string;
   error?: string;
   evidence?: string;
+  for?: string;
   dir?: string;
   since?: string;
   n?: string;
@@ -188,10 +190,11 @@ const COMMANDS: Record<string, Handler> = {
     return items.link(ctx, arg(a, 0, usage), arg(a, 1, usage), { kind: v.kind ?? null, title: v.title ?? null });
   },
   item: (ctx, a, v, io) => {
-    const usage = "item put --stdin | item close <item>... | item attach <item> <id>";
+    const usage = "item put --stdin | item close <item>... | item snooze <item> [--for 1d] | item attach <item> <id>";
     const sub = arg(a, 0, usage);
     if (sub === "put") return items.put(ctx, body(v, io));
     if (sub === "close") return items.close(ctx, a.slice(1));
+    if (sub === "snooze") return items.snooze(ctx, arg(a, 1, usage), v.for ?? "1d");
     if (sub === "attach") return items.attach(ctx, arg(a, 1, usage), arg(a, 2, usage));
     throw new HubError(`usage: hub ${usage}`);
   },

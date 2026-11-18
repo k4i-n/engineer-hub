@@ -67,7 +67,7 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 | `hub match <id> <label> --ref <url> (--file \| --stdin)`, `hub match <id> <label> (yes \| no)` | proposes a sent message as the wording of a draft when the agent is unsure; yes marks the draft posted with it, no drops it |
 | `hub step add <id> <title>`, `hub step done <id> <n> [--evidence <url>]` | appends a step, marks one done and logs it |
 | `hub item put --stdin` | stores items read from a source, one JSON object per line (below) |
-| `hub item close <item>...`, `hub item attach <item> <id>` | marks items handled, attaches one to a ticket; `<item>` is the `#` number or the ref |
+| `hub item close <item>...`, `hub item snooze <item> [--for 1d]`, `hub item attach <item> <id>` | marks items handled, hides one for a while (a change brings it back), attaches one to a ticket; `<item>` is the `#` number or the ref |
 | `hub wait <id> <who> <url> [--ping-after 1d]`, `hub wait close <wait \| url>` | records a question asked of someone, closes it when they answer |
 | `hub source <name> [--cursor <c>] [--error <text>]` | records a sync of a source |
 | `hub day set <date> (--file \| --stdin)` | stores a day plan |
