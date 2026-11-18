@@ -4,7 +4,6 @@ const toasts = document.querySelector(".toasts");
 const UNDO = { "item-done": "item-reopen", "item-snooze": "item-reopen", "wait-close": "wait-reopen" };
 const DONE_TEXT = {
   "item-done": "Done",
-  "item-snooze": "Snoozed for a day",
   "item-reopen": "Back in the list",
   "wait-close": "Answered",
   "wait-pinged": "Pinged, reminder in a day",
@@ -13,6 +12,7 @@ const DONE_TEXT = {
   match: "Saved",
   gate: "Answered",
 };
+const SNOOZED = { "1h": "Snoozed for an hour", "4h": "Snoozed for 4 hours", "1d": "Snoozed for a day" };
 
 let seen = null;
 let selected = null;
@@ -133,6 +133,10 @@ function toast(text, opts = {}) {
   setTimeout(() => el.remove(), opts.bad ? 7000 : 5000);
 }
 
+function closeMenus(except) {
+  for (const d of app.querySelectorAll("details.menu[open]")) if (d !== except) d.open = false;
+}
+
 async function post(act, data) {
   const r = await fetch(`/api/${act}`, {
     method: "POST",
@@ -146,13 +150,16 @@ async function post(act, data) {
 async function act(button) {
   const data = { ...button.dataset };
   const name = data.act;
+  closeMenus();
   button.classList.add("busy");
   try {
     await post(name, data);
     if (name === "sync") return;
     const undo = UNDO[name];
     lastUndo = undo ? () => post(undo, { id: data.id }).then(() => toast(DONE_TEXT[undo])) : null;
-    toast(DONE_TEXT[name] ?? "Saved", { undo: lastUndo ?? undefined });
+    toast((name === "item-snooze" ? SNOOZED[data.for ?? "1d"] : DONE_TEXT[name]) ?? "Saved", {
+      undo: lastUndo ?? undefined,
+    });
   } catch (error) {
     toast(error.message, { bad: true });
   } finally {
@@ -213,6 +220,7 @@ async function saveConfig(key, value, el) {
 }
 
 document.addEventListener("click", async (e) => {
+  closeMenus(e.target.closest("details.menu"));
   const b = e.target.closest("button");
   if (b && !b.disabled) {
     if (b.dataset.copy !== undefined) {
@@ -272,7 +280,8 @@ document.addEventListener("keydown", (e) => {
     f.focus();
   } else if (e.key === ",") location.href = "/settings";
   else if (e.key === "Escape") {
-    if (location.pathname !== "/") location.href = "/";
+    if (app.querySelector("details.menu[open]")) closeMenus();
+    else if (location.pathname !== "/") location.href = "/";
     else select(null);
   } else return;
   e.preventDefault();

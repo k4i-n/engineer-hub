@@ -168,9 +168,17 @@ describe("serve", () => {
     });
     hub(["item", "put", "--stdin"], review);
     const id = /^#(\d+)/.exec(hub(["items", "--needs-me"]))?.[1] ?? "";
-    assert.match(await (await fetch(`${server.url}/`)).text(), /data-act="item-done" data-id="\d+"/);
-    assert.equal((await post("/api/item-snooze", { id })).status, 200);
+    const page = await (await fetch(`${server.url}/`)).text();
+    assert.match(page, /data-act="item-done" data-id="\d+"/);
+    assert.match(page, /<details class="menu"[^>]*><summary aria-label="More">⋯<\/summary><div class="menu-pop"><button[^>]*data-for="1h"/);
+    assert.equal((await post("/api/item-snooze", { id, for: "1h" })).status, 200);
     assert.equal(hub(["items", "--needs-me"]), "no items");
+    const db = new DatabaseSync(dbFile);
+    const row = db.prepare("SELECT snoozed_until FROM item WHERE id = ?").get(Number(id)) as { snoozed_until: string };
+    db.close();
+    const minutes = (Date.parse(row.snoozed_until) - Date.now()) / 60000;
+    assert.ok(minutes > 58 && minutes <= 60, `snoozed ${minutes} minutes`);
+    assert.equal((await post("/api/item-snooze", { id, for: "soon" })).status, 400);
     assert.equal((await post("/api/item-done", { id })).status, 200);
     assert.match(hub(["items", "--all"]), /pull\/9 \| closed$/m);
 

@@ -45,7 +45,7 @@ const ACTIONS: Record<string, (ctx: Ctx, body: Body) => Result> = {
     }),
   match: (ctx, b) => commands.resolveMatch(ctx, field(b, "ticket"), field(b, "label"), field(b, "answer")),
   "item-done": (ctx, b) => items.close(ctx, [field(b, "id")]),
-  "item-snooze": (ctx, b) => items.snooze(ctx, field(b, "id"), "1d"),
+  "item-snooze": (ctx, b) => items.snooze(ctx, field(b, "id"), typeof b.for === "string" ? b.for : "1d"),
   "item-reopen": (ctx, b) => items.reopen(ctx, field(b, "id")),
   "wait-close": (ctx, b) => waits.closeWait(ctx, field(b, "id")),
   "wait-pinged": (ctx, b) => waits.pinged(ctx, field(b, "id"), "1d"),

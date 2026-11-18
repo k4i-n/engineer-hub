@@ -129,6 +129,10 @@ function button(
   return `<button type="button" class="${opts.cls ?? ""}"${attrs}${opts.disabled ? " disabled" : ""}>${esc(label)}</button>`;
 }
 
+function menu(key: string, buttons: string): string {
+  return `<details class="menu" data-key="menu-${esc(key)}"><summary aria-label="More">⋯</summary><div class="menu-pop">${buttons}</div></details>`;
+}
+
 function pill(text: string, tone: Tone): string {
   return `<span class="pill tone-${tone}">${esc(text)}</span>`;
 }
@@ -220,7 +224,12 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
         dim !== null
           ? button("Undo", { act: "item-reopen", id: i.id, hotkey: "u" })
           : button("Done", { act: "item-done", id: i.id, hotkey: "e" }, { cls: "primary" }) +
-            button("Snooze", { act: "item-snooze", id: i.id, hotkey: "s" }),
+            menu(
+              `item-${i.id}`,
+              button("Snooze 1 hour", { act: "item-snooze", id: i.id, for: "1h" }) +
+                button("Snooze 4 hours", { act: "item-snooze", id: i.id, for: "4h" }) +
+                button("Snooze 1 day", { act: "item-snooze", id: i.id, for: "1d", hotkey: "s" }),
+            ),
     });
   }
   for (const d of matches) {
@@ -265,7 +274,7 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
         : pinged
           ? ""
           : button("Pinged", { act: "wait-pinged", id: w.id, hotkey: "e" }, { cls: "primary" }) +
-            button("Answered", { act: "wait-close", id: w.id, hotkey: "s" }),
+            menu(`wait-${w.id}`, button("Answered", { act: "wait-close", id: w.id, hotkey: "s" })),
     });
   }
   for (const t of tickets) {
