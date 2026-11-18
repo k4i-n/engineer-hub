@@ -52,6 +52,8 @@ const ACTIONS: Record<string, (ctx: Ctx, body: Body) => Result> = {
   "wait-reopen": (ctx, b) => waits.reopenWait(ctx, field(b, "id")),
   gate: (ctx, b) => commands.answerGate(ctx, field(b, "ticket"), field(b, "answer")),
   config: (ctx, b) => {
+    if (field(b, "key") === "syncCommand")
+      throw new HubError("syncCommand is set from the terminal: hub config syncCommand");
     setConfig(ctx.db, field(b, "key"), field(b, "value"), ctx.now);
     return { text: "saved", json: { key: b.key } };
   },

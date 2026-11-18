@@ -1037,6 +1037,12 @@ textarea.text {
   width: 100%;
   resize: vertical;
 }
+pre.text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
 .path {
   overflow-wrap: anywhere;
   flex: 1;

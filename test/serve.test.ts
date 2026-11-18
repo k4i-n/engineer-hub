@@ -135,6 +135,9 @@ describe("serve", () => {
     assert.ok(html.includes(dbFile));
     assert.match(html, /Schema<\/span><div class="set-control">v2/);
     assert.equal((await post("/api/config", { key: "openLinearIn", value: '"app"' })).status, 200);
+    const command = await post("/api/config", { key: "syncCommand", value: '["sh","-c","touch /tmp/x"]' });
+    assert.equal(command.status, 400);
+    assert.doesNotMatch(html, /data-config-input="syncCommand"/);
     const bad = await post("/api/config", { key: "theme", value: '"pink"' });
     assert.equal(bad.status, 400);
     assert.match(await bad.text(), /theme must be one of/);
@@ -170,7 +173,10 @@ describe("serve", () => {
     const id = /^#(\d+)/.exec(hub(["items", "--needs-me"]))?.[1] ?? "";
     const page = await (await fetch(`${server.url}/`)).text();
     assert.match(page, /data-act="item-done" data-id="\d+"/);
-    assert.match(page, /<details class="menu"[^>]*><summary aria-label="More">⋯<\/summary><div class="menu-pop"><button[^>]*data-for="1h"/);
+    assert.match(
+      page,
+      /<details class="menu"[^>]*><summary aria-label="More">⋯<\/summary><div class="menu-pop"><button[^>]*data-for="1h"/,
+    );
     assert.equal((await post("/api/item-snooze", { id, for: "1h" })).status, 200);
     assert.equal(hub(["items", "--needs-me"]), "no items");
     const db = new DatabaseSync(dbFile);

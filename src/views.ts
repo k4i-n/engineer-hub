@@ -641,12 +641,7 @@ ${section(
 )}
 </div>
 <div class="col">
-${section(
-  "Sync",
-  null,
-  `<textarea class="text code" rows="4" data-config-input="syncCommand" data-json spellcheck="false">${esc(JSON.stringify(c.syncCommand))}</textarea>`,
-  "set-sec",
-)}
+${section("Sync", null, `<pre class="text code">${esc(JSON.stringify(c.syncCommand))}</pre>`, "set-sec")}
 ${section(
   "Database",
   null,
