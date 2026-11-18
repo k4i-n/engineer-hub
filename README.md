@@ -97,6 +97,7 @@ Config lives in the database. `hub config` lists every key with its value:
 | `openDirs` | `["inprogress","todo","triage","backlog","unfiled"]` | dirs `hub board` shows, in order |
 | `limits` | see Limits | write-time field limits |
 | `trackerHosts` | `["linear.app"]` | URLs whose links count as the tracker |
+| `syncCommand` | `claude -p /engineer-hub:hub-sync …` | what the dashboard's Sync runs |
 | `stateFields`, `sections`, `trackerSyncMarkers`, `planDir`, `resumeHeading` | | markdown conventions the importer reads |
 
 ## Items from connectors
@@ -131,6 +132,20 @@ The repository is a Claude Code plugin with two skills:
 ```
 
 The skills call `hub`, so it must be on `PATH`.
+
+## Dashboard
+
+```sh
+hub serve                # http://127.0.0.1:7420, --port to change
+```
+
+A live page on this machine only: what needs you (review requests, mentions, alerts, pings that are due, proposed draft matches, gates), every open ticket with step progress, next step, PR and Slack chips, today's plan, drafts with Copy and Sent, and what changed since yesterday; one page per ticket with state, steps, timeline, items, waits, drafts and notes. Any write, from the CLI, an agent or the page, shows within a second.
+
+Sync runs `syncCommand` (default `claude -p /engineer-hub:hub-sync` with `hub` and `gh` read commands allowed), once at a time, with `HUB_DB` pointing at the served database. Each run spends Claude usage. A headless run can use only the tools it is allowed, so add each connector you sync from:
+
+```sh
+hub config syncCommand '["claude","-p","/engineer-hub:hub-sync","--allowedTools","Bash(hub:*),Bash(gh search:*),Bash(gh pr view:*),mcp__claude_ai_Slack,mcp__claude_ai_Linear,mcp__claude_ai_Gmail"]'
+```
 
 ## Import from a markdown ticket folder
 
