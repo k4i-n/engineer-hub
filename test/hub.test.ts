@@ -392,6 +392,26 @@ describe("waits", () => {
   });
 });
 
+describe("sources", () => {
+  test("a sync records its time and cursor, an error keeps the cursor, the next clean sync clears the error", () => {
+    assert.equal(ok("sources"), "no sources synced yet");
+    ok("source", "github", "--cursor", "2026-11-13T05:00:00Z");
+    now = new Date("2026-11-13T06:00:00Z");
+    assert.equal(ok("source", "github", "--error", "gh: rate limited"), "source github synced, with error");
+    ok("source", "slack", "--cursor", "1763011200.0001");
+    assert.equal(
+      ok("sources"),
+      [
+        "github | last sync 2026-11-13 15:00 | cursor 2026-11-13T05:00:00Z | error: gh: rate limited",
+        "slack | last sync 2026-11-13 15:00 | cursor 1763011200.0001",
+      ].join("\n"),
+    );
+    ok("source", "github");
+    assert.match(ok("sources"), /^github \| last sync 2026-11-13 15:00 \| cursor 2026-11-13T05:00:00Z$/m);
+    assert.match(hub("source", "GitHub").err, /source must be a lowercase name/);
+  });
+});
+
 describe("reads", () => {
   test("board prints the exact line for the rich ticket", () => {
     imported();

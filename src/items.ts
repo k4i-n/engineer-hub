@@ -1,6 +1,7 @@
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import type { Ctx, Result } from "./commands.ts";
 import { all, getTicket, type ItemRow, one, transaction } from "./db.ts";
+import { SOURCE_NAME } from "./sources.ts";
 import { cut, HubError, linkKind, linkSource, nowIso, nowTs } from "./util.ts";
 
 export const ITEM_KINDS = [
@@ -30,7 +31,6 @@ export type ItemInput = {
 
 export type Upsert = "new" | "changed" | "unchanged";
 
-const SOURCE_NAME = /^[a-z][a-z0-9-]{0,39}$/;
 const MAX_TITLE = 240;
 const MAX_LENGTH: Record<string, number> = { ref: 2048, url: 2048, state: 60, author: 120 };
 const INPUT_KEYS = ["source", "ref", "kind", "title", "url", "state", "author", "ticket", "needs_me"];

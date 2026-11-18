@@ -8,6 +8,7 @@ import { dbPath, loadConfig } from "./config.ts";
 import { openDb } from "./db.ts";
 import { applyImport, collectImport, countPlan, formatSummary } from "./importer.ts";
 import * as items from "./items.ts";
+import * as sources from "./sources.ts";
 import { HubError } from "./util.ts";
 import * as waits from "./waits.ts";
 
@@ -23,7 +24,7 @@ const USAGE = `usage: hub <command> [args] [--json] [--db <path>]
 read:   ticket <id> | board [regex] | next | gates | changed --since <YYYY-MM-DD|yesterday|today>
         search <query> [-n 10] | events <id> [-n 20] [--full] | notes <id> | note-show <id> <title>
         drafts [id] | draft-show <id> <label> | day [date] | lint | config [key]
-        items [--needs-me] [--source <s>] [--ticket <id>] [--all] | waits [--due]
+        items [--needs-me] [--source <s>] [--ticket <id>] [--all] | waits [--due] | sources
 write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent] [--ref <url>]
         note <id> <title> (--file <path> | --stdin) [--kind detail]
         draft <id> <label> (--file <path> | --stdin) [--channel <c>]
@@ -31,6 +32,7 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         link <id> <url> [--kind <k>] [--title <t>]
         item put --stdin | item close <item>... | item attach <item> <id>
         wait <id> <who> <url> [--ping-after 1d] | wait close <wait | url>
+        source <name> [--cursor <c>] [--error <text>]
         day set <date> (--file <path> | --stdin) | ticket-new <id> <title> [--dir todo]
         move <id> <dir> | config <key> <json>
 import: import --root <dir> [--apply]`;
@@ -55,6 +57,8 @@ const OPTIONS = {
   ticket: { type: "string" },
   "ping-after": { type: "string" },
   due: { type: "boolean" },
+  cursor: { type: "string" },
+  error: { type: "string" },
   dir: { type: "string" },
   since: { type: "string" },
   n: { type: "string", short: "n" },
@@ -80,6 +84,8 @@ type Values = {
   ticket?: string;
   "ping-after"?: string;
   due?: boolean;
+  cursor?: string;
+  error?: string;
   dir?: string;
   since?: string;
   n?: string;
@@ -188,6 +194,12 @@ const COMMANDS: Record<string, Handler> = {
     return waits.wait(ctx, arg(a, 0, usage), arg(a, 1, usage), arg(a, 2, usage), v["ping-after"] ?? null);
   },
   waits: (ctx, _a, v) => waits.waits(ctx, v.due === true),
+  source: (ctx, a, v) =>
+    sources.synced(ctx, arg(a, 0, "source <name> [--cursor <c>] [--error <text>]"), {
+      cursor: v.cursor ?? null,
+      error: v.error ?? null,
+    }),
+  sources: (ctx) => sources.sources(ctx),
   "ticket-new": (ctx, a, v) => {
     const usage = "ticket-new <id> <title>";
     return commands.ticketNew(ctx, arg(a, 0, usage), a.slice(1).join(" ") || arg(a, 1, usage), v.dir ?? "todo");
