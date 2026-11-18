@@ -87,8 +87,10 @@ describe("serve", () => {
     assert.match(html, /Needs you/);
     assert.match(html, /href="\/t\/ENG-42">ENG-42<\/a><span class="t-title">Sync login sessions across devices/);
     assert.match(html, /waiting on design review/);
-    const nonce = /script-src 'nonce-([^']+)'/.exec(index.headers.get("content-security-policy") ?? "")?.[1];
-    assert.ok(nonce !== undefined && html.includes(`<script nonce="${nonce}">`));
+    assert.match(index.headers.get("content-security-policy") ?? "", /script-src 'self'/);
+    assert.match(html, /<script src="\/app.js" defer><\/script>/);
+    assert.equal((await fetch(`${server.url}/app.js`)).headers.get("content-type"), "text/javascript; charset=utf-8");
+    assert.match(await (await fetch(`${server.url}/app.css`)).text(), /--accent/);
 
     const part = await (await fetch(`${server.url}/?part=1`)).text();
     assert.doesNotMatch(part, /<!doctype|<script/);
@@ -97,6 +99,50 @@ describe("serve", () => {
     assert.match(ticket, /<h1>Sync login sessions across devices<\/h1>/);
     assert.match(ticket, /Timeline/);
     assert.equal((await fetch(`${server.url}/t/NOPE-1`)).status, 404);
+  });
+
+  test("needs you ranks by kind, keeps done rows in place dimmed with undo, and answers gates", async () => {
+    const lines = [
+      {
+        source: "github",
+        kind: "review_request",
+        url: "https://github.com/acme/web/pull/9",
+        title: "Retry webhook",
+        needs_me: true,
+      },
+      { source: "grafana", kind: "alert", ref: "alert-1", title: "API 5xx", needs_me: true },
+    ];
+    hub(["item", "put", "--stdin"], lines.map((l) => JSON.stringify(l)).join("\n"));
+    const verbs = (html: string) => [...html.matchAll(/<span class="verb">([^<]+)<\/span>/g)].map((m) => m[1]);
+    const before = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.deepEqual(verbs(before).slice(0, 2), ["Alert", "Review"]);
+    assert.match(before, /data-needs-count="4"/);
+    const id = /data-act="item-done" data-id="(\d+)"[^>]*>Done/.exec(before)?.[1] ?? "";
+    await post("/api/item-done", { id });
+    const after = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.deepEqual(verbs(after), verbs(before));
+    assert.match(
+      after,
+      /is-dim[^>]*data-key="item-\d+"[\s\S]*?<span class="dim-label">done<\/span><button[^>]*data-act="item-reopen"/,
+    );
+    assert.match(after, /data-needs-count="3"/);
+    assert.equal((await post("/api/gate", { ticket: "ENG-42", answer: "yes" })).status, 200);
+    assert.match(await (await fetch(`${server.url}/?part=1`)).text(), /<span class="dim-label">yes<\/span>/);
+  });
+
+  test("settings show the database and save config through the same checks as the CLI", async () => {
+    const html = await (await fetch(`${server.url}/settings`)).text();
+    assert.ok(html.includes(dbFile));
+    assert.match(html, /Schema<\/span><div class="set-control">v2/);
+    assert.equal((await post("/api/config", { key: "openLinearIn", value: '"app"' })).status, 200);
+    const bad = await post("/api/config", { key: "theme", value: '"pink"' });
+    assert.equal(bad.status, 400);
+    assert.match(await bad.text(), /theme must be one of/);
+    hub(
+      ["item", "put", "--stdin"],
+      JSON.stringify({ source: "linear", kind: "issue", url: "https://linear.app/acme/issue/ENG-7", needs_me: true }),
+    );
+    assert.match(await (await fetch(`${server.url}/?part=1`)).text(), /href="linear:\/\/acme\/issue\/ENG-7"/);
   });
 
   test("text from the DB is escaped", async () => {
@@ -163,7 +209,7 @@ describe("serve", () => {
     setCommand(["node", "-e", "setTimeout(() => process.stdout.write(process.env.HUB_DB), 300)"]);
     assert.equal((await post("/api/sync", {})).status, 202);
     assert.equal((await post("/api/sync", {})).status, 409);
-    assert.match(await (await fetch(`${server.url}/?part=1`)).text(), /Syncing…/);
+    assert.match(await (await fetch(`${server.url}/?part=1`)).text(), /class="top syncing"[\s\S]*disabled>Syncing</);
     const finished = await waitFor(async () => {
       const s = await syncState();
       return s.status === "running" ? undefined : s;
