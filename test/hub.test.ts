@@ -315,6 +315,56 @@ describe("items", () => {
     assert.match(ok("ticket", "ENG-42"), /^items: 3 open, 0 need you$/m);
     assert.match(hub("link", "ENG-7", url, "--kind", "page").err, /--kind must be one of/);
   });
+  test("item put stores a sync delta once, matches tickets by id and logs new and changed items", () => {
+    imported();
+    const review = "https://github.com/acme/web/pull/130";
+    stdin = [
+      JSON.stringify({
+        source: "github",
+        kind: "review_request",
+        url: review,
+        title: "ENG-7: cap exports",
+        state: "open",
+        needs_me: true,
+      }),
+      JSON.stringify({ source: "grafana", kind: "alert", ref: "alert-991", title: "API 5xx above 2%" }),
+    ].join("\n");
+    assert.equal(ok("item", "put", "--stdin"), "items: 2 new, 0 changed, 0 unchanged");
+    assert.equal(ok("item", "put", "--stdin"), "items: 0 new, 0 changed, 2 unchanged");
+    assert.equal(
+      ok("items", "--needs-me"),
+      `#3 github/review_request | needs you | ENG-7: cap exports | open | ENG-7 | ${review}`,
+    );
+    assert.match(ok("events", "ENG-7"), /\[sync\] new github\/review_request: ENG-7: cap exports/);
+
+    ok("item", "close", "3");
+    assert.equal(ok("items", "--needs-me"), "no items");
+    stdin = JSON.stringify({ source: "github", kind: "review_request", url: review, state: "merged" });
+    assert.equal(ok("item", "put", "--stdin"), "items: 0 new, 1 changed, 0 unchanged");
+    assert.match(ok("items", "--ticket", "ENG-7"), /^#3 .* \| merged \| ENG-7 \|/);
+    assert.match(ok("events", "ENG-7", "-n", "1"), /review_request: ENG-7: cap exports: open -> merged$/);
+
+    ok("item", "attach", "alert-991", "ENG-42");
+    assert.match(ok("events", "ENG-42", "-n", "1"), /attached grafana\/alert: API 5xx above 2%$/);
+  });
+
+  test("item put refuses a bad line and writes nothing from the batch", () => {
+    imported();
+    const good = JSON.stringify({ source: "slack", kind: "thread", url: "https://acme.slack.com/archives/C1/p1" });
+    const refused = (line: string) => {
+      stdin = `${good}\n${line}`;
+      return hub("item", "put", "--stdin").err;
+    };
+    assert.match(refused("{nope"), /^line 2: not JSON$/);
+    assert.match(refused('{"source":"slack","kind":"thread","url":"u","colour":1}'), /unknown key colour/);
+    assert.match(refused('{"source":"slack","kind":"chat","url":"u"}'), /kind must be one of/);
+    assert.match(refused('{"source":"Slack!","kind":"thread","url":"u"}'), /source must be a lowercase name/);
+    assert.match(refused('{"source":"slack","kind":"thread"}'), /give ref or url/);
+    assert.match(refused('{"source":"slack","kind":"thread","url":"u","ticket":"ENG-9"}'), /no ticket ENG-9/);
+    assert.match(refused('{"source":"slack","kind":"thread","url":"u","needs_me":"yes"}'), /needs_me must be/);
+    assert.equal(ok("items", "--source", "slack"), "no items");
+    assert.match(hub("item", "close", "99").err, /no item 99/);
+  });
 });
 
 describe("reads", () => {

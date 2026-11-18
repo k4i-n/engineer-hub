@@ -28,6 +28,7 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         draft <id> <label> (--file <path> | --stdin) [--channel <c>]
         posted <id> <label> [--at <when>] [--channel <c>] [--answer <text>] [--ref <url>] [--file | --stdin]
         link <id> <url> [--kind <k>] [--title <t>]
+        item put --stdin | item close <item>... | item attach <item> <id>
         day set <date> (--file <path> | --stdin) | ticket-new <id> <title> [--dir todo]
         move <id> <dir> | config <key> <json>
 import: import --root <dir> [--apply]`;
@@ -166,6 +167,14 @@ const COMMANDS: Record<string, Handler> = {
   link: (ctx, a, v) => {
     const usage = "link <id> <url>";
     return items.link(ctx, arg(a, 0, usage), arg(a, 1, usage), { kind: v.kind ?? null, title: v.title ?? null });
+  },
+  item: (ctx, a, v, io) => {
+    const usage = "item put --stdin | item close <item>... | item attach <item> <id>";
+    const sub = arg(a, 0, usage);
+    if (sub === "put") return items.put(ctx, body(v, io));
+    if (sub === "close") return items.close(ctx, a.slice(1));
+    if (sub === "attach") return items.attach(ctx, arg(a, 1, usage), arg(a, 2, usage));
+    throw new HubError(`usage: hub ${usage}`);
   },
   "ticket-new": (ctx, a, v) => {
     const usage = "ticket-new <id> <title>";
