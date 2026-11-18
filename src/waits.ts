@@ -53,6 +53,40 @@ export function wait(ctx: Ctx, id: string, who: string, url: string, ping: strin
   };
 }
 
+function openWait(ctx: Ctx, key: string): WaitRow {
+  const row = /^\d+$/.test(key)
+    ? one<WaitRow>(ctx.db, "SELECT * FROM wait WHERE id = ?", Number(key))
+    : one<WaitRow>(ctx.db, "SELECT * FROM wait WHERE url = ? ORDER BY closed_at IS NOT NULL, id DESC", key);
+  if (!row) throw new HubError(`no wait ${key} (hub waits lists them)`);
+  return row;
+}
+
+export function pinged(ctx: Ctx, key: string, again: string): Result {
+  const w = openWait(ctx, key);
+  if (w.closed_at !== null) throw new HubError(`wait #${w.id} is closed`);
+  const after = afterDuration(ctx.now, again, "--for");
+  const at = nowIso(ctx.now);
+  transaction(ctx.db, () => {
+    ctx.db.prepare("UPDATE wait SET ping_after = ? WHERE id = ?").run(after, w.id);
+    ctx.db
+      .prepare(
+        "INSERT INTO event(ticket_id, ts, kind, text, source, ref, created_at) VALUES (?, ?, 'log', ?, 'human', ?, ?)",
+      )
+      .run(w.ticket_id, nowTs(ctx.now, ctx.config.timezone), `Pinged ${w.who}`, w.url, at);
+    ctx.db.prepare("UPDATE ticket SET updated_at = ? WHERE id = ?").run(at, w.ticket_id);
+  });
+  return {
+    text: `wait #${w.id}: pinged ${w.who}, next ping after ${shown(ctx, after)}`,
+    json: { id: w.id, ping_after: after },
+  };
+}
+
+export function reopenWait(ctx: Ctx, key: string): Result {
+  const w = openWait(ctx, key);
+  ctx.db.prepare("UPDATE wait SET closed_at = NULL WHERE id = ?").run(w.id);
+  return { text: `wait #${w.id} reopened`, json: { id: w.id } };
+}
+
 export function closeWait(ctx: Ctx, key: string): Result {
   const rows = /^\d+$/.test(key)
     ? all<WaitRow>(ctx.db, "SELECT * FROM wait WHERE id = ? AND closed_at IS NULL", Number(key))

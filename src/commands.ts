@@ -347,6 +347,22 @@ export function resolveMatch(ctx: Ctx, id: string, label: string, answer: string
   return result;
 }
 
+export function answerGate(ctx: Ctx, id: string, answer: string): Result {
+  oneOf("answer", answer, ["yes", "no"]);
+  const t = getTicket(ctx.db, id);
+  if (!has(t.gate)) throw new HubError(`${id} has no gate`);
+  const at = nowIso(ctx.now);
+  ctx.db
+    .prepare(
+      "INSERT INTO event(ticket_id, ts, kind, text, source, created_at) VALUES (?, ?, 'decision', ?, 'human', ?)",
+    )
+    .run(id, nowTs(ctx.now, ctx.config.timezone), `${answer === "yes" ? "Yes" : "No"}: ${t.gate}`, at);
+  ctx.db
+    .prepare("UPDATE ticket SET gate = '-', updated = ?, updated_at = ? WHERE id = ?")
+    .run(today(ctx.now, ctx.config.timezone), at, id);
+  return { text: `${id} gate answered ${answer}`, json: { id, gate: t.gate, answer } };
+}
+
 export type LogOptions = { kind: string; source: string; ref: string | null };
 
 export function log(ctx: Ctx, id: string, text: string, options: LogOptions): Result {

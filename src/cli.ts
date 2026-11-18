@@ -35,12 +35,12 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         match <id> <label> --ref <url> (--file | --stdin) | match <id> <label> (yes | no)
         posted <id> <label> [--at <when>] [--channel <c>] [--answer <text>] [--ref <url>] [--file | --stdin]
         link <id> <url> [--kind <k>] [--title <t>]
-        item put --stdin | item close <item>... | item snooze <item> [--for 1d] | item attach <item> <id>
-        wait <id> <who> <url> [--ping-after 1d] | wait close <wait | url>
+        item put --stdin | item close <item>... | item snooze <item> [--for 1d] | item reopen <item> | item attach <item> <id>
+        wait <id> <who> <url> [--ping-after 1d] | wait close <wait | url> | wait pinged <wait> [--for 1d] | wait reopen <wait>
         source <name> [--cursor <c>] [--error <text>]
         step add <id> <title> | step done <id> <n> [--evidence <url>]
         day set <date> (--file <path> | --stdin) | ticket-new <id> <title> [--dir todo]
-        move <id> <dir> | config <key> <json>
+        move <id> <dir> | gate <id> (yes | no) | config <key> <json>
 import: import --root <dir> [--apply]
 serve:  serve [--port 7420]`;
 
@@ -194,16 +194,20 @@ const COMMANDS: Record<string, Handler> = {
     return items.link(ctx, arg(a, 0, usage), arg(a, 1, usage), { kind: v.kind ?? null, title: v.title ?? null });
   },
   item: (ctx, a, v, io) => {
-    const usage = "item put --stdin | item close <item>... | item snooze <item> [--for 1d] | item attach <item> <id>";
+    const usage =
+      "item put --stdin | item close <item>... | item snooze <item> [--for 1d] | item reopen <item> | item attach <item> <id>";
     const sub = arg(a, 0, usage);
     if (sub === "put") return items.put(ctx, body(v, io));
     if (sub === "close") return items.close(ctx, a.slice(1));
     if (sub === "snooze") return items.snooze(ctx, arg(a, 1, usage), v.for ?? "1d");
+    if (sub === "reopen") return items.reopen(ctx, arg(a, 1, usage));
     if (sub === "attach") return items.attach(ctx, arg(a, 1, usage), arg(a, 2, usage));
     throw new HubError(`usage: hub ${usage}`);
   },
   wait: (ctx, a, v) => {
     if (a[0] === "close") return waits.closeWait(ctx, arg(a, 1, "wait close <wait | url>"));
+    if (a[0] === "pinged") return waits.pinged(ctx, arg(a, 1, "wait pinged <wait> [--for 1d]"), v.for ?? "1d");
+    if (a[0] === "reopen") return waits.reopenWait(ctx, arg(a, 1, "wait reopen <wait>"));
     const usage = "wait <id> <who> <url> [--ping-after 1d]";
     return waits.wait(ctx, arg(a, 0, usage), arg(a, 1, usage), arg(a, 2, usage), v["ping-after"] ?? null);
   },
@@ -234,6 +238,7 @@ const COMMANDS: Record<string, Handler> = {
     const usage = "ticket-new <id> <title>";
     return commands.ticketNew(ctx, arg(a, 0, usage), a.slice(1).join(" ") || arg(a, 1, usage), v.dir ?? "todo");
   },
+  gate: (ctx, a) => commands.answerGate(ctx, arg(a, 0, "gate <id> (yes | no)"), arg(a, 1, "gate <id> (yes | no)")),
   move: (ctx, a) => commands.move(ctx, arg(a, 0, "move <id> <dir>"), arg(a, 1, "move <id> <dir>")),
   import: (ctx, _a, v) => {
     const plan = collectImport(ctx.db, root(v), ctx.config, ctx.now);
