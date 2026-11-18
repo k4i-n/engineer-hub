@@ -409,7 +409,7 @@ a.chip:hover {
 /* needs */
 .need {
   display: grid;
-  grid-template-columns: 82px minmax(0, 1fr) 76px auto;
+  grid-template-columns: 82px minmax(0, 1fr) 76px 30px 100px;
   align-items: center;
   gap: 10px;
   padding: 9px 8px 9px 10px;
@@ -463,38 +463,54 @@ a.need-title:hover {
 .need-ticket {
   text-align: right;
 }
-.need-actions {
+.need-line {
   display: flex;
   align-items: center;
-  gap: 6px;
-}
-.act-main {
-  display: flex;
-  width: 96px;
-}
-.act-main > * {
-  flex: 1;
+  gap: 5px;
   min-width: 0;
-  padding: 0 6px;
 }
-.act-main.pair > :first-child {
-  border-radius: 7px 0 0 7px;
+.need-age {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
-.act-main.pair > :last-child {
-  border-radius: 0 7px 7px 0;
-  margin-left: -1px;
+.rail {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
 }
-.act-main > :hover {
-  z-index: 1;
+.ask {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+  font-size: 12px;
+  color: var(--muted);
 }
-.act-more {
-  width: 28px;
+.pinmark {
+  display: inline-flex;
+  flex: none;
+  color: var(--accent);
+}
+.pinmark svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.need.pinned {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
 }
 .dim-label {
   font-weight: 600;
   color: var(--text);
 }
-.is-dim > :not(.need-actions) {
+.is-dim > :not(.rail) {
   opacity: 0.55;
 }
 .is-dim .verb {
@@ -551,23 +567,6 @@ button.primary {
 button.primary:hover:not(:disabled) {
   color: var(--on-tone);
   filter: brightness(1.08);
-}
-a.btn {
-  display: grid;
-  place-items: center;
-  height: 28px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: var(--panel);
-  color: var(--text);
-  font-size: 12.5px;
-  font-weight: 550;
-  text-decoration: none;
-  position: relative;
-}
-a.btn:hover {
-  border-color: color-mix(in srgb, var(--tone, var(--accent)) 60%, var(--line));
-  color: var(--tone, var(--accent));
 }
 button:disabled {
   opacity: 0.45;
@@ -940,25 +939,80 @@ summary {
 }
 .menu > summary {
   list-style: none;
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
-  border: 1px solid var(--line);
-  background: var(--panel);
-  color: var(--muted);
-  font-weight: 700;
-  cursor: pointer;
-  user-select: none;
 }
 .menu > summary::-webkit-details-marker {
   display: none;
 }
-.menu > summary:hover,
-.menu[open] > summary {
-  border-color: color-mix(in srgb, var(--tone, var(--accent)) 60%, var(--line));
-  color: var(--tone, var(--accent));
+.ic {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  min-width: 0;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.ic svg,
+.menu-pop svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ic svg {
+  width: 17px;
+  height: 17px;
+}
+.ic:disabled {
+  opacity: 0.22;
+}
+.ic-ok:hover:not(:disabled) {
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 13%, transparent);
+}
+.ic-later:hover:not(:disabled) {
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 15%, transparent);
+}
+.ic-undo:hover:not(:disabled) {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+}
+.ic-more:hover,
+.menu[open] > .ic-more {
+  color: var(--text);
+  background: color-mix(in srgb, var(--muted) 16%, transparent);
+}
+.chip-btn {
+  display: inline-grid;
+  place-items: center;
+  min-width: 0;
+  height: 24px;
+  padding: 0 11px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.chip-btn.ans-yes:hover:not(:disabled) {
+  border-color: var(--green);
+  color: var(--green);
+}
+.chip-btn.ans-no:hover:not(:disabled) {
+  border-color: var(--red);
+  color: var(--red);
+}
+a.chip-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .menu-pop {
   position: absolute;
@@ -967,18 +1021,42 @@ summary {
   z-index: 20;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  min-width: 150px;
+  min-width: 230px;
   padding: 4px;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: 10px;
   background: var(--panel);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 18%);
 }
 .menu-pop button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   width: 100%;
-  text-align: left;
-  border-color: transparent;
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 450;
+  white-space: nowrap;
+}
+.menu-pop button:hover:not(:disabled) {
+  background: var(--sunk);
+  color: var(--text);
+}
+.menu-pop svg {
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+}
+.menu-pop .key {
+  margin-left: auto;
+  font:
+    11px ui-monospace,
+    monospace;
+  color: var(--muted);
 }
 
 /* settings */
@@ -1176,8 +1254,8 @@ kbd {
     display: none;
   }
   .need {
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    grid-template-areas: "verb ticket actions" "main main main";
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    grid-template-areas: "verb ticket age rail" "main main main main";
     row-gap: 6px;
   }
   .verb {
@@ -1187,9 +1265,11 @@ kbd {
     grid-area: ticket;
     text-align: left;
   }
-  .need-actions {
-    grid-area: actions;
-    min-width: 0;
+  .need-age {
+    grid-area: age;
+  }
+  .rail {
+    grid-area: rail;
   }
   .need-main {
     grid-area: main;
@@ -1201,13 +1281,13 @@ kbd {
   button {
     height: 36px;
   }
-  .menu > summary,
-  .act-more {
+  .ic {
     width: 36px;
-  }
-  .menu > summary,
-  a.btn {
     height: 36px;
+  }
+  .chip-btn {
+    height: 32px;
+    padding: 0 16px;
   }
   .filter {
     width: 120px;

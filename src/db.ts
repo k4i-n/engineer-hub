@@ -145,6 +145,7 @@ CREATE TABLE step(id INTEGER PRIMARY KEY, ticket_id TEXT NOT NULL, n INTEGER NOT
   done_at TEXT, evidence TEXT, created_at TEXT NOT NULL, UNIQUE(ticket_id, n));
 CREATE TABLE source(name TEXT PRIMARY KEY, cursor TEXT, last_sync TEXT NOT NULL, last_error TEXT);
 CREATE TABLE day(date TEXT PRIMARY KEY, resume TEXT, body TEXT, updated_at TEXT);
+CREATE TABLE pin(key TEXT PRIMARY KEY, pinned_at TEXT NOT NULL);
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE config(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT);
 ${ftsTable("ticket", "ticket_fts", "rowid", ["id", "title", "status", "next", "gate", "decide"])}

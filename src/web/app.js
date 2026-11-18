@@ -2,17 +2,19 @@ const token = document.querySelector('meta[name="hub-token"]').content;
 const app = document.getElementById("app");
 const toasts = document.querySelector(".toasts");
 const UNDO = { "item-done": "item-reopen", "item-snooze": "item-reopen", "wait-close": "wait-reopen" };
+const LATER_TOAST = {
+  "item-snooze": { "1h": "Snoozed for an hour", "4h": "Snoozed for 4 hours", tomorrow: "Snoozed until tomorrow" },
+  "wait-pinged": { "1h": "Reminder in an hour", "4h": "Reminder in 4 hours", tomorrow: "Reminder tomorrow" },
+};
 const DONE_TEXT = {
   "item-done": "Done",
   "item-reopen": "Back in the list",
   "wait-close": "Answered",
-  "wait-pinged": "Pinged, reminder in a day",
   "wait-reopen": "Back in the list",
   sent: "Marked sent",
   match: "Saved",
   gate: "Answered",
 };
-const SNOOZED = { "1h": "Snoozed for an hour", "4h": "Snoozed for 4 hours", "1d": "Snoozed for a day" };
 
 let seen = null;
 let selected = null;
@@ -157,7 +159,9 @@ async function act(button) {
     if (name === "sync") return;
     const undo = UNDO[name];
     lastUndo = undo ? () => post(undo, { id: data.id }).then(() => toast(DONE_TEXT[undo])) : null;
-    toast((name === "item-snooze" ? SNOOZED[data.for ?? "1d"] : DONE_TEXT[name]) ?? "Saved", {
+    const text =
+      name === "pin" ? (data.on === "1" ? "Pinned" : "Unpinned") : (LATER_TOAST[name]?.[data.for] ?? DONE_TEXT[name]);
+    toast(text ?? "Saved", {
       undo: lastUndo ?? undefined,
     });
   } catch (error) {
@@ -223,7 +227,13 @@ document.addEventListener("click", async (e) => {
   closeMenus(e.target.closest("details.menu"));
   const b = e.target.closest("button");
   if (b && !b.disabled) {
+    if (b.dataset.open !== undefined) {
+      closeMenus();
+      open(b.dataset.open, true);
+      return;
+    }
     if (b.dataset.copy !== undefined) {
+      closeMenus();
       await navigator.clipboard.writeText(b.dataset.copy);
       toast("Copied");
       return;
@@ -264,7 +274,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "j" || e.key === "ArrowDown") select(list[Math.min(current + 1, list.length - 1)] ?? list[0]);
   else if (e.key === "k" || e.key === "ArrowUp") select(list[Math.max(current - 1, 0)]);
   else if ((e.key === "Enter" || e.key === "o") && li) open(li.dataset.href, true);
-  else if ((e.key === "e" || e.key === "s") && li) {
+  else if (["e", "s", "y", "n", "p"].includes(e.key) && li) {
     const b = li.querySelector(`button[data-hotkey="${e.key}"]:not(:disabled)`);
     if (b) act(b);
   } else if (e.key === "u") {

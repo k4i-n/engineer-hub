@@ -8,6 +8,7 @@ import * as commands from "./commands.ts";
 import { loadConfig, setConfig } from "./config.ts";
 import { one, openDb, SCHEMA_VERSION } from "./db.ts";
 import * as items from "./items.ts";
+import * as pins from "./pins.ts";
 import { HubError, nowIso } from "./util.ts";
 import { indexBody, page, type SyncState, settingsBody, ticketBody } from "./views.ts";
 import * as waits from "./waits.ts";
@@ -45,10 +46,11 @@ const ACTIONS: Record<string, (ctx: Ctx, body: Body) => Result> = {
     }),
   match: (ctx, b) => commands.resolveMatch(ctx, field(b, "ticket"), field(b, "label"), field(b, "answer")),
   "item-done": (ctx, b) => items.close(ctx, [field(b, "id")]),
+  pin: (ctx, b) => pins.setPin(ctx, field(b, "key"), field(b, "on") === "1"),
   "item-snooze": (ctx, b) => items.snooze(ctx, field(b, "id"), typeof b.for === "string" ? b.for : "1d"),
   "item-reopen": (ctx, b) => items.reopen(ctx, field(b, "id")),
   "wait-close": (ctx, b) => waits.closeWait(ctx, field(b, "id")),
-  "wait-pinged": (ctx, b) => waits.pinged(ctx, field(b, "id"), "1d"),
+  "wait-pinged": (ctx, b) => waits.pinged(ctx, field(b, "id"), typeof b.for === "string" ? b.for : "1d"),
   "wait-reopen": (ctx, b) => waits.reopenWait(ctx, field(b, "id")),
   gate: (ctx, b) => commands.answerGate(ctx, field(b, "ticket"), field(b, "answer")),
   config: (ctx, b) => {

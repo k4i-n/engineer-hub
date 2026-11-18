@@ -117,17 +117,43 @@ describe("serve", () => {
     const before = await (await fetch(`${server.url}/?part=1`)).text();
     assert.deepEqual(verbs(before).slice(0, 2), ["Alert", "Review"]);
     assert.match(before, /data-needs-count="4"/);
-    const id = /data-act="item-done" data-id="(\d+)"[^>]*>Done/.exec(before)?.[1] ?? "";
+    const id = /data-act="item-done" data-id="(\d+)"/.exec(before)?.[1] ?? "";
     await post("/api/item-done", { id });
     const after = await (await fetch(`${server.url}/?part=1`)).text();
     assert.deepEqual(verbs(after), verbs(before));
     assert.match(
       after,
-      /is-dim[^>]*data-key="item-\d+"[\s\S]*?<span class="dim-label">done<\/span>[\s\S]*?<span class="act-main"><button[^>]*data-act="item-reopen"/,
+      /is-dim[^>]*data-key="item-\d+"[\s\S]*?<span class="dim-label">done<\/span>[\s\S]*?<span class="rail"><button[^>]*data-act="item-reopen"[^>]*data-hotkey="u"/,
     );
     assert.match(after, /data-needs-count="3"/);
     assert.equal((await post("/api/gate", { ticket: "ENG-42", answer: "yes" })).status, 200);
     assert.match(await (await fetch(`${server.url}/?part=1`)).text(), /<span class="dim-label">yes<\/span>/);
+  });
+
+  test("every needs row has the same three controls, and a pinned row moves to the top", async () => {
+    hub(
+      ["item", "put", "--stdin"],
+      JSON.stringify({ source: "grafana", kind: "alert", ref: "alert-1", needs_me: true }),
+    );
+    const html = await (await fetch(`${server.url}/?part=1`)).text();
+    const rows = [...html.matchAll(/<li class="need [^"]*" data-key="([^"]+)"[\s\S]*?<\/li>/g)];
+    assert.ok(rows.length >= 3);
+    for (const [row] of rows) {
+      assert.match(
+        row,
+        /<span class="rail"><button[^>]*class="ic ic-(ok|undo)"[\s\S]*?class="ic ic-later"[\s\S]*?<summary class="ic ic-more"/,
+      );
+      assert.match(row, /data-act="pin"/);
+    }
+    const last = rows.at(-1)?.[1] ?? "";
+    assert.notEqual(rows[0]?.[1], last);
+    assert.equal((await post("/api/pin", { key: last, on: "1" })).status, 200);
+    const pinned = await (await fetch(`${server.url}/?part=1`)).text();
+    const first = /<li class="(need [^"]*)" data-key="([^"]+)"/.exec(pinned);
+    assert.equal(first?.[2], last);
+    assert.match(first?.[1] ?? "", /\bpinned\b/);
+    assert.match(pinned, new RegExp(`data-act="pin" data-key="${last}" data-on="0"`));
+    assert.equal((await post("/api/pin", { key: "ticket-1", on: "1" })).status, 400);
   });
 
   test("settings show the database and save config through the same checks as the CLI", async () => {
@@ -175,7 +201,7 @@ describe("serve", () => {
     assert.match(page, /data-act="item-done" data-id="\d+"/);
     assert.match(
       page,
-      /<details class="menu"[^>]*><summary aria-label="More">⋯<\/summary><div class="menu-pop"><button[^>]*data-for="1h"/,
+      /<details class="menu"[^>]*><summary class="ic ic-more"[^>]*>[\s\S]*?<div class="menu-pop">[\s\S]*?data-act="item-snooze" data-id="\d+" data-for="1h"/,
     );
     assert.equal((await post("/api/item-snooze", { id, for: "1h" })).status, 200);
     assert.equal(hub(["items", "--needs-me"]), "no items");
