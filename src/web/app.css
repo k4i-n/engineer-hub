@@ -1225,7 +1225,7 @@ a.chip-btn:hover {
 .grip-menu {
   position: absolute;
   top: 13px;
-  left: 1px;
+  right: 1px;
   z-index: 3;
 }
 .grip-menu > .grip {
@@ -1247,10 +1247,6 @@ a.chip-btn:hover {
   height: 14px;
   fill: currentColor;
   stroke: none;
-}
-.grip-menu .menu-pop {
-  left: 0;
-  right: auto;
 }
 .ncard {
   padding-top: 10px;
