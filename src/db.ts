@@ -31,7 +31,15 @@ export type Ticket = {
   updated_at: string | null;
 };
 
-export type EventRow = { id: number; ticket_id: string; ts: string; kind: string; text: string; source: string };
+export type EventRow = {
+  id: number;
+  ticket_id: string;
+  ts: string;
+  kind: string;
+  text: string;
+  source: string;
+  ref: string | null;
+};
 export type NoteRow = { ticket_id: string; title: string; body: string; kind: string; position: number };
 export type DraftRow = {
   ticket_id: string;
@@ -60,6 +68,7 @@ export type ItemRow = {
   first_seen: string;
   changed_at: string;
   closed_at: string | null;
+  snoozed_until: string | null;
 };
 export type WaitRow = {
   id: number;
@@ -127,7 +136,7 @@ CREATE TABLE draft(id INTEGER PRIMARY KEY, ticket_id TEXT, label TEXT, body TEXT
   created_at TEXT, updated_at TEXT, UNIQUE(ticket_id, label));
 CREATE TABLE item(id INTEGER PRIMARY KEY, source TEXT NOT NULL, ref TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, title TEXT,
   url TEXT, state TEXT, author TEXT, ticket_id TEXT, needs_me INTEGER NOT NULL DEFAULT 0,
-  first_seen TEXT NOT NULL, changed_at TEXT NOT NULL, closed_at TEXT);
+  first_seen TEXT NOT NULL, changed_at TEXT NOT NULL, closed_at TEXT, snoozed_until TEXT);
 CREATE INDEX item_ticket ON item(ticket_id);
 CREATE TABLE wait(id INTEGER PRIMARY KEY, ticket_id TEXT NOT NULL, who TEXT NOT NULL, url TEXT NOT NULL,
   asked_at TEXT NOT NULL, ping_after TEXT, closed_at TEXT);

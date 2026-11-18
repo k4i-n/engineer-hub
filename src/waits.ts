@@ -1,21 +1,9 @@
 import type { Ctx, Result } from "./commands.ts";
 import { all, getTicket, one, transaction, type WaitRow } from "./db.ts";
-import { HubError, nowIso, nowTs } from "./util.ts";
+import { afterDuration, HubError, nowIso, nowTs } from "./util.ts";
 
-const DURATION = /^(\d+)([mhd])$/;
-const UNIT_MS: Record<string, number> = { m: 60_000, h: 3_600_000, d: 86_400_000 };
 const MAX_WHO = 120;
 const MAX_URL = 2048;
-
-function pingAfter(now: Date, value: string | null): string | null {
-  if (value === null) return null;
-  const match = DURATION.exec(value);
-  const unit = UNIT_MS[match?.[2] ?? ""];
-  if (!match || unit === undefined) {
-    throw new HubError(`--ping-after takes a duration such as 30m, 4h or 2d, not ${value}`);
-  }
-  return new Date(now.getTime() + Number(match[1]) * unit).toISOString();
-}
 
 function shown(ctx: Ctx, iso: string): string {
   return nowTs(new Date(iso), ctx.config.timezone);
@@ -38,7 +26,7 @@ export function wait(ctx: Ctx, id: string, who: string, url: string, ping: strin
   if (!who.trim() || who.length > MAX_WHO) throw new HubError(`who must be 1 to ${MAX_WHO} chars`);
   if (url.length > MAX_URL) throw new HubError(`url is ${url.length} chars (max ${MAX_URL})`);
   getTicket(ctx.db, id);
-  const after = pingAfter(ctx.now, ping);
+  const after = ping === null ? null : afterDuration(ctx.now, ping, "--ping-after");
   const at = nowIso(ctx.now);
   const open = one<WaitRow>(
     ctx.db,

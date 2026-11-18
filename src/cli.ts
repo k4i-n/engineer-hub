@@ -9,6 +9,7 @@ import { dbPath, loadConfig } from "./config.ts";
 import { openDb } from "./db.ts";
 import { applyImport, collectImport, countPlan, formatSummary } from "./importer.ts";
 import * as items from "./items.ts";
+import { serve } from "./serve.ts";
 import * as sources from "./sources.ts";
 import * as steps from "./steps.ts";
 import { HubError } from "./util.ts";
@@ -34,13 +35,14 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         match <id> <label> --ref <url> (--file | --stdin) | match <id> <label> (yes | no)
         posted <id> <label> [--at <when>] [--channel <c>] [--answer <text>] [--ref <url>] [--file | --stdin]
         link <id> <url> [--kind <k>] [--title <t>]
-        item put --stdin | item close <item>... | item attach <item> <id>
+        item put --stdin | item close <item>... | item snooze <item> [--for 1d] | item attach <item> <id>
         wait <id> <who> <url> [--ping-after 1d] | wait close <wait | url>
         source <name> [--cursor <c>] [--error <text>]
         step add <id> <title> | step done <id> <n> [--evidence <url>]
         day set <date> (--file <path> | --stdin) | ticket-new <id> <title> [--dir todo]
         move <id> <dir> | config <key> <json>
-import: import --root <dir> [--apply]`;
+import: import --root <dir> [--apply]
+serve:  serve [--port 7420]`;
 
 const OPTIONS = {
   json: { type: "boolean" },
@@ -65,6 +67,8 @@ const OPTIONS = {
   cursor: { type: "string" },
   error: { type: "string" },
   evidence: { type: "string" },
+  for: { type: "string" },
+  port: { type: "string" },
   dir: { type: "string" },
   since: { type: "string" },
   n: { type: "string", short: "n" },
@@ -93,6 +97,8 @@ type Values = {
   cursor?: string;
   error?: string;
   evidence?: string;
+  for?: string;
+  port?: string;
   dir?: string;
   since?: string;
   n?: string;
@@ -188,10 +194,11 @@ const COMMANDS: Record<string, Handler> = {
     return items.link(ctx, arg(a, 0, usage), arg(a, 1, usage), { kind: v.kind ?? null, title: v.title ?? null });
   },
   item: (ctx, a, v, io) => {
-    const usage = "item put --stdin | item close <item>... | item attach <item> <id>";
+    const usage = "item put --stdin | item close <item>... | item snooze <item> [--for 1d] | item attach <item> <id>";
     const sub = arg(a, 0, usage);
     if (sub === "put") return items.put(ctx, body(v, io));
     if (sub === "close") return items.close(ctx, a.slice(1));
+    if (sub === "snooze") return items.snooze(ctx, arg(a, 1, usage), v.for ?? "1d");
     if (sub === "attach") return items.attach(ctx, arg(a, 1, usage), arg(a, 2, usage));
     throw new HubError(`usage: hub ${usage}`);
   },
@@ -241,6 +248,22 @@ function open(command: string, values: Values, io: Io): DatabaseSync {
   return openDb(dryRun && !existsSync(path) ? ":memory:" : path);
 }
 
+function startServer(values: Values, io: Io): number {
+  const port = values.port === undefined ? 7420 : Number(values.port);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    io.stderr(`--port takes a port number, not ${values.port}`);
+    return 1;
+  }
+  serve({ dbPath: dbPath(values.db, io.env), port, now: io.now, env: io.env }).then(
+    (server) => io.stdout(`hub on ${server.url}`),
+    (error: unknown) => {
+      io.stderr(`error: ${error instanceof Error ? error.message : String(error)}`);
+      process.exitCode = 1;
+    },
+  );
+  return 0;
+}
+
 export function run(argv: string[], io: Io): number {
   let parsed: { values: Values; positionals: string[] };
   try {
@@ -250,6 +273,7 @@ export function run(argv: string[], io: Io): number {
     return 2;
   }
   const [command, ...args] = parsed.positionals;
+  if (command === "serve") return startServer(parsed.values, io);
   const handler = command === undefined ? undefined : COMMANDS[command];
   if (command === undefined || handler === undefined) {
     io.stderr(USAGE);

@@ -31,7 +31,7 @@ function oneOf(name: string, value: string, allowed: readonly string[]): void {
   if (!allowed.includes(value)) throw new HubError(`${name} must be one of ${allowed.join(", ")}, not ${value}`);
 }
 
-function has(value: string | null): value is string {
+export function has(value: string | null): value is string {
   return value !== null && value.trim() !== "" && value.trim() !== "-";
 }
 
@@ -43,7 +43,7 @@ function letters(value: string): string {
   return value.toLowerCase().replace(/[^a-z]/g, "");
 }
 
-function byPriorityThenRecent(a: Ticket, b: Ticket): number {
+export function byPriorityThenRecent(a: Ticket, b: Ticket): number {
   return rank(a.tracker_priority) - rank(b.tracker_priority) || (b.updated_at ?? "").localeCompare(a.updated_at ?? "");
 }
 
@@ -51,7 +51,7 @@ function touch(ctx: Ctx, id: string): void {
   ctx.db.prepare("UPDATE ticket SET updated_at = ? WHERE id = ?").run(nowIso(ctx.now), id);
 }
 
-function openTickets(ctx: Ctx): Ticket[] {
+export function openTickets(ctx: Ctx): Ticket[] {
   const dirs = ctx.config.openDirs;
   const tickets = all<Ticket>(ctx.db, `SELECT * FROM ticket WHERE dir IN (${dirs.map(() => "?").join(", ")})`, ...dirs);
   return tickets.filter(

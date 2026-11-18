@@ -31,7 +31,8 @@ Put `ticket` only when you know the ticket and its id is not already in the titl
 
 ### github (`gh`, or the GitHub connector)
 
-- Review requests: `gh search prs --review-requested=@me --state=open --json url,title,author,updatedAt`. Each is a `review_request` with `needs_me: true`. A `review_request` in the brief's tracked list that is no longer requested: put it with `"state":"done","needs_me":false`.
+- Review requests: `gh search prs --review-requested=@me --state=open --json url,title,author,updatedAt`. Each is a `review_request` with `needs_me: true`.
+- Then go through every `github/review_request` line in the brief's tracked list. Each one whose url is not in that search result is no longer requested: put it with `"state":"done","needs_me":false`. Do not skip this; it is how a finished review leaves the dashboard.
 - The engineer's PRs updated since the cursor: `gh search prs --author=@me --updated=">=<cursor date>" --json url,title,state` then `gh pr view <url> --json state,reviewDecision,mergedAt` for each. Kind `pr`, state `open`, `approved`, `changes requested`, `merged` or `closed`. `needs_me: true` for approved or changes requested.
 - Cursor: the time this sync started, ISO 8601.
 

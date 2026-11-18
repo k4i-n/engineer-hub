@@ -2,7 +2,7 @@ import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import type { Ctx, Result } from "./commands.ts";
 import { all, getTicket, type ItemRow, one, transaction } from "./db.ts";
 import { SOURCE_NAME } from "./sources.ts";
-import { cut, HubError, linkKind, linkSource, nowIso, nowTs } from "./util.ts";
+import { afterDuration, cut, HubError, linkKind, linkSource, nowIso, nowTs } from "./util.ts";
 
 export const ITEM_KINDS = [
   "pr",
@@ -111,10 +111,12 @@ export function upsertItem(ctx: Ctx, input: ItemInput, withEvents: boolean): Ups
   const stateChanged = next.state !== existing.state;
   const reopen = stateChanged || (next.needs_me === 1 && existing.needs_me === 0);
   const closedAt = reopen ? null : existing.closed_at;
+  const snoozedUntil = reopen ? null : existing.snoozed_until;
   const values: SQLInputValue[] = fields.map((f) => next[f]);
   db.prepare(
-    `UPDATE item SET ${fields.map((f) => `${f} = ?`).join(", ")}, closed_at = ?, changed_at = ? WHERE id = ?`,
-  ).run(...values, closedAt, at, existing.id);
+    `UPDATE item SET ${fields.map((f) => `${f} = ?`).join(", ")}, closed_at = ?, snoozed_until = ?, changed_at = ?
+     WHERE id = ?`,
+  ).run(...values, closedAt, snoozedUntil, at, existing.id);
   if (!withEvents || next.ticket_id === null) return "changed";
   const merged = { ...existing, ...next };
   if (next.ticket_id !== existing.ticket_id) event(ctx, next.ticket_id, `attached ${describe(merged)}`, ref);
@@ -208,6 +210,16 @@ export function close(ctx: Ctx, keys: string[]): Result {
   return { text: `closed ${found.map((i) => `#${i.id}`).join(", ")}`, json: found.map((i) => i.id) };
 }
 
+export function snooze(ctx: Ctx, key: string, duration: string): Result {
+  const item = findItem(ctx.db, key);
+  const until = afterDuration(ctx.now, duration, "--for");
+  ctx.db.prepare("UPDATE item SET snoozed_until = ? WHERE id = ?").run(until, item.id);
+  return {
+    text: `#${item.id} snoozed until ${nowTs(new Date(until), ctx.config.timezone)}`,
+    json: { id: item.id, snoozed_until: until },
+  };
+}
+
 export function attach(ctx: Ctx, key: string, ticketId: string): Result {
   getTicket(ctx.db, ticketId);
   const item = findItem(ctx.db, key);
@@ -260,7 +272,10 @@ export function items(ctx: Ctx, filter: ItemsFilter): Result {
   if (filter.ticket !== null) getTicket(ctx.db, filter.ticket);
   const where: string[] = [];
   const params: SQLInputValue[] = [];
-  if (!filter.all) where.push("closed_at IS NULL");
+  if (!filter.all) {
+    where.push("closed_at IS NULL", "(snoozed_until IS NULL OR snoozed_until <= ?)");
+    params.push(nowIso(ctx.now));
+  }
   if (filter.needsMe) where.push("needs_me = 1");
   if (filter.source !== null) {
     where.push("source = ?");
