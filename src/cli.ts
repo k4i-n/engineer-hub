@@ -2,6 +2,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
 import { parseArgs } from "node:util";
+import { brief } from "./brief.ts";
 import type { Ctx, Result } from "./commands.ts";
 import * as commands from "./commands.ts";
 import { dbPath, loadConfig } from "./config.ts";
@@ -24,10 +25,11 @@ const USAGE = `usage: hub <command> [args] [--json] [--db <path>]
 read:   ticket <id> | board [regex] | next | gates | changed --since <YYYY-MM-DD|yesterday|today>
         search <query> [-n 10] | events <id> [-n 20] [--full] | notes <id> | note-show <id> <title>
         drafts [id] | draft-show <id> <label> | day [date] | lint | config [key]
-        items [--needs-me] [--source <s>] [--ticket <id>] [--all] | waits [--due] | sources
+        items [--needs-me] [--source <s>] [--ticket <id>] [--all] | waits [--due] | sources | brief
 write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent] [--ref <url>]
         note <id> <title> (--file <path> | --stdin) [--kind detail]
         draft <id> <label> (--file <path> | --stdin) [--channel <c>]
+        match <id> <label> --ref <url> (--file | --stdin) | match <id> <label> (yes | no)
         posted <id> <label> [--at <when>] [--channel <c>] [--answer <text>] [--ref <url>] [--file | --stdin]
         link <id> <url> [--kind <k>] [--title <t>]
         item put --stdin | item close <item>... | item attach <item> <id>
@@ -200,6 +202,14 @@ const COMMANDS: Record<string, Handler> = {
       error: v.error ?? null,
     }),
   sources: (ctx) => sources.sources(ctx),
+  brief: (ctx) => brief(ctx),
+  match: (ctx, a, v, io) => {
+    const usage = "match <id> <label> --ref <url> (--file | --stdin) | match <id> <label> (yes | no)";
+    const [id, label, answer] = [arg(a, 0, usage), arg(a, 1, usage), a[2]];
+    if (answer !== undefined) return commands.resolveMatch(ctx, id, label, answer);
+    if (v.ref === undefined) throw new HubError("give the sent message's permalink with --ref <url>");
+    return commands.match(ctx, id, label, body(v, io), v.ref);
+  },
   "ticket-new": (ctx, a, v) => {
     const usage = "ticket-new <id> <title>";
     return commands.ticketNew(ctx, arg(a, 0, usage), a.slice(1).join(" ") || arg(a, 1, usage), v.dir ?? "todo");

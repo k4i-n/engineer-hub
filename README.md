@@ -50,6 +50,7 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 | `hub items [--needs-me] [--source <s>] [--ticket <id>] [--all]` | open items (PRs, threads, review requests, alerts…), the ones that need you first |
 | `hub waits [--due]` | questions asked of someone; `--due` lists the ones to ping now |
 | `hub sources` | each source's last sync, cursor and error |
+| `hub brief` | what a sync needs to judge new messages: sources and cursors, open tickets, unsent drafts, drafts sent with wording pending, waits, tracked items (each section capped at 40 lines) |
 | `hub day [date]` | the RESUME block of a day plan (today, else the latest) |
 | `hub lint` | open tickets missing status, next or owner, or over a limit; exit 1 if any |
 | `hub config [key]` | effective config |
@@ -62,6 +63,7 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 | `hub draft <id> <label> (--file \| --stdin) [--channel <c>]` | adds or replaces a draft |
 | `hub posted <id> <label> [--at <when>] [--channel <c>] [--answer <text>] [--ref <url>] [--file \| --stdin]` | marks a draft posted or answered; the text given is the wording actually sent, which may differ from the draft (without it the draft shows "wording pending") |
 | `hub link <id> <url> [--kind <k>] [--title <t>]` | attaches the URL to the ticket as an item; source and kind come from the URL |
+| `hub match <id> <label> --ref <url> (--file \| --stdin)`, `hub match <id> <label> (yes \| no)` | proposes a sent message as the wording of a draft when the agent is unsure; yes marks the draft posted with it, no drops it |
 | `hub item put --stdin` | stores items read from a source, one JSON object per line (below) |
 | `hub item close <item>...`, `hub item attach <item> <id>` | marks items handled, attaches one to a ticket; `<item>` is the `#` number or the ref |
 | `hub wait <id> <who> <url> [--ping-after 1d]`, `hub wait close <wait \| url>` | records a question asked of someone, closes it when they answer |

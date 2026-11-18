@@ -243,7 +243,8 @@ export function drafts(ctx: Ctx, id: string | undefined): Result {
   const rows = all<DraftRow>(ctx.db, "SELECT * FROM draft WHERE ticket_id = ? ORDER BY id", id);
   const lines = rows.map((d) => {
     const pending = d.status !== "draft" && d.sent_text === null ? "wording pending" : null;
-    return [d.label, d.status, d.channel, d.posted_at, pending]
+    const proposed = d.match_ref === null ? null : "match proposed";
+    return [d.label, d.status, d.channel, d.posted_at, pending, proposed]
       .filter((part) => part !== null && part !== "")
       .join(" | ");
   });
@@ -298,6 +299,42 @@ export function set(ctx: Ctx, id: string, field: string, value: string): Result 
   return { text: `${id} ${field} set`, json: { id, field, value, updated } };
 }
 
+export function match(ctx: Ctx, id: string, label: string, sentText: string, sentRef: string): Result {
+  const existing = one<DraftRow>(ctx.db, "SELECT * FROM draft WHERE ticket_id = ? AND label = ?", id, label);
+  if (!existing) throw new HubError(`no draft "${label}" on ${id} (hub drafts ${id} lists them)`);
+  if (existing.sent_text !== null) throw new HubError(`draft "${label}" on ${id} already has its sent wording`);
+  ctx.db
+    .prepare("UPDATE draft SET match_text = ?, match_ref = ?, updated_at = ? WHERE ticket_id = ? AND label = ?")
+    .run(sentText, sentRef, nowIso(ctx.now), id, label);
+  return {
+    text: `${id} draft "${label}": match proposed, waiting for yes or no`,
+    json: { ticket_id: id, label, match_ref: sentRef },
+  };
+}
+
+export function resolveMatch(ctx: Ctx, id: string, label: string, answer: string): Result {
+  oneOf("answer", answer, ["yes", "no"]);
+  const existing = one<DraftRow>(ctx.db, "SELECT * FROM draft WHERE ticket_id = ? AND label = ?", id, label);
+  if (!existing?.match_text) throw new HubError(`no proposed match on draft "${label}" of ${id}`);
+  const clear = () =>
+    ctx.db
+      .prepare("UPDATE draft SET match_text = NULL, match_ref = NULL, updated_at = ? WHERE ticket_id = ? AND label = ?")
+      .run(nowIso(ctx.now), id, label);
+  if (answer === "no") {
+    clear();
+    return { text: `${id} draft "${label}": match dropped`, json: { ticket_id: id, label, status: existing.status } };
+  }
+  const result = posted(ctx, id, label, {
+    at: null,
+    channel: null,
+    answer: null,
+    sentText: existing.match_text,
+    sentRef: existing.match_ref,
+  });
+  clear();
+  return result;
+}
+
 export type LogOptions = { kind: string; source: string; ref: string | null };
 
 export function log(ctx: Ctx, id: string, text: string, options: LogOptions): Result {
@@ -338,7 +375,7 @@ export function draft(ctx: Ctx, id: string, label: string, body: string, channel
       `INSERT INTO draft(ticket_id, label, body, status, channel, created_at, updated_at) VALUES (?, ?, ?, 'draft', ?, ?, ?)
        ON CONFLICT(ticket_id, label) DO UPDATE SET body = excluded.body, status = 'draft',
          channel = coalesce(excluded.channel, draft.channel), posted_at = NULL, sent_text = NULL, sent_ref = NULL,
-         answer = NULL, updated_at = excluded.updated_at`,
+         answer = NULL, match_text = NULL, match_ref = NULL, updated_at = excluded.updated_at`,
     )
     .run(id, label, body, channel, at, at);
   touch(ctx, id);

@@ -43,6 +43,8 @@ export type DraftRow = {
   sent_text: string | null;
   sent_ref: string | null;
   answer: string | null;
+  match_text: string | null;
+  match_ref: string | null;
 };
 export type ItemRow = {
   id: number;
@@ -113,7 +115,7 @@ CREATE INDEX event_ticket ON event(ticket_id, ts);
 CREATE TABLE note(id INTEGER PRIMARY KEY, ticket_id TEXT, title TEXT, body TEXT, kind TEXT, position INTEGER, updated_at TEXT,
   UNIQUE(ticket_id, title));
 CREATE TABLE draft(id INTEGER PRIMARY KEY, ticket_id TEXT, label TEXT, body TEXT, status TEXT, channel TEXT, posted_at TEXT,
-  sent_text TEXT, sent_ref TEXT, answer TEXT,
+  sent_text TEXT, sent_ref TEXT, answer TEXT, match_text TEXT, match_ref TEXT,
   created_at TEXT, updated_at TEXT, UNIQUE(ticket_id, label));
 CREATE TABLE item(id INTEGER PRIMARY KEY, source TEXT NOT NULL, ref TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, title TEXT,
   url TEXT, state TEXT, author TEXT, ticket_id TEXT, needs_me INTEGER NOT NULL DEFAULT 0,
