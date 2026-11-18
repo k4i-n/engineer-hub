@@ -67,7 +67,7 @@ export function pinged(ctx: Ctx, key: string, again: string): Result {
   const after = afterDuration(ctx.now, again, "--for");
   const at = nowIso(ctx.now);
   transaction(ctx.db, () => {
-    ctx.db.prepare("UPDATE wait SET ping_after = ? WHERE id = ?").run(after, w.id);
+    ctx.db.prepare("UPDATE wait SET ping_after = ?, pinged_at = ? WHERE id = ?").run(after, at, w.id);
     ctx.db
       .prepare(
         "INSERT INTO event(ticket_id, ts, kind, text, source, ref, created_at) VALUES (?, ?, 'log', ?, 'human', ?, ?)",
