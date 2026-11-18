@@ -141,6 +141,8 @@ hub serve                # http://127.0.0.1:7420, --port to change
 
 A live page on this machine only: what needs you (review requests, mentions, alerts, pings that are due, proposed draft matches, gates), every open ticket with step progress, next step, PR and Slack chips, today's plan, drafts with Copy and Sent, and what changed since yesterday; one page per ticket with state, steps, timeline, items, waits, drafts and notes. Any write, from the CLI, an agent or the page, shows within a second.
 
+Needs-you rows are ranked by what to do first (alert, review, reply, sent?, PR, triage, ping, approve, decide) and colored by kind; done, snoozed and answered rows stay in place, dimmed, with Undo, until the day ends. The tab title and icon carry the count, new rows flash, and with notifications on (Settings) a background tab raises a browser notification. Settings (`/settings`, or `,`) choose browser or app for Slack and Linear links, notifications, sound, theme, time zone and the sync command, and show the database path. Keys: `j`/`k` move, `Enter` opens, `e` done or yes, `s` snooze or no, `u` undo, `/` filter tickets.
+
 Sync runs `syncCommand` (default `claude -p /engineer-hub:hub-sync` with `hub` and `gh` read commands allowed), once at a time, with `HUB_DB` pointing at the served database. Each run spends Claude usage. A headless run can use only the tools it is allowed, so add each connector you sync from:
 
 ```sh
