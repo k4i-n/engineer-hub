@@ -1,0 +1,13 @@
+{
+  "name": "engineer-hub",
+  "description": "The engineer-hub skills for Claude Code",
+  "owner": {
+    "name": "nhkhai-vn"
+  },
+  "plugins": [
+    {
+      "name": "engineer-hub",
+      "source": "./"
+    }
+  ]
+}

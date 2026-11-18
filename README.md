@@ -117,6 +117,19 @@ hub has no source code, API client or token. An agent reads each source (GitHub,
 
 The batch is checked whole before anything is written. An unchanged item changes nothing. A new item on a ticket, an attach and a state change become `sync` events on the ticket. A state change or a new `needs_me` reopens a closed item.
 
+## Claude Code plugin
+
+The repository is a Claude Code plugin with two skills:
+
+- `hub-sync`: reads what is new since each source's cursor (GitHub through `gh`, Slack, the tracker and mail through the session's connectors), read only, judges it against `hub brief`, and writes items, posted drafts, closed waits and log lines with `hub`.
+- `hub-plan`: syncs, then writes the plan for today with `hub day set`.
+
+```
+/plugin install engineer-hub --marketplace nhkhai-vn/engineer-hub
+```
+
+The skills call `hub`, so it must be on `PATH`.
+
 ## Import from a markdown ticket folder
 
 ```sh
