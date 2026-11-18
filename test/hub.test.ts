@@ -131,7 +131,7 @@ describe("import", () => {
     assert.ok((first.changes ?? 0) > 0);
     assert.equal(second.changes, 0);
     const rows = (table: string) => sql<{ n: number }>(`SELECT count(*) AS n FROM ${table}`)[0]?.n;
-    assert.deepEqual(["ticket", "event", "note", "draft", "link", "day"].map(rows), [
+    assert.deepEqual(["ticket", "event", "note", "draft", "item", "day"].map(rows), [
       EXPECTED.tickets,
       EXPECTED.events,
       EXPECTED.notes,
@@ -249,7 +249,7 @@ describe("writes", () => {
     assert.match(hub("log", "ENG-7", "x", "--kind", "chat").err, /--kind must be one of/);
   });
 
-  test("note, draft, posted, link and day set round-trip through the DB", () => {
+  test("note, draft, posted and day set round-trip through the DB", () => {
     imported();
     stdin = "# Runbook\nrestart the worker";
     ok("note", "ENG-7", "Runbook", "--stdin");
@@ -260,9 +260,6 @@ describe("writes", () => {
     assert.match(ok("drafts"), /ENG-7 \| ask product \| Can we cap exports/);
     ok("posted", "ENG-7", "ask product", "--at", "2026-11-13 15:00", "--answer", "yes, 10");
     assert.equal(ok("drafts", "ENG-7"), "ask product | answered | #product | 2026-11-13 15:00 | wording pending");
-
-    ok("link", "ENG-7", "https://github.com/acme/web/pull/120");
-    assert.equal(ok("links", "ENG-7"), "github/pr https://github.com/acme/web/pull/120");
 
     const file = join(dir, "plan.md");
     writeFileSync(file, "# Plan\n\n## RESUME\nstart with ENG-7\n\n## Later\n- other\n");
@@ -300,6 +297,23 @@ describe("writes", () => {
     assert.match(hub("ticket-new", "ENG-8", "x", "--dir", "later").err, /dir must be one of/);
     ok("move", "NEW-export-audit", "inprogress");
     assert.equal(sql<{ dir: string }>("SELECT dir FROM ticket WHERE id = 'NEW-export-audit'")[0]?.dir, "inprogress");
+  });
+});
+
+describe("items", () => {
+  test("link stores an item on the ticket, a second link changes nothing, a later link moves it", () => {
+    imported();
+    const url = "https://github.com/acme/web/pull/120";
+    ok("link", "ENG-7", url, "--title", "Rate limit exports");
+    assert.equal(ok("items", "--ticket", "ENG-7"), `#3 github/pr | Rate limit exports | ENG-7 | ${url}`);
+    const before = sql<{ changed_at: string }>("SELECT changed_at FROM item WHERE ref = ?", url);
+    now = new Date("2026-11-14T00:00:00Z");
+    ok("link", "ENG-7", url);
+    assert.deepEqual(sql<{ changed_at: string }>("SELECT changed_at FROM item WHERE ref = ?", url), before);
+    ok("link", "ENG-42", url);
+    assert.equal(ok("items", "--ticket", "ENG-7"), "no items");
+    assert.match(ok("ticket", "ENG-42"), /^items: 3 open, 0 need you$/m);
+    assert.match(hub("link", "ENG-7", url, "--kind", "page").err, /--kind must be one of/);
   });
 });
 
@@ -407,6 +421,16 @@ describe("config", () => {
     assert.match(hub("config", "timezone", '"Mars/Base"').err, /not an IANA time zone/);
     assert.match(hub("config", "limits", '{"title":10}').err, /limits.title is not a known key/);
     assert.match(hub("config", "taskDirs", "[1]").err, /array of strings/);
+  });
+});
+
+describe("db", () => {
+  test("a database from another schema version is refused", () => {
+    ok("board");
+    const db = new DatabaseSync(dbFile);
+    db.exec("UPDATE meta SET value = '1' WHERE key = 'schema_version'");
+    db.close();
+    assert.match(hub("board").err, /has schema v1, this hub needs v2: move the file aside and re-import/);
   });
 });
 

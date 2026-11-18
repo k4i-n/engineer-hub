@@ -7,6 +7,7 @@ import * as commands from "./commands.ts";
 import { dbPath, loadConfig } from "./config.ts";
 import { openDb } from "./db.ts";
 import { applyImport, collectImport, countPlan, formatSummary } from "./importer.ts";
+import * as items from "./items.ts";
 import { HubError } from "./util.ts";
 
 export type Io = {
@@ -20,12 +21,13 @@ export type Io = {
 const USAGE = `usage: hub <command> [args] [--json] [--db <path>]
 read:   ticket <id> | board [regex] | next | gates | changed --since <YYYY-MM-DD|yesterday|today>
         search <query> [-n 10] | events <id> [-n 20] [--full] | notes <id> | note-show <id> <title>
-        drafts [id] | draft-show <id> <label> | links <id> | day [date] | lint | config [key]
+        drafts [id] | draft-show <id> <label> | day [date] | lint | config [key]
+        items [--needs-me] [--source <s>] [--ticket <id>] [--all]
 write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent] [--ref <url>]
         note <id> <title> (--file <path> | --stdin) [--kind detail]
         draft <id> <label> (--file <path> | --stdin) [--channel <c>]
         posted <id> <label> [--at <when>] [--channel <c>] [--answer <text>] [--ref <url>] [--file | --stdin]
-        link <id> <url> [--kind <k>] [--title <t>] [--by agent]
+        link <id> <url> [--kind <k>] [--title <t>]
         day set <date> (--file <path> | --stdin) | ticket-new <id> <title> [--dir todo]
         move <id> <dir> | config <key> <json>
 import: import --root <dir> [--apply]`;
@@ -45,7 +47,9 @@ const OPTIONS = {
   at: { type: "string" },
   answer: { type: "string" },
   title: { type: "string" },
-  by: { type: "string" },
+  "needs-me": { type: "boolean" },
+  all: { type: "boolean" },
+  ticket: { type: "string" },
   dir: { type: "string" },
   since: { type: "string" },
   n: { type: "string", short: "n" },
@@ -66,7 +70,9 @@ type Values = {
   at?: string;
   answer?: string;
   title?: string;
-  by?: string;
+  "needs-me"?: boolean;
+  all?: boolean;
+  ticket?: string;
   dir?: string;
   since?: string;
   n?: string;
@@ -115,7 +121,13 @@ const COMMANDS: Record<string, Handler> = {
   drafts: (ctx, a) => commands.drafts(ctx, a[0]),
   "draft-show": (ctx, a) =>
     commands.draftShow(ctx, arg(a, 0, "draft-show <id> <label>"), arg(a, 1, "draft-show <id> <label>")),
-  links: (ctx, a) => commands.links(ctx, arg(a, 0, "links <id>")),
+  items: (ctx, _a, v) =>
+    items.items(ctx, {
+      needsMe: v["needs-me"] === true,
+      source: v.source ?? null,
+      ticket: v.ticket ?? null,
+      all: v.all === true,
+    }),
   day: (ctx, a, v, io) => {
     if (a[0] !== "set") return commands.day(ctx, a[0]);
     return commands.daySet(ctx, arg(a, 1, "day set <date> (--file <path> | --stdin)"), body(v, io));
@@ -153,11 +165,7 @@ const COMMANDS: Record<string, Handler> = {
   },
   link: (ctx, a, v) => {
     const usage = "link <id> <url>";
-    return commands.link(ctx, arg(a, 0, usage), arg(a, 1, usage), {
-      kind: v.kind ?? null,
-      title: v.title ?? null,
-      by: v.by ?? "agent",
-    });
+    return items.link(ctx, arg(a, 0, usage), arg(a, 1, usage), { kind: v.kind ?? null, title: v.title ?? null });
   },
   "ticket-new": (ctx, a, v) => {
     const usage = "ticket-new <id> <title>";
