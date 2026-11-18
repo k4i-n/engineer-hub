@@ -1,0 +1,151 @@
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
+import { DatabaseSync, type SQLInputValue } from "node:sqlite";
+import { HubError } from "./util.ts";
+
+export const SCHEMA_VERSION = "1";
+
+export type Ticket = {
+  id: string;
+  title: string | null;
+  dir: string | null;
+  path: string | null;
+  status: string | null;
+  repo: string | null;
+  worktree: string | null;
+  branch: string | null;
+  prs: string | null;
+  gate: string | null;
+  decide: string | null;
+  next: string | null;
+  owner: string | null;
+  updated: string | null;
+  tracker_state: string | null;
+  tracker_priority: string | null;
+  tracker_assignee: string | null;
+  tracker_url: string | null;
+  tracker_updated: string | null;
+  tracker_json: string | null;
+  team: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type EventRow = { id: number; ticket_id: string; ts: string; kind: string; text: string; source: string };
+export type NoteRow = { ticket_id: string; title: string; body: string; kind: string; position: number };
+export type DraftRow = {
+  ticket_id: string;
+  label: string;
+  body: string;
+  status: string;
+  channel: string | null;
+  posted_at: string | null;
+  answer: string | null;
+};
+export type LinkRow = { ticket_id: string; source: string; kind: string; url: string; title: string | null };
+export type DayRow = { date: string; resume: string | null; body: string };
+
+export const LIMITED_FIELDS = ["status", "repo", "prs", "gate", "decide", "next", "owner"] as const;
+export const SETTABLE_FIELDS = [
+  "status",
+  "repo",
+  "worktree",
+  "branch",
+  "prs",
+  "gate",
+  "decide",
+  "next",
+  "owner",
+] as const;
+
+function ftsTable(table: string, fts: string, key: string, columns: string[]): string {
+  const cols = columns.join(", ");
+  const values = (prefix: string) => columns.map((c) => `${prefix}.${c}`).join(", ");
+  return `
+CREATE VIRTUAL TABLE ${fts} USING fts5(${cols}, content='${table}', content_rowid='${key}');
+CREATE TRIGGER ${fts}_ai AFTER INSERT ON ${table} BEGIN
+  INSERT INTO ${fts}(rowid, ${cols}) VALUES (new.${key}, ${values("new")});
+END;
+CREATE TRIGGER ${fts}_ad AFTER DELETE ON ${table} BEGIN
+  INSERT INTO ${fts}(${fts}, rowid, ${cols}) VALUES ('delete', old.${key}, ${values("old")});
+END;
+CREATE TRIGGER ${fts}_au AFTER UPDATE ON ${table} BEGIN
+  INSERT INTO ${fts}(${fts}, rowid, ${cols}) VALUES ('delete', old.${key}, ${values("old")});
+  INSERT INTO ${fts}(rowid, ${cols}) VALUES (new.${key}, ${values("new")});
+END;`;
+}
+
+const SCHEMA = `
+CREATE TABLE ticket(
+  id TEXT PRIMARY KEY,
+  title TEXT, dir TEXT, path TEXT,
+  status TEXT, repo TEXT, worktree TEXT, branch TEXT, prs TEXT, gate TEXT, decide TEXT, next TEXT, owner TEXT, updated TEXT,
+  tracker_state TEXT, tracker_priority TEXT, tracker_assignee TEXT, tracker_url TEXT, tracker_updated TEXT, tracker_json TEXT,
+  team TEXT, created_at TEXT, updated_at TEXT);
+CREATE TABLE event(id INTEGER PRIMARY KEY, ticket_id TEXT, ts TEXT, kind TEXT, text TEXT, source TEXT, ref TEXT, created_at TEXT);
+CREATE INDEX event_ticket ON event(ticket_id, ts);
+CREATE TABLE note(id INTEGER PRIMARY KEY, ticket_id TEXT, title TEXT, body TEXT, kind TEXT, position INTEGER, updated_at TEXT,
+  UNIQUE(ticket_id, title));
+CREATE TABLE draft(id INTEGER PRIMARY KEY, ticket_id TEXT, label TEXT, body TEXT, status TEXT, channel TEXT, posted_at TEXT, answer TEXT,
+  created_at TEXT, updated_at TEXT, UNIQUE(ticket_id, label));
+CREATE TABLE link(id INTEGER PRIMARY KEY, ticket_id TEXT, source TEXT, kind TEXT, url TEXT, title TEXT, added_by TEXT, created_at TEXT,
+  UNIQUE(ticket_id, url));
+CREATE TABLE day(date TEXT PRIMARY KEY, resume TEXT, body TEXT, updated_at TEXT);
+CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE config(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT);
+${ftsTable("ticket", "ticket_fts", "rowid", ["id", "title", "status", "next", "gate", "decide"])}
+${ftsTable("note", "note_fts", "id", ["ticket_id", "title", "body"])}
+${ftsTable("event", "event_fts", "id", ["ticket_id", "text"])}
+${ftsTable("draft", "draft_fts", "id", ["ticket_id", "label", "body"])}
+INSERT INTO meta(key, value) VALUES ('schema_version', '${SCHEMA_VERSION}');
+`;
+
+export function openDb(path: string): DatabaseSync {
+  if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
+  const db = new DatabaseSync(path);
+  db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
+  const hasMeta = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'").get();
+  if (hasMeta) return db;
+  transaction(db, () => db.exec(SCHEMA));
+  return db;
+}
+
+export function transaction<T>(db: DatabaseSync, work: () => T): T {
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const result = work();
+    db.exec("COMMIT");
+    return result;
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+export function one<T>(db: DatabaseSync, sql: string, ...params: SQLInputValue[]): T | undefined {
+  return db.prepare(sql).get(...params) as unknown as T | undefined;
+}
+
+export function all<T>(db: DatabaseSync, sql: string, ...params: SQLInputValue[]): T[] {
+  return db.prepare(sql).all(...params) as unknown as T[];
+}
+
+export function getTicket(db: DatabaseSync, id: string): Ticket {
+  const ticket = one<Ticket>(db, "SELECT * FROM ticket WHERE id = ?", id);
+  if (!ticket) throw new HubError(`no ticket ${id} (hub board lists them; hub ticket-new creates one)`);
+  return ticket;
+}
+
+export function checkLimit(field: string, value: string, limits: Record<string, number>): void {
+  const limit = limits[field];
+  if (limit === undefined || value.length <= limit) return;
+  throw new HubError(
+    `${field} is ${value.length} chars (max ${limit}): put the detail in a note (hub note) or the log (hub log) and keep ${field} to one line`,
+  );
+}
+
+export function ftsQuery(input: string): string {
+  const tokens = input.split(/\s+/).filter((t) => t.length > 0);
+  if (tokens.length === 0) throw new HubError("search needs a query");
+  return tokens.map((t) => `"${t.replaceAll('"', '""')}"*`).join(" ");
+}
