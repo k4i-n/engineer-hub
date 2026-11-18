@@ -35,6 +35,8 @@ function field(body: Body, key: string): string {
   return value;
 }
 
+const SEARCH_LIMIT = 30;
+
 const ACTIONS: Record<string, (ctx: Ctx, body: Body) => Result> = {
   sent: (ctx, b) =>
     commands.posted(ctx, field(b, "ticket"), field(b, "label"), {
@@ -172,6 +174,11 @@ export function serve(options: ServeOptions): Promise<Server> {
       res.write(": connected\n\n");
       clients.add(res);
       req.on("close", () => clients.delete(res));
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/api/search") {
+      const found = commands.searchAll(ctx(), url.searchParams.get("q") ?? "", SEARCH_LIMIT);
+      send(res, 200, "application/json", JSON.stringify(found));
       return;
     }
     if (req.method === "GET" && url.pathname === "/api/status") {
