@@ -24,7 +24,7 @@ read:   ticket <id> | board [regex] | next | gates | changed --since <YYYY-MM-DD
 write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent] [--ref <url>]
         note <id> <title> (--file <path> | --stdin) [--kind detail]
         draft <id> <label> (--file <path> | --stdin) [--channel <c>]
-        posted <id> <label> --at <when> [--channel <c>] [--answer <text>]
+        posted <id> <label> [--at <when>] [--channel <c>] [--answer <text>] [--ref <url>] [--file | --stdin]
         link <id> <url> [--kind <k>] [--title <t>] [--by agent]
         day set <date> (--file <path> | --stdin) | ticket-new <id> <title> [--dir todo]
         move <id> <dir> | config <key> <json>
@@ -140,13 +140,15 @@ const COMMANDS: Record<string, Handler> = {
     const usage = "draft <id> <label> (--file <path> | --stdin)";
     return commands.draft(ctx, arg(a, 0, usage), arg(a, 1, usage), body(v, io), v.channel ?? null);
   },
-  posted: (ctx, a, v) => {
-    const usage = "posted <id> <label> --at <when>";
-    if (v.at === undefined) throw new HubError(`usage: hub ${usage}`);
+  posted: (ctx, a, v, io) => {
+    const usage = "posted <id> <label>";
+    const sent = v.file !== undefined || v.stdin ? body(v, io) : null;
     return commands.posted(ctx, arg(a, 0, usage), arg(a, 1, usage), {
-      at: v.at,
+      at: v.at ?? null,
       channel: v.channel ?? null,
       answer: v.answer ?? null,
+      sentText: sent,
+      sentRef: v.ref ?? null,
     });
   },
   link: (ctx, a, v) => {

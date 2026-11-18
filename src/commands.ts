@@ -237,16 +237,23 @@ export function drafts(ctx: Ctx, id: string | undefined): Result {
   }
   getTicket(ctx.db, id);
   const rows = all<DraftRow>(ctx.db, "SELECT * FROM draft WHERE ticket_id = ? ORDER BY id", id);
-  const lines = rows.map((d) =>
-    [d.label, d.status, d.channel, d.posted_at].filter((part) => part !== null && part !== "").join(" | "),
-  );
+  const lines = rows.map((d) => {
+    const pending = d.status !== "draft" && d.sent_text === null ? "wording pending" : null;
+    return [d.label, d.status, d.channel, d.posted_at, pending]
+      .filter((part) => part !== null && part !== "")
+      .join(" | ");
+  });
   return { text: lines.join("\n") || "no drafts", json: rows };
 }
 
 export function draftShow(ctx: Ctx, id: string, label: string): Result {
   const draft = one<DraftRow>(ctx.db, "SELECT * FROM draft WHERE ticket_id = ? AND label = ?", id, label);
   if (!draft) throw new HubError(`no draft "${label}" on ${id} (hub drafts ${id} lists them)`);
-  return { text: draft.body, json: draft };
+  if (draft.sent_text === null) return { text: draft.body, json: draft };
+  return {
+    text: `${draft.body}\n\n--- sent${draft.sent_ref ? ` ${draft.sent_ref}` : ""}\n${draft.sent_text}`,
+    json: draft,
+  };
 }
 
 export function links(ctx: Ctx, id: string): Result {
@@ -333,27 +340,38 @@ export function draft(ctx: Ctx, id: string, label: string, body: string, channel
     .prepare(
       `INSERT INTO draft(ticket_id, label, body, status, channel, created_at, updated_at) VALUES (?, ?, ?, 'draft', ?, ?, ?)
        ON CONFLICT(ticket_id, label) DO UPDATE SET body = excluded.body, status = 'draft',
-         channel = coalesce(excluded.channel, draft.channel), updated_at = excluded.updated_at`,
+         channel = coalesce(excluded.channel, draft.channel), posted_at = NULL, sent_text = NULL, sent_ref = NULL,
+         answer = NULL, updated_at = excluded.updated_at`,
     )
     .run(id, label, body, channel, at, at);
   touch(ctx, id);
   return { text: `${id} draft "${label}" saved`, json: { ticket_id: id, label, status: "draft" } };
 }
 
-export type PostedOptions = { at: string; channel: string | null; answer: string | null };
+export type PostedOptions = {
+  at: string | null;
+  channel: string | null;
+  answer: string | null;
+  sentText: string | null;
+  sentRef: string | null;
+};
 
 export function posted(ctx: Ctx, id: string, label: string, options: PostedOptions): Result {
   const existing = one<DraftRow>(ctx.db, "SELECT * FROM draft WHERE ticket_id = ? AND label = ?", id, label);
   if (!existing) throw new HubError(`no draft "${label}" on ${id} (hub drafts ${id} lists them)`);
-  const status = options.answer === null ? "posted" : "answered";
+  const answer = options.answer ?? existing.answer;
+  const status = answer === null ? "posted" : "answered";
+  const at = options.at ?? existing.posted_at ?? nowTs(ctx.now, ctx.config.timezone);
   ctx.db
     .prepare(
-      `UPDATE draft SET status = ?, posted_at = ?, channel = coalesce(?, channel), answer = coalesce(?, answer), updated_at = ?
+      `UPDATE draft SET status = ?, posted_at = ?, channel = coalesce(?, channel), answer = ?,
+         sent_text = coalesce(?, sent_text), sent_ref = coalesce(?, sent_ref), updated_at = ?
        WHERE ticket_id = ? AND label = ?`,
     )
-    .run(status, options.at, options.channel, options.answer, nowIso(ctx.now), id, label);
+    .run(status, at, options.channel, answer, options.sentText, options.sentRef, nowIso(ctx.now), id, label);
   touch(ctx, id);
-  return { text: `${id} draft "${label}" ${status}`, json: { ticket_id: id, label, status } };
+  const pending = options.sentText === null && existing.sent_text === null ? ", wording pending" : "";
+  return { text: `${id} draft "${label}" ${status}${pending}`, json: { ticket_id: id, label, status, posted_at: at } };
 }
 
 export type LinkOptions = { kind: string | null; title: string | null; by: string };

@@ -40,6 +40,8 @@ export type DraftRow = {
   status: string;
   channel: string | null;
   posted_at: string | null;
+  sent_text: string | null;
+  sent_ref: string | null;
   answer: string | null;
 };
 export type LinkRow = { ticket_id: string; source: string; kind: string; url: string; title: string | null };
@@ -86,7 +88,8 @@ CREATE TABLE event(id INTEGER PRIMARY KEY, ticket_id TEXT, ts TEXT, kind TEXT, t
 CREATE INDEX event_ticket ON event(ticket_id, ts);
 CREATE TABLE note(id INTEGER PRIMARY KEY, ticket_id TEXT, title TEXT, body TEXT, kind TEXT, position INTEGER, updated_at TEXT,
   UNIQUE(ticket_id, title));
-CREATE TABLE draft(id INTEGER PRIMARY KEY, ticket_id TEXT, label TEXT, body TEXT, status TEXT, channel TEXT, posted_at TEXT, answer TEXT,
+CREATE TABLE draft(id INTEGER PRIMARY KEY, ticket_id TEXT, label TEXT, body TEXT, status TEXT, channel TEXT, posted_at TEXT,
+  sent_text TEXT, sent_ref TEXT, answer TEXT,
   created_at TEXT, updated_at TEXT, UNIQUE(ticket_id, label));
 CREATE TABLE link(id INTEGER PRIMARY KEY, ticket_id TEXT, source TEXT, kind TEXT, url TEXT, title TEXT, added_by TEXT, created_at TEXT,
   UNIQUE(ticket_id, url));
@@ -96,7 +99,7 @@ CREATE TABLE config(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT);
 ${ftsTable("ticket", "ticket_fts", "rowid", ["id", "title", "status", "next", "gate", "decide"])}
 ${ftsTable("note", "note_fts", "id", ["ticket_id", "title", "body"])}
 ${ftsTable("event", "event_fts", "id", ["ticket_id", "text"])}
-${ftsTable("draft", "draft_fts", "id", ["ticket_id", "label", "body"])}
+${ftsTable("draft", "draft_fts", "id", ["ticket_id", "label", "body", "sent_text"])}
 INSERT INTO meta(key, value) VALUES ('schema_version', '${SCHEMA_VERSION}');
 `;
 

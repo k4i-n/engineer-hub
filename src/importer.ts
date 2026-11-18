@@ -286,10 +286,11 @@ export function applyImport(db: DatabaseSync, plan: ImportPlan, now: Date): numb
       );
       if (existing && existing.body === d.body && existing.status === d.status) continue;
       db.prepare(
-        `INSERT INTO draft(ticket_id, label, body, status, posted_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO draft(ticket_id, label, body, status, posted_at, sent_text, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(ticket_id, label) DO UPDATE SET body = excluded.body, status = excluded.status,
-           posted_at = excluded.posted_at, updated_at = excluded.updated_at`,
-      ).run(d.ticket_id, d.label, d.body, d.status, d.posted_at, at, at);
+           posted_at = excluded.posted_at, sent_text = excluded.sent_text, updated_at = excluded.updated_at`,
+      ).run(d.ticket_id, d.label, d.body, d.status, d.posted_at, d.status === "posted" ? d.body : null, at, at);
       changes++;
     }
 

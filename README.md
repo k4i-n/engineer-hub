@@ -57,7 +57,7 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 | `hub log <id> <text> [--kind log] [--source agent] [--ref <url>]` | adds an event stamped in the configured timezone |
 | `hub note <id> <title> (--file <path> \| --stdin) [--kind detail]` | adds or replaces a note |
 | `hub draft <id> <label> (--file \| --stdin) [--channel <c>]` | adds or replaces a draft |
-| `hub posted <id> <label> --at <when> [--channel <c>] [--answer <text>]` | marks a draft posted or answered |
+| `hub posted <id> <label> [--at <when>] [--channel <c>] [--answer <text>] [--ref <url>] [--file \| --stdin]` | marks a draft posted or answered; the text given is the wording actually sent, which may differ from the draft (without it the draft shows "wording pending") |
 | `hub link <id> <url> [--kind <k>] [--title <t>]` | adds a link; source and kind come from the URL |
 | `hub day set <date> (--file \| --stdin)` | stores a day plan |
 | `hub ticket-new <id> <title> [--dir todo]`, `hub move <id> <dir>` | creates a ticket, moves it between dirs |
@@ -109,7 +109,7 @@ Put this in the agent's instructions:
 ```
 Cold start for a ticket: `hub board <id>` then `hub ticket <id>`. Read a note only when the next action needs it: `hub note-show <id> "<title>"`.
 During work, in the same shell call as the work: `hub log <id> "<what changed, readings, decisions>"`, `hub set <id> next "<one action>"`, `hub set <id> gate "<decision waiting on the human, or ->"`, `hub link <id> <url>` for every PR, run, thread or doc touched.
-Drafts for humans to post: `hub draft <id> "<label>" --stdin`; when posted: `hub posted <id> "<label>" --at "<when>" --channel "<where>"`.
+Drafts for humans to post: `hub draft <id> "<label>" --stdin`; when posted: `hub posted <id> "<label>" --channel "<where>" --ref <permalink> --stdin` with the wording actually sent.
 Daily plan: `hub day` to resume; `hub day set <date> --file <plan.md>` after writing it.
 Longer content: `hub note <id> "<title>" --file <path>`.
 State fields are one line each; the CLI refuses more and says where the text belongs.

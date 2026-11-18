@@ -184,12 +184,17 @@ describe("import", () => {
     assert.equal(t?.tracker_url, "https://tracker.example.com/acme/issue/ENG-42");
     const trackerJson = JSON.parse(t?.tracker_json ?? "{}") as Record<string, unknown>;
     assert.match(String(trackerJson.raw), /\*\*Attachments:\*\*/);
-    const drafts = sql<{ label: string; status: string; posted_at: string | null }>(
-      "SELECT label, status, posted_at FROM draft WHERE ticket_id = 'ENG-42' ORDER BY id",
+    const drafts = sql<{ label: string; status: string; posted_at: string | null; sent_text: string | null }>(
+      "SELECT label, status, posted_at, sent_text FROM draft WHERE ticket_id = 'ENG-42' ORDER BY id",
     );
     assert.deepEqual(drafts, [
-      { label: "Posted 2026-11-06", status: "posted", posted_at: "2026-11-06" },
-      { label: "D24 - ask design about the banner (context)", status: "draft", posted_at: null },
+      {
+        label: "Posted 2026-11-06",
+        status: "posted",
+        posted_at: "2026-11-06",
+        sent_text: "Posted in #web: the rollout starts Monday.",
+      },
+      { label: "D24 - ask design about the banner (context)", status: "draft", posted_at: null, sent_text: null },
     ]);
     const events = sql<{ ts: string; text: string }>(
       "SELECT ts, text FROM event WHERE ticket_id = 'ENG-42' AND kind = 'log' ORDER BY id",
@@ -254,7 +259,7 @@ describe("writes", () => {
     ok("draft", "ENG-7", "ask product", "--stdin", "--channel", "#product");
     assert.match(ok("drafts"), /ENG-7 \| ask product \| Can we cap exports/);
     ok("posted", "ENG-7", "ask product", "--at", "2026-11-13 15:00", "--answer", "yes, 10");
-    assert.equal(ok("drafts", "ENG-7"), "ask product | answered | #product | 2026-11-13 15:00");
+    assert.equal(ok("drafts", "ENG-7"), "ask product | answered | #product | 2026-11-13 15:00 | wording pending");
 
     ok("link", "ENG-7", "https://github.com/acme/web/pull/120");
     assert.equal(ok("links", "ENG-7"), "github/pr https://github.com/acme/web/pull/120");
@@ -263,6 +268,28 @@ describe("writes", () => {
     writeFileSync(file, "# Plan\n\n## RESUME\nstart with ENG-7\n\n## Later\n- other\n");
     ok("day", "set", "2026-11-14", "--file", file);
     assert.equal(ok("day", "2026-11-14"), "2026-11-14\nstart with ENG-7");
+  });
+
+  test("posted keeps the wording actually sent, and Sent without it is pending until a sync fills it", () => {
+    imported();
+    stdin = "Can we cap exports at 10 a minute?";
+    ok("draft", "ENG-7", "ask product", "--stdin", "--channel", "#product");
+    assert.equal(ok("posted", "ENG-7", "ask product"), 'ENG-7 draft "ask product" posted, wording pending');
+    assert.equal(ok("drafts", "ENG-7"), "ask product | posted | #product | 2026-11-13 14:20 | wording pending");
+
+    stdin = "hey, ok to limit exports to ten per minute per user?";
+    const permalink = "https://acme.slack.com/archives/C1/p1763011200";
+    ok("posted", "ENG-7", "ask product", "--stdin", "--ref", permalink);
+    assert.equal(ok("drafts", "ENG-7"), "ask product | posted | #product | 2026-11-13 14:20");
+    assert.equal(
+      ok("draft-show", "ENG-7", "ask product"),
+      `Can we cap exports at 10 a minute?\n\n--- sent ${permalink}\nhey, ok to limit exports to ten per minute per user?`,
+    );
+    assert.match(ok("search", "ten per minute"), /^draft ENG-7 ask product:/m);
+
+    stdin = "Second try: cap at 20?";
+    ok("draft", "ENG-7", "ask product", "--stdin");
+    assert.equal(ok("drafts", "ENG-7"), "ask product | draft | #product");
   });
 
   test("ticket-new validates the id and dir, move changes the dir", () => {
