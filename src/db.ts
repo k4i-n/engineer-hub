@@ -31,7 +31,15 @@ export type Ticket = {
   updated_at: string | null;
 };
 
-export type EventRow = { id: number; ticket_id: string; ts: string; kind: string; text: string; source: string };
+export type EventRow = {
+  id: number;
+  ticket_id: string;
+  ts: string;
+  kind: string;
+  text: string;
+  source: string;
+  ref: string | null;
+};
 export type NoteRow = { ticket_id: string; title: string; body: string; kind: string; position: number };
 export type DraftRow = {
   ticket_id: string;

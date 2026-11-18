@@ -9,6 +9,7 @@ import { dbPath, loadConfig } from "./config.ts";
 import { openDb } from "./db.ts";
 import { applyImport, collectImport, countPlan, formatSummary } from "./importer.ts";
 import * as items from "./items.ts";
+import { serve } from "./serve.ts";
 import * as sources from "./sources.ts";
 import * as steps from "./steps.ts";
 import { HubError } from "./util.ts";
@@ -40,7 +41,8 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         step add <id> <title> | step done <id> <n> [--evidence <url>]
         day set <date> (--file <path> | --stdin) | ticket-new <id> <title> [--dir todo]
         move <id> <dir> | config <key> <json>
-import: import --root <dir> [--apply]`;
+import: import --root <dir> [--apply]
+serve:  serve [--port 7420]`;
 
 const OPTIONS = {
   json: { type: "boolean" },
@@ -66,6 +68,7 @@ const OPTIONS = {
   error: { type: "string" },
   evidence: { type: "string" },
   for: { type: "string" },
+  port: { type: "string" },
   dir: { type: "string" },
   since: { type: "string" },
   n: { type: "string", short: "n" },
@@ -95,6 +98,7 @@ type Values = {
   error?: string;
   evidence?: string;
   for?: string;
+  port?: string;
   dir?: string;
   since?: string;
   n?: string;
@@ -244,6 +248,22 @@ function open(command: string, values: Values, io: Io): DatabaseSync {
   return openDb(dryRun && !existsSync(path) ? ":memory:" : path);
 }
 
+function startServer(values: Values, io: Io): number {
+  const port = values.port === undefined ? 7420 : Number(values.port);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    io.stderr(`--port takes a port number, not ${values.port}`);
+    return 1;
+  }
+  serve({ dbPath: dbPath(values.db, io.env), port, now: io.now, env: io.env }).then(
+    (server) => io.stdout(`hub on ${server.url}`),
+    (error: unknown) => {
+      io.stderr(`error: ${error instanceof Error ? error.message : String(error)}`);
+      process.exitCode = 1;
+    },
+  );
+  return 0;
+}
+
 export function run(argv: string[], io: Io): number {
   let parsed: { values: Values; positionals: string[] };
   try {
@@ -253,6 +273,7 @@ export function run(argv: string[], io: Io): number {
     return 2;
   }
   const [command, ...args] = parsed.positionals;
+  if (command === "serve") return startServer(parsed.values, io);
   const handler = command === undefined ? undefined : COMMANDS[command];
   if (command === undefined || handler === undefined) {
     io.stderr(USAGE);
