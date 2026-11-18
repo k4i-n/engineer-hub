@@ -455,6 +455,27 @@ describe("sync", () => {
   });
 });
 
+describe("steps", () => {
+  test("steps are numbered in order, done ones log an event, the ticket shows progress and the next step", () => {
+    imported();
+    ok("step", "add", "ENG-7", "read the export handler");
+    ok("step", "add", "ENG-7", "add", "the", "limiter");
+    ok("step", "add", "ENG-7", "open the PR");
+    const pr = "https://github.com/acme/web/pull/140";
+    assert.equal(ok("step", "done", "ENG-7", "1"), "ENG-7 step 1 done (1/3), next: 2 add the limiter");
+    ok("step", "done", "ENG-7", "3", "--evidence", pr);
+    assert.equal(
+      ok("steps", "ENG-7"),
+      `1 [x] read the export handler\n2 [ ] add the limiter\n3 [x] open the PR | ${pr}`,
+    );
+    assert.match(ok("ticket", "ENG-7"), /^steps: 2\/3 \| next step: 2 add the limiter$/m);
+    assert.match(ok("events", "ENG-7", "-n", "1"), /\[step\] step 3 done: open the PR$/);
+    assert.match(hub("step", "done", "ENG-7", "3").err, /already done/);
+    assert.match(hub("step", "done", "ENG-7", "9").err, /no step 9 on ENG-7/);
+    assert.match(hub("step", "add", "ENG-7", "x".repeat(241)).err, /max 240/);
+  });
+});
+
 describe("reads", () => {
   test("board prints the exact line for the rich ticket", () => {
     imported();

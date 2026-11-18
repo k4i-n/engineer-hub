@@ -10,6 +10,7 @@ import { openDb } from "./db.ts";
 import { applyImport, collectImport, countPlan, formatSummary } from "./importer.ts";
 import * as items from "./items.ts";
 import * as sources from "./sources.ts";
+import * as steps from "./steps.ts";
 import { HubError } from "./util.ts";
 import * as waits from "./waits.ts";
 
@@ -26,6 +27,7 @@ read:   ticket <id> | board [regex] | next | gates | changed --since <YYYY-MM-DD
         search <query> [-n 10] | events <id> [-n 20] [--full] | notes <id> | note-show <id> <title>
         drafts [id] | draft-show <id> <label> | day [date] | lint | config [key]
         items [--needs-me] [--source <s>] [--ticket <id>] [--all] | waits [--due] | sources | brief
+        steps <id>
 write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent] [--ref <url>]
         note <id> <title> (--file <path> | --stdin) [--kind detail]
         draft <id> <label> (--file <path> | --stdin) [--channel <c>]
@@ -35,6 +37,7 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         item put --stdin | item close <item>... | item attach <item> <id>
         wait <id> <who> <url> [--ping-after 1d] | wait close <wait | url>
         source <name> [--cursor <c>] [--error <text>]
+        step add <id> <title> | step done <id> <n> [--evidence <url>]
         day set <date> (--file <path> | --stdin) | ticket-new <id> <title> [--dir todo]
         move <id> <dir> | config <key> <json>
 import: import --root <dir> [--apply]`;
@@ -61,6 +64,7 @@ const OPTIONS = {
   due: { type: "boolean" },
   cursor: { type: "string" },
   error: { type: "string" },
+  evidence: { type: "string" },
   dir: { type: "string" },
   since: { type: "string" },
   n: { type: "string", short: "n" },
@@ -88,6 +92,7 @@ type Values = {
   due?: boolean;
   cursor?: string;
   error?: string;
+  evidence?: string;
   dir?: string;
   since?: string;
   n?: string;
@@ -203,6 +208,14 @@ const COMMANDS: Record<string, Handler> = {
     }),
   sources: (ctx) => sources.sources(ctx),
   brief: (ctx) => brief(ctx),
+  steps: (ctx, a) => steps.steps(ctx, arg(a, 0, "steps <id>")),
+  step: (ctx, a, v) => {
+    const usage = "step add <id> <title> | step done <id> <n> [--evidence <url>]";
+    const sub = arg(a, 0, usage);
+    if (sub === "add") return steps.add(ctx, arg(a, 1, usage), a.slice(2).join(" ") || arg(a, 2, usage));
+    if (sub === "done") return steps.done(ctx, arg(a, 1, usage), arg(a, 2, usage), v.evidence ?? null);
+    throw new HubError(`usage: hub ${usage}`);
+  },
   match: (ctx, a, v, io) => {
     const usage = "match <id> <label> --ref <url> (--file | --stdin) | match <id> <label> (yes | no)";
     const [id, label, answer] = [arg(a, 0, usage), arg(a, 1, usage), a[2]];

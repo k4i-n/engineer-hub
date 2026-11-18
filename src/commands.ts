@@ -15,12 +15,13 @@ import {
   type Ticket,
 } from "./db.ts";
 import { splitResume } from "./parse.ts";
+import { progress } from "./steps.ts";
 import { cut, HubError, nowIso, nowTs, sinceDate, startOfDayIso, today } from "./util.ts";
 
 export type Ctx = { db: DatabaseSync; config: Config; now: Date };
 export type Result = { text: string; json: unknown; exitCode?: number };
 
-const EVENT_KINDS = ["log", "reading", "decision", "tracker", "pr", "slack", "sync", "import"];
+const EVENT_KINDS = ["log", "reading", "decision", "tracker", "pr", "slack", "sync", "step", "import"];
 const EVENT_SOURCES = ["agent", "human", "sync", "import"];
 const NOTE_KINDS = ["ticket_body", "detail", "state_notes", "other"];
 const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
@@ -82,6 +83,7 @@ export function ticket(ctx: Ctx, id: string): Result {
     "SELECT count(*) AS open, coalesce(sum(needs_me), 0) AS needsMe FROM item WHERE ticket_id = ? AND closed_at IS NULL",
     id,
   ) ?? { open: 0, needsMe: 0 };
+  const steps = progress(ctx.db, id);
   const openWaits =
     one<{ n: number }>(ctx.db, "SELECT count(*) AS n FROM wait WHERE ticket_id = ? AND closed_at IS NULL", id)?.n ?? 0;
   const notes = all<{ title: string }>(ctx.db, "SELECT title FROM note WHERE ticket_id = ? ORDER BY position, id", id);
@@ -96,6 +98,7 @@ export function ticket(ctx: Ctx, id: string): Result {
     `owner: ${v(t.owner)} | updated: ${v(t.updated)}`,
     `tracker: ${v(t.tracker_state)} | ${v(t.tracker_priority)} | ${v(t.tracker_url)}`,
     `path: ${v(t.path)}`,
+    `steps: ${steps.done}/${steps.total}${steps.next ? ` | next step: ${steps.next.n} ${cut(steps.next.title, 100)}` : ""}`,
     `events: ${eventCount}, last:`,
     ...events.map((e) => `  ${e.ts} ${cut(e.text, 100)}`),
     `drafts: ${drafts.length} (${cut(drafts.map((d) => d.label).join(", "), 150)})`,
@@ -104,7 +107,16 @@ export function ticket(ctx: Ctx, id: string): Result {
   ];
   return {
     text: lines.join("\n"),
-    json: { ticket: t, events, eventCount, drafts, items: itemCounts, openWaits, notes: notes.map((n) => n.title) },
+    json: {
+      ticket: t,
+      events,
+      eventCount,
+      drafts,
+      items: itemCounts,
+      openWaits,
+      steps,
+      notes: notes.map((n) => n.title),
+    },
   };
 }
 
