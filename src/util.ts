@@ -47,6 +47,14 @@ export function afterDuration(now: Date, value: string, flag: string): string {
   return new Date(now.getTime() + Number(match[1]) * unit).toISOString();
 }
 
+const MORNING_HOUR = 9;
+
+export function laterTime(now: Date, value: string, timezone: string, flag: string): string {
+  if (value !== "tomorrow") return afterDuration(now, value, flag);
+  const start = Date.parse(startOfDayIso(shiftDate(today(now, timezone), 1), timezone));
+  return new Date(start + MORNING_HOUR * 3_600_000).toISOString();
+}
+
 export function cut(value: string, max: number): string {
   const line = value.replace(/\s*\n\s*/g, " ");
   if (line.length <= max) return line;

@@ -1,6 +1,6 @@
 import type { Ctx, Result } from "./commands.ts";
 import { all, getTicket, one, transaction, type WaitRow } from "./db.ts";
-import { afterDuration, HubError, nowIso, nowTs } from "./util.ts";
+import { afterDuration, HubError, laterTime, nowIso, nowTs } from "./util.ts";
 
 const MAX_WHO = 120;
 const MAX_URL = 2048;
@@ -51,6 +51,40 @@ export function wait(ctx: Ctx, id: string, who: string, url: string, ping: strin
     text: `wait #${waitId} on ${id}: ${who}${pingNote}`,
     json: { id: waitId, ticket_id: id, who, ping_after: after },
   };
+}
+
+function openWait(ctx: Ctx, key: string): WaitRow {
+  const row = /^\d+$/.test(key)
+    ? one<WaitRow>(ctx.db, "SELECT * FROM wait WHERE id = ?", Number(key))
+    : one<WaitRow>(ctx.db, "SELECT * FROM wait WHERE url = ? ORDER BY closed_at IS NOT NULL, id DESC", key);
+  if (!row) throw new HubError(`no wait ${key} (hub waits lists them)`);
+  return row;
+}
+
+export function pinged(ctx: Ctx, key: string, again: string): Result {
+  const w = openWait(ctx, key);
+  if (w.closed_at !== null) throw new HubError(`wait #${w.id} is closed`);
+  const after = laterTime(ctx.now, again, ctx.config.timezone, "--for");
+  const at = nowIso(ctx.now);
+  transaction(ctx.db, () => {
+    ctx.db.prepare("UPDATE wait SET ping_after = ?, pinged_at = ? WHERE id = ?").run(after, at, w.id);
+    ctx.db
+      .prepare(
+        "INSERT INTO event(ticket_id, ts, kind, text, source, ref, created_at) VALUES (?, ?, 'log', ?, 'human', ?, ?)",
+      )
+      .run(w.ticket_id, nowTs(ctx.now, ctx.config.timezone), `Pinged ${w.who}`, w.url, at);
+    ctx.db.prepare("UPDATE ticket SET updated_at = ? WHERE id = ?").run(at, w.ticket_id);
+  });
+  return {
+    text: `wait #${w.id}: pinged ${w.who}, next ping after ${shown(ctx, after)}`,
+    json: { id: w.id, ping_after: after },
+  };
+}
+
+export function reopenWait(ctx: Ctx, key: string): Result {
+  const w = openWait(ctx, key);
+  ctx.db.prepare("UPDATE wait SET closed_at = NULL WHERE id = ?").run(w.id);
+  return { text: `wait #${w.id} reopened`, json: { id: w.id } };
 }
 
 export function closeWait(ctx: Ctx, key: string): Result {

@@ -1,14 +1,16 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { Ctx, Result } from "./commands.ts";
 import * as commands from "./commands.ts";
-import { loadConfig } from "./config.ts";
-import { openDb } from "./db.ts";
+import { loadConfig, setConfig } from "./config.ts";
+import { one, openDb, SCHEMA_VERSION } from "./db.ts";
 import * as items from "./items.ts";
+import * as pins from "./pins.ts";
 import { HubError, nowIso } from "./util.ts";
-import { indexBody, page, type SyncState, ticketBody } from "./views.ts";
+import { indexBody, page, type SyncState, settingsBody, ticketBody } from "./views.ts";
 import * as waits from "./waits.ts";
 
 export type ServeOptions = { dbPath: string; port: number; now: () => Date; env: NodeJS.ProcessEnv };
@@ -21,6 +23,11 @@ const MAX_BODY = 16_384;
 const OUTPUT_TAIL = 2_000;
 
 type Body = Record<string, unknown>;
+
+const STATIC: Record<string, { type: string; body: string }> = {
+  "/app.css": { type: "text/css", body: readFileSync(new URL("./web/app.css", import.meta.url), "utf8") },
+  "/app.js": { type: "text/javascript", body: readFileSync(new URL("./web/app.js", import.meta.url), "utf8") },
+};
 
 function field(body: Body, key: string): string {
   const value = body[key];
@@ -39,17 +46,29 @@ const ACTIONS: Record<string, (ctx: Ctx, body: Body) => Result> = {
     }),
   match: (ctx, b) => commands.resolveMatch(ctx, field(b, "ticket"), field(b, "label"), field(b, "answer")),
   "item-done": (ctx, b) => items.close(ctx, [field(b, "id")]),
-  "item-snooze": (ctx, b) => items.snooze(ctx, field(b, "id"), "1d"),
+  pin: (ctx, b) => pins.setPin(ctx, field(b, "key"), field(b, "on") === "1"),
+  "item-snooze": (ctx, b) => items.snooze(ctx, field(b, "id"), typeof b.for === "string" ? b.for : "1d"),
+  "item-reopen": (ctx, b) => items.reopen(ctx, field(b, "id")),
   "wait-close": (ctx, b) => waits.closeWait(ctx, field(b, "id")),
+  "wait-pinged": (ctx, b) => waits.pinged(ctx, field(b, "id"), typeof b.for === "string" ? b.for : "1d"),
+  "wait-reopen": (ctx, b) => waits.reopenWait(ctx, field(b, "id")),
+  gate: (ctx, b) => commands.answerGate(ctx, field(b, "ticket"), field(b, "answer")),
+  config: (ctx, b) => {
+    if (field(b, "key") === "syncCommand")
+      throw new HubError("syncCommand is set from the terminal: hub config syncCommand");
+    setConfig(ctx.db, field(b, "key"), field(b, "value"), ctx.now);
+    return { text: "saved", json: { key: b.key } };
+  },
 };
 
-function send(res: ServerResponse, status: number, type: string, body: string, nonce = ""): void {
+function send(res: ServerResponse, status: number, type: string, body: string): void {
   res.writeHead(status, {
     "content-type": `${type}; charset=utf-8`,
     "cache-control": "no-store",
     "x-content-type-options": "nosniff",
     "referrer-policy": "no-referrer",
-    "content-security-policy": `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+    "content-security-policy":
+      "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
   });
   res.end(body);
 }
@@ -79,7 +98,6 @@ export function serve(options: ServeOptions): Promise<Server> {
   const db = openDb(options.dbPath);
   const watch = openDb(options.dbPath);
   const token = randomBytes(24).toString("hex");
-  const nonce = randomBytes(16).toString("base64");
   const clients = new Set<ServerResponse>();
   let sync: SyncState = { status: "idle", at: null, detail: null };
   let child: ChildProcess | null = null;
@@ -160,17 +178,39 @@ export function serve(options: ServeOptions): Promise<Server> {
       send(res, 200, "application/json", JSON.stringify(sync));
       return;
     }
-    if (req.method === "GET" && (url.pathname === "/" || url.pathname.startsWith("/t/"))) {
-      const id = url.pathname === "/" ? null : decodeURIComponent(url.pathname.slice(3));
+    const asset = STATIC[url.pathname];
+    if (req.method === "GET" && asset !== undefined) {
+      send(res, 200, asset.type, asset.body);
+      return;
+    }
+    if (
+      req.method === "GET" &&
+      (url.pathname === "/" || url.pathname === "/settings" || url.pathname.startsWith("/t/"))
+    ) {
+      const c = ctx();
       let body: string;
+      let title = "hub";
       try {
-        body = id === null ? indexBody(ctx(), sync) : ticketBody(ctx(), id, sync);
+        if (url.pathname === "/") body = indexBody(c, sync);
+        else if (url.pathname === "/settings") {
+          title = "Settings · hub";
+          const schema = one<{ value: string }>(db, "SELECT value FROM meta WHERE key = 'schema_version'")?.value;
+          body = settingsBody(c, sync, {
+            path: options.dbPath,
+            size: statSync(options.dbPath).size,
+            schema: schema ?? SCHEMA_VERSION,
+          });
+        } else {
+          const id = decodeURIComponent(url.pathname.slice(3));
+          title = `${id} · hub`;
+          body = ticketBody(c, id, sync);
+        }
       } catch (error) {
         if (!(error instanceof HubError)) throw error;
         send(res, 404, "text/plain", error.message);
         return;
       }
-      send(res, 200, "text/html", part ? body : page(id === null ? "hub" : `${id} · hub`, body, token, nonce), nonce);
+      send(res, 200, "text/html", part ? body : page(c, title, body, token));
       return;
     }
     if (req.method === "POST" && url.pathname.startsWith("/api/")) {

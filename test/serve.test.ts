@@ -87,8 +87,10 @@ describe("serve", () => {
     assert.match(html, /Needs you/);
     assert.match(html, /href="\/t\/ENG-42">ENG-42<\/a><span class="t-title">Sync login sessions across devices/);
     assert.match(html, /waiting on design review/);
-    const nonce = /script-src 'nonce-([^']+)'/.exec(index.headers.get("content-security-policy") ?? "")?.[1];
-    assert.ok(nonce !== undefined && html.includes(`<script nonce="${nonce}">`));
+    assert.match(index.headers.get("content-security-policy") ?? "", /script-src 'self'/);
+    assert.match(html, /<script src="\/app.js" defer><\/script>/);
+    assert.equal((await fetch(`${server.url}/app.js`)).headers.get("content-type"), "text/javascript; charset=utf-8");
+    assert.match(await (await fetch(`${server.url}/app.css`)).text(), /--accent/);
 
     const part = await (await fetch(`${server.url}/?part=1`)).text();
     assert.doesNotMatch(part, /<!doctype|<script/);
@@ -97,6 +99,79 @@ describe("serve", () => {
     assert.match(ticket, /<h1>Sync login sessions across devices<\/h1>/);
     assert.match(ticket, /Timeline/);
     assert.equal((await fetch(`${server.url}/t/NOPE-1`)).status, 404);
+  });
+
+  test("needs you ranks by kind, keeps done rows in place dimmed with undo, and answers gates", async () => {
+    const lines = [
+      {
+        source: "github",
+        kind: "review_request",
+        url: "https://github.com/acme/web/pull/9",
+        title: "Retry webhook",
+        needs_me: true,
+      },
+      { source: "grafana", kind: "alert", ref: "alert-1", title: "API 5xx", needs_me: true },
+    ];
+    hub(["item", "put", "--stdin"], lines.map((l) => JSON.stringify(l)).join("\n"));
+    const verbs = (html: string) => [...html.matchAll(/<span class="verb">([^<]+)<\/span>/g)].map((m) => m[1]);
+    const before = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.deepEqual(verbs(before).slice(0, 2), ["Alert", "Review"]);
+    assert.match(before, /data-needs-count="4"/);
+    const id = /data-act="item-done" data-id="(\d+)"/.exec(before)?.[1] ?? "";
+    await post("/api/item-done", { id });
+    const after = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.deepEqual(verbs(after), verbs(before));
+    assert.match(
+      after,
+      /is-dim[^>]*data-key="item-\d+"[\s\S]*?<span class="dim-label">done<\/span>[\s\S]*?<span class="rail"><button[^>]*data-act="item-reopen"[^>]*data-hotkey="u"/,
+    );
+    assert.match(after, /data-needs-count="3"/);
+    assert.equal((await post("/api/gate", { ticket: "ENG-42", answer: "yes" })).status, 200);
+    assert.match(await (await fetch(`${server.url}/?part=1`)).text(), /<span class="dim-label">yes<\/span>/);
+  });
+
+  test("every needs row has the same three controls, and a pinned row moves to the top", async () => {
+    hub(
+      ["item", "put", "--stdin"],
+      JSON.stringify({ source: "grafana", kind: "alert", ref: "alert-1", needs_me: true }),
+    );
+    const html = await (await fetch(`${server.url}/?part=1`)).text();
+    const rows = [...html.matchAll(/<li class="need [^"]*" data-key="([^"]+)"[\s\S]*?<\/li>/g)];
+    assert.ok(rows.length >= 3);
+    for (const [row] of rows) {
+      assert.match(
+        row,
+        /<span class="rail"><button[^>]*class="ic ic-(ok|undo)"[\s\S]*?class="ic ic-later"[\s\S]*?<summary class="ic ic-more"/,
+      );
+      assert.match(row, /data-act="pin"/);
+    }
+    const last = rows.at(-1)?.[1] ?? "";
+    assert.notEqual(rows[0]?.[1], last);
+    assert.equal((await post("/api/pin", { key: last, on: "1" })).status, 200);
+    const pinned = await (await fetch(`${server.url}/?part=1`)).text();
+    const first = /<li class="(need [^"]*)" data-key="([^"]+)"/.exec(pinned);
+    assert.equal(first?.[2], last);
+    assert.match(first?.[1] ?? "", /\bpinned\b/);
+    assert.match(pinned, new RegExp(`data-act="pin" data-key="${last}" data-on="0"`));
+    assert.equal((await post("/api/pin", { key: "ticket-1", on: "1" })).status, 400);
+  });
+
+  test("settings show the database and save config through the same checks as the CLI", async () => {
+    const html = await (await fetch(`${server.url}/settings`)).text();
+    assert.ok(html.includes(dbFile));
+    assert.match(html, /Schema<\/span><div class="set-control">v2/);
+    assert.equal((await post("/api/config", { key: "openLinearIn", value: '"app"' })).status, 200);
+    const command = await post("/api/config", { key: "syncCommand", value: '["sh","-c","touch /tmp/x"]' });
+    assert.equal(command.status, 400);
+    assert.doesNotMatch(html, /data-config-input="syncCommand"/);
+    const bad = await post("/api/config", { key: "theme", value: '"pink"' });
+    assert.equal(bad.status, 400);
+    assert.match(await bad.text(), /theme must be one of/);
+    hub(
+      ["item", "put", "--stdin"],
+      JSON.stringify({ source: "linear", kind: "issue", url: "https://linear.app/acme/issue/ENG-7", needs_me: true }),
+    );
+    assert.match(await (await fetch(`${server.url}/?part=1`)).text(), /href="linear:\/\/acme\/issue\/ENG-7"/);
   });
 
   test("text from the DB is escaped", async () => {
@@ -122,9 +197,20 @@ describe("serve", () => {
     });
     hub(["item", "put", "--stdin"], review);
     const id = /^#(\d+)/.exec(hub(["items", "--needs-me"]))?.[1] ?? "";
-    assert.match(await (await fetch(`${server.url}/`)).text(), /data-act="item-done" data-id="\d+"/);
-    assert.equal((await post("/api/item-snooze", { id })).status, 200);
+    const page = await (await fetch(`${server.url}/`)).text();
+    assert.match(page, /data-act="item-done" data-id="\d+"/);
+    assert.match(
+      page,
+      /<details class="menu"[^>]*><summary class="ic ic-more"[^>]*>[\s\S]*?<div class="menu-pop">[\s\S]*?data-act="item-snooze" data-id="\d+" data-for="1h"/,
+    );
+    assert.equal((await post("/api/item-snooze", { id, for: "1h" })).status, 200);
     assert.equal(hub(["items", "--needs-me"]), "no items");
+    const db = new DatabaseSync(dbFile);
+    const row = db.prepare("SELECT snoozed_until FROM item WHERE id = ?").get(Number(id)) as { snoozed_until: string };
+    db.close();
+    const minutes = (Date.parse(row.snoozed_until) - Date.now()) / 60000;
+    assert.ok(minutes > 58 && minutes <= 60, `snoozed ${minutes} minutes`);
+    assert.equal((await post("/api/item-snooze", { id, for: "soon" })).status, 400);
     assert.equal((await post("/api/item-done", { id })).status, 200);
     assert.match(hub(["items", "--all"]), /pull\/9 \| closed$/m);
 
@@ -163,7 +249,7 @@ describe("serve", () => {
     setCommand(["node", "-e", "setTimeout(() => process.stdout.write(process.env.HUB_DB), 300)"]);
     assert.equal((await post("/api/sync", {})).status, 202);
     assert.equal((await post("/api/sync", {})).status, 409);
-    assert.match(await (await fetch(`${server.url}/?part=1`)).text(), /Syncing…/);
+    assert.match(await (await fetch(`${server.url}/?part=1`)).text(), /class="top syncing"[\s\S]*disabled>Syncing</);
     const finished = await waitFor(async () => {
       const s = await syncState();
       return s.status === "running" ? undefined : s;

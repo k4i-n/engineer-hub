@@ -77,6 +77,7 @@ export type WaitRow = {
   url: string;
   asked_at: string;
   ping_after: string | null;
+  pinged_at: string | null;
   closed_at: string | null;
 };
 export type SourceRow = { name: string; cursor: string | null; last_sync: string; last_error: string | null };
@@ -139,11 +140,12 @@ CREATE TABLE item(id INTEGER PRIMARY KEY, source TEXT NOT NULL, ref TEXT NOT NUL
   first_seen TEXT NOT NULL, changed_at TEXT NOT NULL, closed_at TEXT, snoozed_until TEXT);
 CREATE INDEX item_ticket ON item(ticket_id);
 CREATE TABLE wait(id INTEGER PRIMARY KEY, ticket_id TEXT NOT NULL, who TEXT NOT NULL, url TEXT NOT NULL,
-  asked_at TEXT NOT NULL, ping_after TEXT, closed_at TEXT);
+  asked_at TEXT NOT NULL, ping_after TEXT, pinged_at TEXT, closed_at TEXT);
 CREATE TABLE step(id INTEGER PRIMARY KEY, ticket_id TEXT NOT NULL, n INTEGER NOT NULL, title TEXT NOT NULL,
   done_at TEXT, evidence TEXT, created_at TEXT NOT NULL, UNIQUE(ticket_id, n));
 CREATE TABLE source(name TEXT PRIMARY KEY, cursor TEXT, last_sync TEXT NOT NULL, last_error TEXT);
 CREATE TABLE day(date TEXT PRIMARY KEY, resume TEXT, body TEXT, updated_at TEXT);
+CREATE TABLE pin(key TEXT PRIMARY KEY, pinned_at TEXT NOT NULL);
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE config(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT);
 ${ftsTable("ticket", "ticket_fts", "rowid", ["id", "title", "status", "next", "gate", "decide"])}
