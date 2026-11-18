@@ -297,6 +297,34 @@ body.offline .top::after {
   gap: 18px;
   min-width: 0;
 }
+.block {
+  position: relative;
+  min-width: 0;
+}
+.block.dragging {
+  opacity: 0.35;
+}
+.block.drop-before::before,
+.block.drop-after::after,
+.col.drop-end::after {
+  content: "";
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.block.drop-before::before,
+.block.drop-after::after {
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+.block.drop-before::before {
+  top: -11px;
+}
+.block.drop-after::after {
+  bottom: -11px;
+}
 section {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -336,6 +364,9 @@ h1 {
   background: var(--red);
   border-color: var(--red);
   color: #fff;
+}
+.brand .count {
+  font-size: 11px;
 }
 .page-head {
   display: flex;
@@ -1190,6 +1221,42 @@ a.chip-btn:hover {
   font-size: 12px;
   color: var(--muted);
   align-self: center;
+}
+.grip-menu {
+  position: absolute;
+  top: 13px;
+  left: 1px;
+  z-index: 3;
+}
+.grip-menu > .grip {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 22px;
+  border-radius: 4px;
+  color: var(--muted);
+  opacity: 0.4;
+  cursor: grab;
+}
+.block:hover .grip,
+.grip-menu[open] > .grip {
+  opacity: 1;
+}
+.grip svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+  stroke: none;
+}
+.grip-menu .menu-pop {
+  left: 0;
+  right: auto;
+}
+.ncard {
+  padding-top: 10px;
+}
+.ncard .ngroup {
+  margin-top: 0;
 }
 
 /* settings */
