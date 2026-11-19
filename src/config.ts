@@ -39,6 +39,7 @@ export type Config = {
   backupDir: string;
   backupKeep: number;
   laterHour: number;
+  recordActions: string[];
 };
 
 export type Layout = { top: string[]; left: string[]; right: string[] };
@@ -107,6 +108,11 @@ export const DEFAULTS: Config = {
   backupDir: "",
   backupKeep: 14,
   laterHour: 9,
+  recordActions: [
+    "\\bgit\\s+push\\b",
+    "\\bgh\\s+pr\\s+(create|merge|comment|review|close|edit)\\b",
+    "\\bgh\\s+issue\\s+(create|comment|close|edit)\\b",
+  ],
 };
 
 const CHOICES: Partial<Record<keyof Config, string[]>> = {
@@ -171,6 +177,17 @@ function semanticError(key: Key, value: unknown): string | undefined {
     } catch {
       return `ticketIdPattern is not a valid regular expression`;
     }
+  }
+  if (key === "recordActions") {
+    const bad = (value as string[]).find((pattern) => {
+      try {
+        new RegExp(pattern);
+        return false;
+      } catch {
+        return true;
+      }
+    });
+    if (bad !== undefined) return `recordActions has ${bad}, which is not a valid regular expression`;
   }
   if (key === "syncCommand" && Array.isArray(value) && value.length === 0) {
     return 'syncCommand takes the program and its arguments, e.g. ["claude","-p","/engineer-hub:hub-sync"]';
