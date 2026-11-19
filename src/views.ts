@@ -1336,7 +1336,8 @@ function fetchStatus(ctx: Ctx, f: Fetching): string {
 }
 
 function scriptControls(f: Fetching): string {
-  return `<input class="text src-every" data-source="${esc(f.name)}" data-field="every" value="${esc(f.every ?? "")}" aria-label="Every" spellcheck="false"><input class="text src-section" data-source="${esc(f.name)}" data-field="section" value="${esc(f.section ?? "")}" placeholder="Section" aria-label="Section" spellcheck="false">${button("Fetch now", { act: "source-fetch", name: f.name })}${button("Remove", { act: "source-remove", name: f.name, confirm: `Remove ${f.name}?` })}`;
+  const off = f.on ? "" : " disabled";
+  return `<input class="text src-every" data-source="${esc(f.name)}" data-field="every" value="${esc(f.every ?? "")}" aria-label="Every" spellcheck="false"${off}><input class="text src-section" data-source="${esc(f.name)}" data-field="section" value="${esc(f.section ?? "")}" placeholder="Section" aria-label="Section" spellcheck="false"${off}>${button("Fetch now", { act: "source-fetch", name: f.name }, { disabled: !f.on })}${button("Remove", { act: "source-remove", name: f.name, confirm: `Remove ${f.name}?` })}`;
 }
 
 function sourceRows(ctx: Ctx, list: Fetching[]): string {
@@ -1453,6 +1454,7 @@ ${section(
     row(
       "Slack team ID",
       `<input class="text" data-config-input="slackTeamId" value="${esc(c.slackTeamId)}" placeholder="T01ABCDEF" spellcheck="false">`,
+      c.openSlackIn !== "app",
     ) +
     row(
       "Linear",
@@ -1495,7 +1497,7 @@ ${section(
         ["2h", "2 hours"],
         ["4h", "4 hours"],
       ]),
-      !c.claudeSync,
+      !c.claudeSync || !c.autoSync,
     ) +
     row("Command", codeBlock(JSON.stringify(c.syncCommand)), !c.claudeSync),
   "set-sec",
@@ -1508,10 +1510,12 @@ ${section(
     row(
       "Review requests",
       `<input class="text" data-config-input="githubReviewQuery" value="${esc(c.githubReviewQuery)}" spellcheck="false">`,
+      c.fetch.github !== true,
     ) +
     row(
       "Alert channels",
       `<input class="text" data-config-input="slackAlertChannels" data-list value="${esc(c.slackAlertChannels.map((n) => `#${n.replace(/^#/, "")}`).join(", "))}" spellcheck="false">`,
+      c.fetch.slack !== true,
     ) +
     ignoredRows(ctx) +
     row(
@@ -1522,6 +1526,7 @@ ${section(
         ["15m", "15 min"],
         ["30m", "30 min"],
       ]),
+      !fetching.some((f) => f.script === null && f.on),
     ),
   "set-sec",
 )}
@@ -1541,6 +1546,7 @@ ${section(
         ["1d", "1 day"],
         ["7d", "7 days"],
       ]),
+      !c.autoBackup,
     ) +
     row(
       "Keep",
@@ -1549,6 +1555,7 @@ ${section(
         c.backupKeep,
         [7, 14, 30].map((n) => [n, String(n)]),
       ),
+      !c.autoBackup,
     ) +
     row(
       "Folder",

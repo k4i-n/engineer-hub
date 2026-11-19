@@ -588,6 +588,24 @@ describe("serve", () => {
     assert.equal(twice.status, 400);
   });
 
+  test("a setting that only matters while a switch is on is off with it", async () => {
+    const offRow = (html: string, label: string) =>
+      new RegExp(`<div class="set-row off" inert><span class="set-label">${label}</span>`).test(html);
+    const settings = async () => (await fetch(`${server.url}/settings?part=1`)).text();
+    let html = await settings();
+    assert.ok(offRow(html, "Slack team ID"));
+    assert.ok(offRow(html, "Alert channels"));
+    assert.ok(!offRow(html, "Review requests"));
+    assert.ok(!offRow(html, "Keep"));
+    assert.equal((await setConfigKey("openSlackIn", '"app"')).status, 200);
+    assert.equal((await setConfigKey("autoBackup", "false")).status, 200);
+    assert.equal((await setConfigKey("fetch", '{"github":false}')).status, 200);
+    html = await settings();
+    assert.ok(!offRow(html, "Slack team ID"));
+    assert.ok(offRow(html, "Keep"));
+    assert.ok(offRow(html, "Review requests"));
+  });
+
   test("search finds tickets, items, steps and notes from one box", async () => {
     await hub(
       ["item", "put", "--stdin"],
