@@ -91,11 +91,15 @@ type Counts = {
 };
 type ImportJson = {
   counts: Counts;
-  report: { oversize: { id: string; field: string; length: number }[] };
+  report: {
+    oversize: { id: string; field: string; length: number }[];
+    folded: { id: string; paths: string[] }[];
+    noTicket: string[];
+  };
   changes: number | null;
 };
 
-const EXPECTED: Counts = { tickets: 2, events: 3, notes: 5, drafts: 2, links: 2, days: 1 };
+const EXPECTED: Counts = { tickets: 2, events: 3, notes: 10, drafts: 2, links: 2, days: 1 };
 
 beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), "hub-test-"));
@@ -139,6 +143,37 @@ describe("import", () => {
     ]);
   });
 
+  test("files sharing a ticket id or inside its folder fold into the ticket as notes, and the dry run says so", async () => {
+    await configure();
+    const dry = await json<ImportJson>("import", "--root", ROOT);
+    assert.deepEqual(dry.report.folded, [
+      { id: "ENG-42", paths: ["tasks/inprogress/ENG-42-baseline.md", "tasks/inprogress/ENG-42-trace.txt"] },
+      {
+        id: "ENG-7",
+        paths: [
+          "tasks/todo/ENG-7-notes-draft.md",
+          "tasks/done/ENG-7-scripts/notes.md",
+          "tasks/done/ENG-7-scripts/run.sh",
+        ],
+      },
+    ]);
+    assert.deepEqual(dry.report.noTicket, ["tasks/todo/README.md"]);
+    const text = await ok("import", "--root", ROOT);
+    assert.match(
+      text,
+      /^folded 5 files into 2 tickets \(as notes\): ENG-42 \(tasks\/inprogress\/ENG-42-baseline\.md, /m,
+    );
+    assert.match(text, /^not imported, no ticket: tasks\/todo\/README\.md$/m);
+    await ok("import", "--root", ROOT, "--apply");
+    assert.deepEqual(
+      sql<{ id: string }>("SELECT id FROM ticket ORDER BY id").map((t) => t.id),
+      ["ENG-42", "ENG-7"],
+    );
+    const notes = sql<{ title: string; body: string }>("SELECT title, body FROM note WHERE ticket_id = 'ENG-7'");
+    assert.match(notes.find((n) => n.title === "tasks/done/ENG-7-scripts/notes.md")?.body ?? "", /Run run.sh/);
+    assert.equal(notes.find((n) => n.title === "Other files")?.body, "- tasks/done/ENG-7-scripts/run.sh");
+  });
+
   test("oversize field keeps limit chars plus a suffix, the full text goes to a state_notes note", async () => {
     await imported();
     const [ticket] = sql<{ status: string }>("SELECT status FROM ticket WHERE id = 'ENG-42'");
@@ -169,6 +204,8 @@ describe("import", () => {
       { title: "Detail", kind: "detail" },
       { title: "Inventory", kind: "other" },
       { title: "State notes (migrated 2026-11-13)", kind: "state_notes" },
+      { title: "tasks/inprogress/ENG-42-baseline.md", kind: "other" },
+      { title: "Other files", kind: "other" },
     ]);
     const [t] = sql<Record<string, string>>("SELECT * FROM ticket WHERE id = 'ENG-42'");
     assert.deepEqual(sql<{ id: string; position: number | null }>("SELECT id, position FROM ticket ORDER BY id"), [
@@ -561,7 +598,10 @@ describe("reads", () => {
     const lines = (await ok("ticket", "ENG-42")).split("\n");
     assert.ok(lines.length < 25);
     assert.equal(lines[0], "ENG-42 | inprogress | Sync login sessions across devices");
-    assert.equal(lines.at(-1), "notes: Ticket body as filed; Detail; Inventory; State notes (migrated 2026-11-13)");
+    assert.equal(
+      lines.at(-1),
+      "notes: Ticket body as filed; Detail; Inventory; State notes (migrated 2026-11-13); tasks/inprogress/ENG-42-baseline.md; Other files",
+    );
   });
 
   test("search finds a term in a note, an event and a draft", async () => {
