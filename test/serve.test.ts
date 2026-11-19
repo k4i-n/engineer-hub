@@ -174,6 +174,16 @@ describe("serve", () => {
     assert.match(await (await fetch(`${server.url}/?part=1`)).text(), /href="linear:\/\/acme\/issue\/ENG-7"/);
   });
 
+  test("tickets split into ongoing and recently done tabs", async () => {
+    hub(["move", "ENG-7", "done"]);
+    const html = await (await fetch(`${server.url}/?part=1`)).text();
+    const panel = (tab: string) =>
+      new RegExp(`<ul class="rows ticket-list" data-tab-panel="${tab}"[^>]*>([\\s\\S]*?)</ul>`).exec(html)?.[1] ?? "";
+    assert.match(panel("done"), /class="ticket is-closed" data-key="t-ENG-7"[\s\S]*?<div class="t-next">done /);
+    assert.doesNotMatch(panel("ongoing"), /data-key="t-ENG-7"/);
+    assert.match(html, /data-tab="done" aria-selected="false">Done <b>1<\/b>/);
+  });
+
   test("text from the DB is escaped", async () => {
     hub(["ticket-new", "NEW-xss", "<script>alert(1)</script>"]);
     const html = await (await fetch(`${server.url}/`)).text();

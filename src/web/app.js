@@ -62,6 +62,7 @@ function announce(fresh) {
 }
 
 function afterRender(first) {
+  applyTab();
   const keys = needKeys();
   const section = app.querySelector("[data-needs-count]");
   badge(section ? Number(section.dataset.needsCount) : 0);
@@ -180,9 +181,24 @@ function tick() {
 }
 setInterval(tick, 1000);
 
+let ticketTab = "ongoing";
+try {
+  ticketTab = localStorage.getItem("hub.ticketTab") ?? "ongoing";
+} catch {}
+
+function applyTab() {
+  for (const b of app.querySelectorAll("[data-tab]")) {
+    const on = b.dataset.tab === ticketTab;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-selected", String(on));
+  }
+  for (const ul of app.querySelectorAll("[data-tab-panel]")) ul.hidden = ul.dataset.tabPanel !== ticketTab;
+}
+
 function applyFilter(input) {
   const q = input.value.trim().toLowerCase();
-  for (const li of app.querySelectorAll(".ticket-list > li")) li.hidden = q !== "" && !li.dataset.search.includes(q);
+  for (const li of app.querySelectorAll(".ticket-list > li[data-search]"))
+    li.hidden = q !== "" && !li.dataset.search.includes(q);
 }
 
 function open(href, newTab) {
@@ -193,7 +209,9 @@ function open(href, newTab) {
 }
 
 function rows() {
-  return [...app.querySelectorAll(".needs-list > li[data-key], .ticket-list > li[data-key]:not([hidden])")];
+  return [
+    ...app.querySelectorAll(".needs-list > li[data-key], .ticket-list:not([hidden]) > li[data-key]:not([hidden])"),
+  ];
 }
 
 function select(li) {
@@ -226,6 +244,14 @@ async function saveConfig(key, value, el) {
 document.addEventListener("click", async (e) => {
   closeMenus(e.target.closest("details.menu"));
   const b = e.target.closest("button");
+  if (b?.dataset.tab) {
+    ticketTab = b.dataset.tab;
+    try {
+      localStorage.setItem("hub.ticketTab", ticketTab);
+    } catch {}
+    applyTab();
+    return;
+  }
   if (b && !b.disabled) {
     if (b.dataset.open !== undefined) {
       closeMenus();

@@ -477,6 +477,7 @@ a.need-title:hover {
 }
 .rail {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 2px;
 }
@@ -634,6 +635,34 @@ button.busy::after {
 .ticket:hover {
   background: var(--sunk);
 }
+.tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--sunk);
+}
+.tabs .tab {
+  min-width: 0;
+  height: 24px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+.tabs .tab b {
+  margin-left: 3px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.tabs .tab.on {
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
 .t-top {
   display: flex;
   align-items: center;
@@ -680,9 +709,16 @@ button.busy::after {
   margin-top: 3px;
   font-size: 13px;
 }
+.ticket.is-closed .t-title,
+.ticket.is-closed .t-next {
+  color: var(--muted);
+}
 .t-next::before {
   content: "→ ";
   color: var(--accent);
+}
+.ticket.is-closed .t-next::before {
+  content: none;
 }
 .chips {
   display: flex;
@@ -936,6 +972,8 @@ summary {
 }
 .menu {
   position: relative;
+  padding: 0;
+  border-top: 0;
 }
 .menu > summary {
   list-style: none;
