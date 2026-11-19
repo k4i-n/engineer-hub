@@ -1,4 +1,5 @@
 import { byPriorityThenRecent, type Ctx, has, openTickets, recentlyDone } from "./commands.ts";
+import { BLOCKS, DEFAULT_LAYOUT, type Layout } from "./config.ts";
 import {
   all,
   type DayRow,
@@ -143,6 +144,7 @@ const ICON: Record<string, string> = {
   more: '<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>',
   pin: '<path d="M12 17v5"/><path d="M9 10.8V4h6v6.8l3 3.2v2H6v-2z"/>',
   open: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+  grip: '<circle cx="9" cy="6" r="1.2"/><circle cx="15" cy="6" r="1.2"/><circle cx="9" cy="12" r="1.2"/><circle cx="15" cy="12" r="1.2"/><circle cx="9" cy="18" r="1.2"/><circle cx="15" cy="18" r="1.2"/>',
   link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
 };
 
@@ -455,23 +457,66 @@ const GROUPS: Group[] = [
 const PINNED_GROUP: Group = { key: "pinned", label: "Pinned", tone: "violet", verbs: [] };
 const OTHER_GROUP: Group = { key: "other", label: "Other", tone: "grey", verbs: [] };
 
-function needsGroup(ctx: Ctx, g: Group, rows: Need[], pinned: Set<string>): string {
+function needsCard(ctx: Ctx, g: Group, rows: Need[], pinned: Set<string>): string {
   const active = rows.filter((n) => n.dim === null).length;
   const list = rows.map((n) => needRow(ctx, n, pinned.has(n.key), false)).join("");
-  return `<details class="ngroup tone-${g.tone}" data-key="group-${g.key}" data-group="${g.key}" open><summary><span class="g-label">${esc(g.label)}</span><span class="g-count">${active}</span></summary><ul class="rows needs-list">${list}</ul></details>`;
+  return `<section class="ncard tone-${g.tone}"><details class="ngroup" data-key="group-${g.key}" data-group="${g.key}" open><summary><span class="g-label">${esc(g.label)}</span><span class="g-count">${active}</span></summary><ul class="rows needs-list">${list}</ul></details></section>`;
 }
 
-function needsSection(ctx: Ctx, tickets: Ticket[]): string {
-  const list = needs(ctx, tickets);
-  const active = list.filter((n) => n.dim === null);
+function needsCards(ctx: Ctx, list: Need[]): Record<string, string> {
   const pinned = new Set(pins(ctx.db).keys());
   const groupOf = (n: Need) =>
     pinned.has(n.key) ? PINNED_GROUP : (GROUPS.find((g) => g.verbs.includes(n.verb)) ?? OTHER_GROUP);
-  const groups = [PINNED_GROUP, ...GROUPS, OTHER_GROUP]
-    .map((g) => ({ g, rows: list.filter((n) => groupOf(n) === g) }))
-    .filter((x) => x.rows.length > 0);
-  const body = groups.length === 0 ? empty() : groups.map(({ g, rows }) => needsGroup(ctx, g, rows, pinned)).join("");
-  return `<section class="needs" data-needs-count="${active.length}"><div class="sec-head"><h2>Needs you</h2><span class="count${active.length > 0 ? " hot" : ""}">${active.length}</span></div>${body}</section>`;
+  const cards: Record<string, string> = {};
+  for (const g of [PINNED_GROUP, ...GROUPS, OTHER_GROUP]) {
+    const rows = list.filter((n) => groupOf(n) === g);
+    cards[g.key] = rows.length === 0 ? "" : needsCard(ctx, g, rows, pinned);
+  }
+  return cards;
+}
+
+function needCounts(list: Need[]): Map<string, Need[]> {
+  const byTicket = new Map<string, Need[]>();
+  for (const n of list) {
+    if (n.dim !== null || n.ticket === null) continue;
+    byTicket.set(n.ticket, [...(byTicket.get(n.ticket) ?? []), n]);
+  }
+  return byTicket;
+}
+
+const BLOCK_NAME: Record<string, string> = {
+  pinned: "Pinned",
+  fix: "Fix now",
+  review: "Review",
+  reply: "Reply",
+  prs: "My PRs",
+  triage: "Triage",
+  waiting: "Waiting on",
+  decide: "Decide",
+  other: "Other",
+  tickets: "Tickets",
+  today: "Today",
+  drafts: "Drafts",
+  activity: "Activity",
+};
+
+function block(id: string, html: string): string {
+  if (html === "") return `<div class="block" data-block="${id}" hidden></div>`;
+  const move = (dir: string, label: string) => `<button type="button" data-move="${dir}">${esc(label)}</button>`;
+  const grip = `<details class="menu grip-menu" data-key="grip-${id}"><summary class="grip" draggable="true" title="Drag to move" aria-label="Move ${esc(BLOCK_NAME[id] ?? id)}">${svg("grip")}</summary><div class="menu-pop">${move("up", "Move up")}${move("down", "Move down")}${move("other", "Move to the other column")}</div></details>`;
+  return `<div class="block" data-block="${id}">${grip}${html}</div>`;
+}
+
+function columns(layout: Layout): [string[], string[]] {
+  const known = (ids: string[]) => ids.filter((id) => BLOCKS.includes(id));
+  const left = known(layout.left);
+  const right = known(layout.right).filter((id) => !left.includes(id));
+  const placed = new Set([...left, ...right]);
+  for (const id of BLOCKS) {
+    if (placed.has(id)) continue;
+    (DEFAULT_LAYOUT.right.includes(id) ? right : left).push(id);
+  }
+  return [left, right];
 }
 
 function prChip(ctx: Ctx, i: ItemRow): string {
@@ -488,7 +533,13 @@ function doneDay(ctx: Ctx, iso: string): string {
   return day.slice(5);
 }
 
-function ticketRow(ctx: Ctx, t: Ticket, done = false): string {
+function needPill(list: Need[]): string {
+  if (list.length === 0) return "";
+  const kinds = [...new Set(list.map((n) => n.verb))].join(", ");
+  return `<span class="pill tone-red need-pill" title="${esc(kinds)}">${list.length} need${list.length === 1 ? "s" : ""} you</span>`;
+}
+
+function ticketRow(ctx: Ctx, t: Ticket, done = false, needing: Need[] = []): string {
   const p = progress(ctx.db, t.id);
   const items = all<ItemRow>(ctx.db, "SELECT * FROM item WHERE ticket_id = ? AND closed_at IS NULL ORDER BY id", t.id);
   const waiting =
@@ -511,23 +562,23 @@ function ticketRow(ctx: Ctx, t: Ticket, done = false): string {
   const priority = (t.tracker_priority ?? "").trim();
   const search = [t.id, t.title, t.status, t.next, p.next?.title].join(" ").toLowerCase();
   return `<li class="ticket${done ? " is-closed" : ""}" data-key="t-${esc(t.id)}" data-href="/t/${encodeURIComponent(t.id)}" data-search="${esc(search)}">
-<div class="t-top">${ticketLink(t.id)}<span class="t-title">${esc(t.title)}</span>${priority ? pill(priority, PRIORITY_TONE[priority.toLowerCase()] ?? "grey") : ""}${pill(DIR_LABEL[t.dir ?? ""] ?? t.dir ?? "", DIR_TONE[t.dir ?? ""] ?? "grey")}</div>
+<div class="t-top">${ticketLink(t.id)}<span class="t-title">${esc(t.title)}</span>${needPill(needing)}${priority ? pill(priority, PRIORITY_TONE[priority.toLowerCase()] ?? "grey") : ""}${pill(DIR_LABEL[t.dir ?? ""] ?? t.dir ?? "", DIR_TONE[t.dir ?? ""] ?? "grey")}</div>
 <div class="t-meta"><span class="t-progress${p.total > 0 && p.done === p.total ? " complete" : ""}"><span class="bar"><span style="width:${pct}%"></span></span><span class="frac">${p.total === 0 ? "–" : `${p.done}/${p.total}`}</span></span><span class="t-next">${esc(cut(next || "–", 160))}</span><span class="chips">${chips}</span></div>
 </li>`;
 }
 
-function ticketList(ctx: Ctx, tab: string, tickets: Ticket[], done: boolean): string {
-  const rows = tickets.map((t) => ticketRow(ctx, t, done)).join("");
+function ticketList(ctx: Ctx, tab: string, tickets: Ticket[], done: boolean, needing: Map<string, Need[]>): string {
+  const rows = tickets.map((t) => ticketRow(ctx, t, done, needing.get(t.id) ?? [])).join("");
   return `<ul class="rows ticket-list" data-tab-panel="${tab}"${done ? " hidden" : ""}>${rows === "" ? `<li class="empty">—</li>` : rows}</ul>`;
 }
 
-function ticketsSection(ctx: Ctx, tickets: Ticket[]): string {
+function ticketsSection(ctx: Ctx, tickets: Ticket[], needing: Map<string, Need[]>): string {
   const done = recentlyDone(ctx);
   const tab = (name: string, label: string, n: number, on: boolean) =>
     `<button type="button" role="tab" class="tab${on ? " on" : ""}" data-tab="${name}" aria-selected="${on}">${label} <b>${n}</b></button>`;
   const tabs = `<span class="tabs" role="tablist">${tab("ongoing", "Ongoing", tickets.length, true)}${tab("done", "Done", done.length, false)}</span>`;
   const filter = `<input class="filter" type="search" data-filter placeholder="/" aria-label="Filter tickets">`;
-  return `<section class="tickets"><div class="sec-head"><h2>Tickets</h2>${tabs}${filter}</div>${ticketList(ctx, "ongoing", tickets, false)}${ticketList(ctx, "done", done, true)}</section>`;
+  return `<section class="tickets"><div class="sec-head"><h2>Tickets</h2>${tabs}${filter}</div>${ticketList(ctx, "ongoing", tickets, false, needing)}${ticketList(ctx, "done", done, true, needing)}</section>`;
 }
 
 function todaySection(ctx: Ctx): string {
@@ -616,7 +667,7 @@ function sourceChip(ctx: Ctx, s: SourceRow): string {
   return `<span class="src src-${state}" title="${esc(title)}"><i></i>${esc(s.name)}<small>${esc(when(ctx, s.last_sync))}</small></span>`;
 }
 
-function header(ctx: Ctx, sync: SyncState, active: "home" | "settings" | "ticket"): string {
+function header(ctx: Ctx, sync: SyncState, active: "home" | "settings" | "ticket", needCount = 0): string {
   const sources = all<SourceRow>(ctx.db, "SELECT * FROM source ORDER BY name");
   const running = sync.status === "running";
   const result =
@@ -627,7 +678,7 @@ function header(ctx: Ctx, sync: SyncState, active: "home" | "settings" | "ticket
         : "";
   const started = running && sync.at ? ` data-started="${esc(sync.at)}"` : "";
   return `<header class="top${running ? " syncing" : ""}">
-<a class="brand" href="/"><span class="logo"></span>hub</a>
+<a class="brand" href="/"><span class="logo"></span>hub${needCount > 0 ? `<span class="count hot" title="needs you">${needCount}</span>` : ""}</a>
 <div class="sources">${sourcesLine(ctx, sources)}</div>
 <div class="sync"${started}>${result}<span class="live" title="live"></span>${button(running ? "Syncing" : "Sync", { act: "sync" }, { cls: "primary sync-btn", disabled: running })}</div>
 <a class="gear${active === "settings" ? " on" : ""}" href="/settings" title="Settings" aria-label="Settings">⚙</a>
@@ -640,10 +691,22 @@ export function indexBody(ctx: Ctx, sync: SyncState): string {
   const tickets = openTickets(ctx).sort(
     (a, b) => order.indexOf(a.dir ?? "") - order.indexOf(b.dir ?? "") || byPriorityThenRecent(a, b),
   );
-  return `${header(ctx, sync, "home")}
-<main class="grid">
-<div class="col">${needsSection(ctx, tickets)}${ticketsSection(ctx, tickets)}</div>
-<div class="col">${todaySection(ctx)}${draftsSection(ctx)}${activitySection(ctx)}</div>
+  const list = needs(ctx, tickets);
+  const active = list.filter((n) => n.dim === null).length;
+  const blocks: Record<string, string> = {
+    ...needsCards(ctx, list),
+    tickets: ticketsSection(ctx, tickets, needCounts(list)),
+    today: todaySection(ctx),
+    drafts: draftsSection(ctx),
+    activity: activitySection(ctx),
+  };
+  const [left, right] = columns(ctx.config.layout);
+  const col = (name: string, ids: string[]) =>
+    `<div class="col" data-col="${name}">${ids.map((id) => block(id, blocks[id] ?? "")).join("")}</div>`;
+  return `${header(ctx, sync, "home", active)}
+<main class="grid" data-needs-count="${active}">
+${col("left", left)}
+${col("right", right)}
 </main>`;
 }
 
@@ -703,6 +766,16 @@ export function ticketBody(ctx: Ctx, id: string, sync: SyncState): string {
     (d) =>
       `<li class="draft" data-key="td-${esc(d.label)}"><div class="d-head"><span class="d-label">${esc(d.label)}</span>${pill(d.status, d.status === "draft" ? "blue" : "green")}${d.channel ? pill(d.channel, "teal") : ""}<span class="d-actions">${button("Copy", { copy: d.sent_text ?? d.body })}</span></div><pre class="d-body">${esc(d.sent_text ?? d.body)}</pre></li>`,
   );
+  const own = needs(ctx, [t]).filter((n) => n.ticket === t.id && n.dim === null && !n.key.startsWith("wait-"));
+  const ticketNeeds =
+    own.length === 0
+      ? ""
+      : section(
+          "Needs you",
+          own.length,
+          `<ul class="rows needs-list">${own.map((n) => needRow(ctx, { ...n, ticket: null }, pinned.has(n.key))).join("")}</ul>`,
+          "needs",
+        );
   const noteRows = notes.map(
     (n) =>
       `<details data-key="note-${esc(n.title)}"><summary>${esc(n.title)}</summary><div class="md">${renderMarkdown(n.body, (url, text) => link(url, text))}</div></details>`,
@@ -710,7 +783,7 @@ export function ticketBody(ctx: Ctx, id: string, sync: SyncState): string {
   return `${header(ctx, sync, "ticket")}
 ${head}
 <main class="grid">
-<div class="col">${section("State", null, state, "state-sec")}${section("Steps", steps.length, stepList, "steps-sec")}${section("Timeline", events.length, events.length === 0 ? empty() : `<ul class="rows events" data-keep-scroll data-key="timeline">${events.map((e) => eventRow(ctx, e, false)).join("")}</ul>`, "timeline")}</div>
+<div class="col">${ticketNeeds}${section("State", null, state, "state-sec")}${section("Steps", steps.length, stepList, "steps-sec")}${section("Timeline", events.length, events.length === 0 ? empty() : `<ul class="rows events" data-keep-scroll data-key="timeline">${events.map((e) => eventRow(ctx, e, false)).join("")}</ul>`, "timeline")}</div>
 <div class="col">${section("Items", items.length, itemRows.length === 0 ? empty() : `<ul class="rows">${itemRows.join("")}</ul>`, "items-sec")}${section("Waiting on", waits.length, waitRows.length === 0 ? empty() : `<ul class="rows">${waitRows.join("")}</ul>`, "waits-sec")}${section("Drafts", drafts.length, draftRows.length === 0 ? empty() : `<ul class="rows">${draftRows.join("")}</ul>`, "drafts")}${section("Notes", notes.length, noteRows.length === 0 ? empty() : noteRows.join(""), "notes")}</div>
 </main>`;
 }
@@ -791,7 +864,11 @@ ${section(
       ["dark", "Dark"],
     ]),
   ) +
-    row("Time zone", `<input class="text" data-config-input="timezone" value="${esc(c.timezone)}" spellcheck="false">`),
+    row(
+      "Time zone",
+      `<input class="text" data-config-input="timezone" value="${esc(c.timezone)}" spellcheck="false">`,
+    ) +
+    row("Layout", button("Reset", { config: "layout", value: JSON.stringify(DEFAULT_LAYOUT) })),
   "set-sec",
 )}
 </div>

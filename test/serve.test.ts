@@ -84,7 +84,10 @@ describe("serve", () => {
     assert.equal(index.status, 200);
     const html = await index.text();
     assert.match(html, /^<!doctype html>/);
-    assert.match(html, /Needs you/);
+    assert.match(
+      html,
+      /<div class="col" data-col="left"><div class="block" data-block="today">[\s\S]*?<div class="block" data-block="tickets">/,
+    );
     assert.match(html, /href="\/t\/ENG-42">ENG-42<\/a><span class="t-title">Sync login sessions across devices/);
     assert.match(html, /waiting on design review/);
     assert.match(index.headers.get("content-security-policy") ?? "", /script-src 'self'/);
@@ -211,6 +214,40 @@ describe("serve", () => {
     assert.doesNotMatch(drafts, /ask product/);
     assert.match(html, /<span class="synced"[^>]*>synced just now<\/span><span class="src src-bad"[^>]*><i><\/i>slack/);
     assert.doesNotMatch(html, /class="src src-ok"/);
+  });
+
+  test("blocks render in the saved layout, a bad layout is refused, and tickets show what needs you", async () => {
+    hub(
+      ["item", "put", "--stdin"],
+      JSON.stringify({
+        source: "github",
+        kind: "review_request",
+        url: "https://github.com/acme/web/pull/9",
+        ticket: "ENG-42",
+        needs_me: true,
+      }),
+    );
+    const layout = { left: ["today", "review"], right: ["tickets"] };
+    assert.equal((await post("/api/config", { key: "layout", value: JSON.stringify(layout) })).status, 200);
+    const html = await (await fetch(`${server.url}/?part=1`)).text();
+    const order = (col: string) =>
+      [
+        ...(
+          new RegExp(`data-col="${col}">([\\s\\S]*?)</div>\\s*(<div class="col"|</main>)`).exec(html)?.[1] ?? ""
+        ).matchAll(/<div class="block" data-block="([a-z]+)"(?! hidden)/g),
+      ].map((m) => m[1]);
+    assert.deepEqual(order("left").slice(0, 2), ["today", "review"]);
+    assert.equal(order("right")[0], "tickets");
+    assert.match(
+      html,
+      /data-key="t-ENG-42"[\s\S]*?<span class="pill tone-red need-pill" title="[^"]*Review[^"]*">\d+ needs? you<\/span>/,
+    );
+    const ticket = await (await fetch(`${server.url}/t/ENG-42?part=1`)).text();
+    assert.match(ticket, /<h2>Needs you<\/h2>[\s\S]*?pull\/9/);
+    const bad = await post("/api/config", { key: "layout", value: '{"left":["today","today"],"right":[]}' });
+    assert.equal(bad.status, 400);
+    assert.match(await bad.text(), /layout lists a block twice/);
+    assert.equal((await post("/api/config", { key: "layout", value: '{"left":["nope"],"right":[]}' })).status, 400);
   });
 
   test("text from the DB is escaped", async () => {

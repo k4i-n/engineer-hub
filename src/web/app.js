@@ -139,7 +139,14 @@ function afterRender(first) {
 
 let busy = false;
 let again = false;
+let dragging = null;
+let refreshAfterDrag = false;
+
 async function refresh() {
+  if (dragging) {
+    refreshAfterDrag = true;
+    return;
+  }
   if (busy) {
     again = true;
     return;
@@ -333,12 +340,106 @@ document.addEventListener("click", async (e) => {
       saveConfig(b.dataset.config, b.dataset.value, b);
       return;
     }
+    if (b.dataset.move) {
+      closeMenus();
+      moveBlock(b.closest(".block"), b.dataset.move);
+      return;
+    }
     if (b.dataset.act) act(b);
     return;
   }
   if (e.target.closest("a, input, textarea, summary")) return;
   const ticket = e.target.closest(".ticket[data-href]");
   if (ticket) open(ticket.dataset.href);
+});
+
+function layoutFromDom() {
+  const ids = (col) => [...app.querySelectorAll(`.col[data-col="${col}"] > .block`)].map((b) => b.dataset.block);
+  return { left: ids("left"), right: ids("right") };
+}
+
+async function saveLayout() {
+  try {
+    await post("config", { key: "layout", value: JSON.stringify(layoutFromDom()) });
+  } catch (error) {
+    toast(error.message, { bad: true });
+    refresh();
+  }
+}
+
+function moveBlock(block, dir) {
+  if (!block) return;
+  const col = block.parentElement;
+  if (dir === "other") {
+    const other = col.dataset.col === "left" ? "right" : "left";
+    app.querySelector(`.col[data-col="${other}"]`)?.prepend(block);
+  } else {
+    const shown = [...col.children].filter((b) => !b.hidden);
+    const target = shown[shown.indexOf(block) + (dir === "up" ? -1 : 1)];
+    if (!target) return;
+    if (dir === "up") target.before(block);
+    else target.after(block);
+  }
+  block.scrollIntoView({ block: "nearest" });
+  saveLayout();
+}
+
+function clearDrop() {
+  for (const el of app.querySelectorAll(".drop-before, .drop-after, .drop-end"))
+    el.classList.remove("drop-before", "drop-after", "drop-end");
+}
+
+function dropTarget(e) {
+  const block = e.target.closest?.(".block");
+  if (block && block !== dragging) {
+    const r = block.getBoundingClientRect();
+    return { el: block, place: e.clientY < r.top + r.height / 2 ? "before" : "after" };
+  }
+  const col = e.target.closest?.(".col[data-col]");
+  if (col && !block) return { el: col, place: "end" };
+  return null;
+}
+
+document.addEventListener("dragstart", (e) => {
+  const grip = e.target.closest?.(".grip");
+  if (!grip) return;
+  closeMenus();
+  dragging = grip.closest(".block");
+  e.dataTransfer.effectAllowed = "move";
+  e.dataTransfer.setData("text/plain", dragging.dataset.block);
+  e.dataTransfer.setDragImage(dragging, 24, 24);
+  requestAnimationFrame(() => dragging?.classList.add("dragging"));
+});
+
+document.addEventListener("dragover", (e) => {
+  if (!dragging) return;
+  const t = dropTarget(e);
+  if (!t) return;
+  e.preventDefault();
+  clearDrop();
+  t.el.classList.add(`drop-${t.place}`);
+});
+
+document.addEventListener("drop", (e) => {
+  if (!dragging) return;
+  const t = dropTarget(e);
+  clearDrop();
+  if (!t) return;
+  e.preventDefault();
+  if (t.place === "end") t.el.append(dragging);
+  else if (t.place === "before") t.el.before(dragging);
+  else t.el.after(dragging);
+  saveLayout();
+});
+
+document.addEventListener("dragend", () => {
+  dragging?.classList.remove("dragging");
+  dragging = null;
+  clearDrop();
+  if (refreshAfterDrag) {
+    refreshAfterDrag = false;
+    refresh();
+  }
 });
 
 document.addEventListener(
