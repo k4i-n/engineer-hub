@@ -1,12 +1,34 @@
 const token = document.querySelector('meta[name="hub-token"]').content;
 const app = document.getElementById("app");
 const toasts = document.querySelector(".toasts");
+const flip = (on) => (on === "1" ? "0" : "1");
 const UNDO = {
-  "item-done": "item-reopen",
-  "item-snooze": "item-reopen",
-  "wait-close": "wait-reopen",
-  "item-ignore": "item-unignore",
-  sent: "draft-unsent",
+  "item-done": (d) => ["item-reopen", d],
+  "item-snooze": (d) => ["item-reopen", d],
+  "wait-close": (d) => ["wait-reopen", d],
+  "item-ignore": (d) => ["item-unignore", d],
+  "item-unignore": (d) => ["item-ignore", d],
+  "repo-unignore": (d) => ["repo-ignore", d],
+  "item-detach": (d) => ["item-attach", d],
+  pin: (d) => ["pin", { ...d, on: flip(d.on) }],
+  "source-set": (d) => ["source-set", { ...d, on: flip(d.on) }],
+  "step-undo": (d) => ["step-done", d],
+  "ticket-title": (d) => ["ticket-title", { ...d, value: d.askValue }],
+  "step-edit": (d) => ["step-edit", { ...d, value: d.askValue }],
+  "note-rename": (d) => ["note-rename", { ...d, title: d.value, value: d.askValue }],
+  "draft-rename": (d) => ["draft-rename", { ...d, label: d.value, value: d.askValue }],
+  "ticket-rename": (d) => ["ticket-rename", { ...d, ticket: d.value, value: d.askValue }],
+  sent: (d) => ["draft-unsent", d],
+  gate: (d) => ["gate-reopen", d],
+  match: (d) =>
+    d.answer === "yes"
+      ? [
+          ["draft-unsent", d],
+          ["match-propose", d],
+        ]
+      : [["match-propose", d]],
+  "wait-pinged": (d, r) => ["wait-unpinged", { ...d, pingAfter: r.before?.ping_after, pingedAt: r.before?.pinged_at }],
+  "draft-later": (d, r) => ["draft-send-at", { ...d, sendAt: r.before?.send_at }],
 };
 const LATER_TOAST = {
   "item-snooze": { "1h": "Snoozed for an hour", "4h": "Snoozed for 4 hours", tomorrow: "Snoozed until tomorrow" },
@@ -24,6 +46,8 @@ const DONE_TEXT = {
   "repo-unignore": "Shown again",
   sent: "Marked sent",
   "draft-unsent": "Marked not sent",
+  "gate-reopen": "Open again",
+  "match-propose": "Back in the list",
   match: "Saved",
   gate: "Answered",
   "source-fetch": "Fetched",
@@ -251,6 +275,25 @@ const later = (d) => (d.for ? { for: d.for } : {});
 const ROUTES = {
   sent: (d) => ["POST", `/tickets/${e(d.ticket)}/drafts/${e(d.label)}/posted`, {}],
   "draft-unsent": (d) => ["POST", `/tickets/${e(d.ticket)}/drafts/${e(d.label)}/unposted`, {}],
+  "draft-send-at": (d) => [
+    "POST",
+    `/tickets/${e(d.ticket)}/drafts/${e(d.label)}/send-at`,
+    { send_at: d.sendAt ?? undefined },
+  ],
+  "match-propose": (d) => [
+    "POST",
+    `/tickets/${e(d.ticket)}/drafts/${e(d.label)}/match`,
+    { sent_text: d.text, sent_ref: d.ref },
+  ],
+  "gate-reopen": (d) => ["POST", `/tickets/${e(d.ticket)}/gate/reopen`, {}],
+  "item-attach": (d) => ["POST", `/items/${e(d.id)}/attach`, { ticket: d.ticket }],
+  "repo-ignore": (d) => ["POST", "/ignores/ignore", { kind: d.kind, repo: d.repo }],
+  "step-done": (d) => ["POST", `/tickets/${e(d.ticket)}/steps/${e(d.n)}/done`, {}],
+  "wait-unpinged": (d) => [
+    "POST",
+    `/waits/${e(d.id)}/unpinged`,
+    { ping_after: d.pingAfter ?? undefined, pinged_at: d.pingedAt ?? undefined },
+  ],
   "draft-later": (d) => ["POST", `/tickets/${e(d.ticket)}/drafts/${e(d.label)}/later`, later(d)],
   match: (d) => ["POST", `/tickets/${e(d.ticket)}/drafts/${e(d.label)}/match`, { answer: d.answer }],
   gate: (d) => ["POST", `/tickets/${e(d.ticket)}/gate`, { answer: d.answer }],
@@ -304,6 +347,47 @@ function post(act, data) {
   return api(method, path, body);
 }
 
+function undoSteps(name, data, result) {
+  const make = UNDO[name];
+  if (!make) return null;
+  const out = make(data, result ?? {});
+  return Array.isArray(out[0]) ? out : [out];
+}
+
+function keep(key, value) {
+  try {
+    sessionStorage.setItem(key, JSON.stringify(value));
+  } catch {}
+}
+
+function offer(text, steps) {
+  lastUndo = steps ? () => runUndo(steps) : null;
+  toast(text, { undo: lastUndo ?? undefined });
+}
+
+async function runUndo(steps) {
+  try {
+    for (const [name, data] of steps) await post(name, data);
+    const [name, data] = steps[steps.length - 1];
+    if (data.go !== undefined) {
+      location.href = data.go.replace("{value}", encodeURIComponent(data.value ?? ""));
+      return;
+    }
+    toast(DONE_TEXT[name] ?? "Undone");
+  } catch (error) {
+    toast(error.message, { bad: true });
+  }
+}
+
+function pendingToast() {
+  try {
+    const raw = sessionStorage.getItem("hub.toast");
+    sessionStorage.removeItem("hub.toast");
+    const pending = raw ? JSON.parse(raw) : null;
+    if (pending) offer(pending.text, pending.steps);
+  } catch {}
+}
+
 async function act(button) {
   const data = { ...button.dataset };
   const name = data.act;
@@ -316,19 +400,22 @@ async function act(button) {
   if (data.confirm !== undefined && !confirm(data.confirm)) return;
   button.classList.add("busy");
   try {
-    await post(name, data);
+    const r = await post(name, data);
+    const result = await r.json().catch(() => ({}));
+    const steps = undoSteps(name, data, result);
+    const text =
+      (name === "pin"
+        ? data.on === "1"
+          ? "Pinned"
+          : "Unpinned"
+        : (LATER_TOAST[name]?.[data.for] ?? DONE_TEXT[name])) ?? "Saved";
     if (data.go !== undefined) {
+      if (steps) keep("hub.toast", { text, steps });
       location.href = data.go.replace("{value}", encodeURIComponent(data.value ?? ""));
       return;
     }
     if (name === "sync") return;
-    const undo = UNDO[name];
-    lastUndo = undo ? () => post(undo, data).then(() => toast(DONE_TEXT[undo])) : null;
-    const text =
-      name === "pin" ? (data.on === "1" ? "Pinned" : "Unpinned") : (LATER_TOAST[name]?.[data.for] ?? DONE_TEXT[name]);
-    toast(text ?? "Saved", {
-      undo: lastUndo ?? undefined,
-    });
+    offer(text, steps);
   } catch (error) {
     toast(error.message, { bad: true });
   } finally {
@@ -519,6 +606,7 @@ function selectFromHash() {
 
 window.addEventListener("hashchange", selectFromHash);
 selectFromHash();
+pendingToast();
 
 async function saveConfig(key, value, el) {
   try {
