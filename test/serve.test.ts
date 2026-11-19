@@ -652,8 +652,8 @@ describe("serve", () => {
     await new Promise((r) => setTimeout(r, 80));
     assert.equal((await syncState()).at, ran.at);
 
-    await hub(["config", "autoSync", "true"]);
     await hub(["config", "claudeSync", "false"]);
+    await hub(["config", "autoSync", "true"]);
     clock = new Date("2026-11-18T23:00:00Z");
     await new Promise((r) => setTimeout(r, 80));
     assert.equal((await syncState()).at, ran.at);
