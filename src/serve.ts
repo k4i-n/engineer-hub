@@ -15,7 +15,7 @@ import { type System, system } from "./keys.ts";
 import { handleRpc } from "./mcp.ts";
 import { loadToken, tokenPath } from "./token.ts";
 import { afterDuration, HubError, nowIso } from "./util.ts";
-import { type Fetching, indexBody, type Live, page, type SyncState, settingsBody, ticketBody } from "./views.ts";
+import { BRAND, type Fetching, indexBody, type Live, page, type SyncState, settingsBody, ticketBody } from "./views.ts";
 
 export type ServeOptions = {
   dbPath: string;
@@ -419,11 +419,11 @@ export function serve(options: ServeOptions): Promise<Server> {
     ) {
       const c = ctx();
       let body: string;
-      let title = "hub";
+      let title = BRAND;
       try {
         if (url.pathname === "/") body = indexBody(c, live(c));
         else if (url.pathname === "/settings") {
-          title = "Settings · hub";
+          title = `Settings · ${BRAND}`;
           const schema = one<{ value: string }>(db, "SELECT value FROM meta WHERE key = 'schema_version'")?.value;
           body = settingsBody(
             c,
@@ -439,7 +439,7 @@ export function serve(options: ServeOptions): Promise<Server> {
           );
         } else {
           const id = decodeURIComponent(url.pathname.slice(3));
-          title = `${id} · hub`;
+          title = `${id} · ${BRAND}`;
           body = ticketBody(c, id, live(c));
         }
       } catch (error) {

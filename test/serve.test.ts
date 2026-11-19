@@ -585,6 +585,13 @@ describe("serve", () => {
     assert.equal(twice.status, 400);
   });
 
+  test("pages carry the EngineerHub name and logo", async () => {
+    const home = await (await fetch(`${server.url}/`)).text();
+    assert.match(home, /<title>EngineerHub<\/title>/);
+    assert.match(home, /<a class="brand" href="\/"><span class="logo"><svg [^>]*>[\s\S]*?<\/svg><\/span>EngineerHub/);
+    assert.match(await (await fetch(`${server.url}/settings`)).text(), /<title>Settings · EngineerHub<\/title>/);
+  });
+
   test("a setting that only matters while a switch is on is off with it", async () => {
     const offRow = (html: string, label: string) =>
       new RegExp(`<div class="set-row off" inert><span class="set-label">${label}</span>`).test(html);

@@ -38,13 +38,17 @@ function needKeys() {
   return new Set([...app.querySelectorAll(".needs-list > li[data-key]:not(.is-dim)")].map((li) => li.dataset.key));
 }
 
+const MARK =
+  '<rect width="32" height="32" rx="8" fill="#4f46e5"/><g transform="scale(1.333)" fill="none" stroke="#fff" stroke-width="1.8"><path d="M12 9.4V6.8M14.24 13.31l2.71 1.58M9.76 13.31l-2.71 1.58"/><circle cx="12" cy="12" r="2.6" fill="#fff"/><circle cx="12" cy="5" r="1.8"/><circle cx="18.5" cy="15.8" r="1.8"/><circle cx="5.5" cy="15.8" r="1.8"/></g>';
+
 function badge(count) {
   document.title =
     count > 0 ? `(${count}) ${document.title.replace(/^\(\d+\) /, "")}` : document.title.replace(/^\(\d+\) /, "");
-  const svg =
+  const dot =
     count > 0
-      ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#4f46e5"/><circle cx="23" cy="9" r="9" fill="#dc2626"/><text x="23" y="13" font-size="12" font-family="sans-serif" font-weight="700" text-anchor="middle" fill="#fff">${count > 9 ? "9+" : count}</text></svg>`
-      : `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#4f46e5"/></svg>`;
+      ? `<circle cx="24" cy="8" r="8" fill="#dc2626"/><text x="24" y="12" font-size="11" font-family="sans-serif" font-weight="700" text-anchor="middle" fill="#fff">${count > 9 ? "9+" : count}</text>`
+      : "";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">${MARK}${dot}</svg>`;
   document.querySelector('link[rel="icon"]').href = `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
@@ -70,7 +74,7 @@ function announce(fresh) {
   for (const li of fresh.slice(0, 3)) {
     const verb = li.querySelector(".verb")?.textContent ?? "";
     const title = li.querySelector(".need-title")?.textContent ?? "";
-    const n = new Notification(`${verb} · hub`, { body: title, tag: li.dataset.key });
+    const n = new Notification(`${verb} · EngineerHub`, { body: title, tag: li.dataset.key });
     n.onclick = () => window.focus();
   }
 }
