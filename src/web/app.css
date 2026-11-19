@@ -1625,6 +1625,10 @@ textarea.text {
   flex: none;
   width: 64px;
 }
+.src-section {
+  flex: none;
+  width: 120px;
+}
 .src-add {
   display: flex;
   gap: 8px;

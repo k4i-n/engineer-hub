@@ -264,7 +264,7 @@ const ROUTES = {
   "draft-rename": (d) => ["POST", `/tickets/${e(d.ticket)}/drafts/${e(d.label)}/rename`, { to: d.value }],
   "draft-remove": (d) => ["POST", `/tickets/${e(d.ticket)}/drafts/${e(d.label)}/remove`, {}],
   "item-detach": (d) => ["POST", `/items/${e(d.id)}/detach`, {}],
-  "source-set": (d) => ["PATCH", `/sources/${e(d.name)}`, d.every ? { every: d.every } : { on: d.on === "1" }],
+  "source-set": (d) => ["PATCH", `/sources/${e(d.name)}`, { on: d.on === "1" }],
   "source-fetch": (d) => ["POST", "/fetch", { source: d.name }],
   "source-remove": (d) => ["POST", `/sources/${e(d.name)}/remove`, {}],
   sync: () => ["POST", "/sync", {}],
@@ -707,10 +707,10 @@ document.addEventListener("input", (e) => {
 });
 
 document.addEventListener("change", async (e) => {
-  const el = e.target.closest("[data-source-every]");
+  const el = e.target.closest("input[data-source]");
   if (!el) return;
   try {
-    await post("source-set", { name: el.dataset.sourceEvery, every: el.value.trim() });
+    await api("PATCH", `/sources/${encodeURIComponent(el.dataset.source)}`, { [el.dataset.field]: el.value.trim() });
     toast("Saved");
   } catch (error) {
     toast(error.message, { bad: true });

@@ -104,6 +104,7 @@ function fetching(c: Ctx, runner: Runner): Fetching[] {
       on: isOn(c, f),
       script: f.argv === undefined ? null : f.argv.join(" "),
       every: f.every ?? null,
+      section: f.section ?? null,
       how: state?.check?.how ?? null,
       ok: state?.check?.ok ?? null,
       fixes: runner.fixes(f),
