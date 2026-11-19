@@ -130,6 +130,35 @@ describe("github", () => {
     assert.ok((calls.filter((c) => c[1] === "api").at(-1) ?? []).includes(`mine=is:pr author:@me updated:>=${cursor}`));
   });
 
+  test("the user's open PRs get a status: draft, in review, commented, changes requested, checks failing, approved", async () => {
+    answers.gh = graphql(
+      [],
+      [
+        PR("https://github.com/acme/web/pull/201", { isDraft: true }),
+        PR("https://github.com/acme/web/pull/202"),
+        PR("https://github.com/acme/web/pull/203", { latestReviews: { nodes: [{ state: "COMMENTED" }] } }),
+        PR("https://github.com/acme/web/pull/204", { reviewDecision: "CHANGES_REQUESTED" }),
+        PR("https://github.com/acme/web/pull/205", { reviewDecision: "APPROVED" }),
+      ],
+    );
+    await hub("fetch", "github");
+    const items = await hub("items", "--all", "--source", "github");
+    const state = (n: number) => new RegExp(`title of ${n} \\| ([a-z ]+?) \\|`).exec(items)?.[1];
+    assert.deepEqual([201, 202, 203, 204, 205].map(state), [
+      "draft",
+      "in review",
+      "commented",
+      "changes requested",
+      "approved",
+    ]);
+    const needs = await hub("items", "--needs-me");
+    assert.doesNotMatch(needs, /title of 20[12]/);
+    assert.match(needs, /title of 203/);
+    const query = (calls.find((c) => c[1] === "api") ?? []).join(" ");
+    assert.match(query, /isDraft/);
+    assert.match(query, /latestReviews\(first: 20\) \{ nodes \{ state \} \}/);
+  });
+
   test("the review request search comes from config, shows in Settings, and a narrower one drops what it leaves out", async () => {
     answers.gh = graphql([PR("https://github.com/acme/noisy/pull/1"), PR("https://github.com/acme/web/pull/7")], []);
     await hub("fetch", "github");
