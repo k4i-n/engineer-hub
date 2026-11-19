@@ -458,6 +458,61 @@ describe("delete and merge", () => {
   });
 });
 
+describe("edit notes, drafts and steps", () => {
+  test("a note is renamed and removed; a taken title is refused", async () => {
+    await ok("ticket-new", "ENG-42", "Sync sessions");
+    stdin = "keyed by device id";
+    await ok("note", "ENG-42", "Findings", "--stdin");
+    await ok("note", "ENG-42", "Plan", "--stdin");
+    assert.match((await hub("note-mv", "ENG-42", "Findings", "Plan")).err, /already has a note "Plan"/);
+    await ok("note-mv", "ENG-42", "Findings", "Session findings");
+    assert.match(await ok("note-show", "ENG-42", "Session findings"), /keyed by device id/);
+    await ok("note-rm", "ENG-42", "Plan");
+    assert.match(await ok("notes", "ENG-42"), /^Session findings \(detail, \d+ chars\)\n?$/);
+    assert.match((await hub("note-rm", "ENG-42", "Plan")).err, /no note "Plan" on ENG-42/);
+  });
+
+  test("an unsent draft is renamed with its pin and removed; a sent one stays", async () => {
+    await ok("ticket-new", "ENG-42", "Sync sessions");
+    stdin = "Can we drop the old table?";
+    await ok("draft", "ENG-42", "M1", "--stdin");
+    await ok("draft", "ENG-42", "M2", "--stdin");
+    sql("INSERT INTO pin(key, pinned_at) VALUES ('match-ENG-42-M1', 'x')");
+    assert.match((await hub("draft-mv", "ENG-42", "M1", "M2")).err, /already has a draft "M2"/);
+    await ok("draft-mv", "ENG-42", "M1", "Ask Ana");
+    assert.deepEqual(sql("SELECT key FROM pin"), [{ key: "match-ENG-42-Ask Ana" }]);
+    await ok("posted", "ENG-42", "M2");
+    assert.match((await hub("draft-rm", "ENG-42", "M2")).err, /was sent; it stays as the record/);
+    await ok("draft-rm", "ENG-42", "Ask Ana");
+    assert.deepEqual(
+      sql<{ label: string }>("SELECT label FROM draft").map((d) => d.label),
+      ["M2"],
+    );
+    assert.deepEqual(sql("SELECT key FROM pin"), []);
+  });
+
+  test("steps are inserted, edited, undone and removed, and stay numbered 1 to n", async () => {
+    await ok("ticket-new", "ENG-42", "Sync sessions");
+    await ok("step", "add", "ENG-42", "read the code");
+    await ok("step", "add", "ENG-42", "ship it");
+    assert.match(await ok("step", "add", "ENG-42", "write the migration", "--at", "2"), /step 2 added/);
+    await ok("step", "add", "ENG-42", "plan", "--at", "9");
+    await ok("step", "done", "ENG-42", "1", "--evidence", "https://example.com/1");
+    await ok("step", "edit", "ENG-42", "3", "ship", "behind", "a", "flag");
+    assert.equal(
+      await ok("steps", "ENG-42"),
+      "1 [x] read the code | https://example.com/1\n2 [ ] write the migration\n3 [ ] ship behind a flag\n4 [ ] plan",
+    );
+    await ok("step", "undo", "ENG-42", "1");
+    assert.match((await hub("step", "undo", "ENG-42", "1")).err, /step 1 on ENG-42 is not done/);
+    assert.match(await ok("events", "ENG-42", "-n", "1"), /step 1 not done: read the code$/);
+    await ok("step", "rm", "ENG-42", "2");
+    assert.equal(await ok("steps", "ENG-42"), "1 [ ] read the code\n2 [ ] ship behind a flag\n3 [ ] plan");
+    assert.match((await hub("step", "rm", "ENG-42", "9")).err, /no step 9 on ENG-42/);
+    assert.match((await hub("step", "add", "ENG-42", "x", "--at", "0")).err, /--at takes a step number from 1/);
+  });
+});
+
 describe("items", () => {
   test("link stores an item on the ticket, a second link changes nothing, a later link moves it", async () => {
     await imported();

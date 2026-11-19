@@ -30,8 +30,9 @@ read:   ticket <id> | board [regex] | next | gates | changed --since <YYYY-MM-DD
         items [--needs-me] [--source <s>] [--ticket <id>] [--all] | waits [--due] | sources | brief
         steps <id>
 write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent] [--ref <url>]
-        note <id> <title> (--file <path> | --stdin) [--kind detail]
+        note <id> <title> (--file <path> | --stdin) [--kind detail] | note-rm <id> <title> | note-mv <id> <title> <new title>
         draft <id> <label> (--file <path> | --stdin) [--channel <c>] [--send-at <when>]
+        draft-rm <id> <label> (unsent only) | draft-mv <id> <label> <new label>
         draft-later <id> <label> [--for 1h|tomorrow|tomorrow 12:00]
         match <id> <label> --ref <url> (--file | --stdin) | match <id> <label> (yes | no)
         posted <id> <label> [--at <when>] [--channel <c>] [--answer <text>] [--ref <url>] [--file | --stdin]
@@ -43,7 +44,8 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         source add <name> --every 5m -- <program> [args] | source remove <name>
         moved --as <session id> [--start] | moved --hook (reads a Claude Code hook's JSON on stdin)
         record-gate --hook (Stop hook: blocks a session that ran a recordActions command and wrote nothing to hub after)
-        step add <id> <title> | step done <id> <n> [--evidence <url>]
+        step add <id> <title> [--at <n>] | step done <id> <n> [--evidence <url>]
+        step edit <id> <n> <title> | step undo <id> <n> | step rm <id> <n>
         day set <date> (--file <path> | --stdin) [--rev <rev>] | ticket-new <id> <title> [--dir todo]
         move <id> <dir> | rename <id> <new id> | merge <id> <into id> | ticket-delete <id>
         order <id> <place | -> | gate <id> (yes | no)
@@ -246,6 +248,18 @@ const COMMANDS: Record<string, Handler> = {
       ...(v["send-at"] === undefined ? {} : { send_at: v["send-at"] }),
     });
   },
+  "note-rm": (a) =>
+    c("note_remove", { id: arg(a, 0, "note-rm <id> <title>"), title: arg(a, 1, "note-rm <id> <title>") }),
+  "note-mv": (a) => {
+    const usage = "note-mv <id> <title> <new title>";
+    return c("note_rename", { id: arg(a, 0, usage), title: arg(a, 1, usage), to: arg(a, 2, usage) });
+  },
+  "draft-rm": (a) =>
+    c("draft_remove", { id: arg(a, 0, "draft-rm <id> <label>"), label: arg(a, 1, "draft-rm <id> <label>") }),
+  "draft-mv": (a) => {
+    const usage = "draft-mv <id> <label> <new label>";
+    return c("draft_rename", { id: arg(a, 0, usage), label: arg(a, 1, usage), to: arg(a, 2, usage) });
+  },
   "draft-later": (a, v) => {
     const usage = "draft-later <id> <label> [--for 1h|tomorrow|tomorrow 12:00]";
     return c("draft_later", { id: arg(a, 0, usage), label: arg(a, 1, usage), for: v.for });
@@ -312,10 +326,23 @@ const COMMANDS: Record<string, Handler> = {
   brief: () => c("brief"),
   steps: (a) => c("steps", { id: arg(a, 0, "steps <id>") }),
   step: (a, v) => {
-    const usage = "step add <id> <title> | step done <id> <n> [--evidence <url>]";
+    const usage =
+      "step add <id> <title> [--at <n>] | step done <id> <n> [--evidence <url>] | step edit <id> <n> <title> | step undo <id> <n> | step rm <id> <n>";
     const sub = arg(a, 0, usage);
-    if (sub === "add") return c("step_add", { id: arg(a, 1, usage), title: a.slice(2).join(" ") || arg(a, 2, usage) });
+    if (sub === "add") {
+      const title = a.slice(2).join(" ") || arg(a, 2, usage);
+      return c("step_add", { id: arg(a, 1, usage), title, ...(v.at === undefined ? {} : { at: Number(v.at) }) });
+    }
     if (sub === "done") return c("step_done", { id: arg(a, 1, usage), n: arg(a, 2, usage), evidence: v.evidence });
+    if (sub === "edit") {
+      return c("step_edit", {
+        id: arg(a, 1, usage),
+        n: arg(a, 2, usage),
+        title: a.slice(3).join(" ") || arg(a, 3, usage),
+      });
+    }
+    if (sub === "undo") return c("step_undo", { id: arg(a, 1, usage), n: arg(a, 2, usage) });
+    if (sub === "rm") return c("step_remove", { id: arg(a, 1, usage), n: arg(a, 2, usage) });
     throw new HubError(`usage: hub ${usage}`);
   },
   match: (a, v, io) => {

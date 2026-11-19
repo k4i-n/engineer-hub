@@ -15,6 +15,7 @@ import {
   SETTABLE_FIELDS,
   type StepRow,
   type Ticket,
+  transaction,
 } from "./db.ts";
 import { span } from "./horizon.ts";
 import { splitResume } from "./parse.ts";
@@ -524,6 +525,67 @@ export function note(ctx: Ctx, id: string, title: string, body: string, kind: st
     .run(id, title, body, kind, position + 1, nowIso(ctx.now));
   touch(ctx, id);
   return { text: `${id} note "${title}" saved (${body.length} chars)`, json: { ticket_id: id, title, kind } };
+}
+
+function getNote(ctx: Ctx, id: string, title: string): NoteRow {
+  getTicket(ctx.db, id);
+  const note = one<NoteRow>(ctx.db, "SELECT * FROM note WHERE ticket_id = ? AND title = ?", id, title);
+  if (!note) throw new HubError(`no note "${title}" on ${id} (hub notes ${id} lists them)`);
+  return note;
+}
+
+export function noteRemove(ctx: Ctx, id: string, title: string): Result {
+  getNote(ctx, id, title);
+  ctx.db.prepare("DELETE FROM note WHERE ticket_id = ? AND title = ?").run(id, title);
+  touch(ctx, id);
+  return { text: `${id} note "${title}" removed`, json: { ticket_id: id, title } };
+}
+
+export function noteRename(ctx: Ctx, id: string, title: string, to: string): Result {
+  if (!to.trim()) throw new HubError("note title is empty");
+  getNote(ctx, id, title);
+  if (one(ctx.db, "SELECT 1 FROM note WHERE ticket_id = ? AND title = ?", id, to)) {
+    throw new HubError(`${id} already has a note "${to}"`);
+  }
+  ctx.db
+    .prepare("UPDATE note SET title = ?, updated_at = ? WHERE ticket_id = ? AND title = ?")
+    .run(to, nowIso(ctx.now), id, title);
+  touch(ctx, id);
+  return { text: `${id} note "${title}" is now "${to}"`, json: { ticket_id: id, title: to, from: title } };
+}
+
+function getDraft(ctx: Ctx, id: string, label: string): DraftRow {
+  getTicket(ctx.db, id);
+  const draft = one<DraftRow>(ctx.db, "SELECT * FROM draft WHERE ticket_id = ? AND label = ?", id, label);
+  if (!draft) throw new HubError(`no draft "${label}" on ${id} (hub drafts ${id} lists them)`);
+  return draft;
+}
+
+export function draftRemove(ctx: Ctx, id: string, label: string): Result {
+  const draft = getDraft(ctx, id, label);
+  if (draft.status !== "draft") throw new HubError(`draft "${label}" on ${id} was sent; it stays as the record`);
+  transaction(ctx.db, () => {
+    ctx.db.prepare("DELETE FROM draft WHERE ticket_id = ? AND label = ?").run(id, label);
+    ctx.db.prepare("DELETE FROM pin WHERE key = ?").run(`match-${id}-${label}`);
+    touch(ctx, id);
+  });
+  return { text: `${id} draft "${label}" removed`, json: { ticket_id: id, label } };
+}
+
+export function draftRename(ctx: Ctx, id: string, label: string, to: string): Result {
+  if (!to.trim()) throw new HubError("draft label is empty");
+  getDraft(ctx, id, label);
+  if (one(ctx.db, "SELECT 1 FROM draft WHERE ticket_id = ? AND label = ?", id, to)) {
+    throw new HubError(`${id} already has a draft "${to}"`);
+  }
+  transaction(ctx.db, () => {
+    ctx.db
+      .prepare("UPDATE draft SET label = ?, updated_at = ? WHERE ticket_id = ? AND label = ?")
+      .run(to, nowIso(ctx.now), id, label);
+    ctx.db.prepare("UPDATE pin SET key = ? WHERE key = ?").run(`match-${id}-${to}`, `match-${id}-${label}`);
+    touch(ctx, id);
+  });
+  return { text: `${id} draft "${label}" is now "${to}"`, json: { ticket_id: id, label: to, from: label } };
 }
 
 export function draft(
