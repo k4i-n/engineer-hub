@@ -1,17 +1,15 @@
 import { type ChildProcess, spawn } from "node:child_process";
+import { timingSafeEqual } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import type { Ctx, Result } from "./commands.ts";
-import * as commands from "./commands.ts";
-import { loadConfig, setConfig } from "./config.ts";
+import { type Args, checkFields, findRoute, openapi, queryArgs } from "./api.ts";
+import type { Ctx } from "./commands.ts";
+import { loadConfig } from "./config.ts";
 import { one, openDb, SCHEMA_VERSION } from "./db.ts";
-import * as items from "./items.ts";
-import * as pins from "./pins.ts";
 import { loadToken, tokenPath } from "./token.ts";
 import { afterDuration, HubError, nowIso } from "./util.ts";
 import { indexBody, page, type SyncState, settingsBody, ticketBody } from "./views.ts";
-import * as waits from "./waits.ts";
 
 export type ServeOptions = {
   dbPath: string;
@@ -25,53 +23,29 @@ export type Server = { url: string; token: string; close: () => Promise<void> };
 const WATCH_MS = 250;
 const KEEPALIVE_MS = 20_000;
 const SYNC_TIMEOUT_MS = 10 * 60_000;
-const MAX_BODY = 16_384;
+const MAX_BODY = 1_048_576;
+const API = "/api/v1";
 const OUTPUT_TAIL = 2_000;
+const AUTO_SYNC_CHECK_MS = 60_000;
 
-type Body = Record<string, unknown>;
+const VERSION = (JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string })
+  .version;
+const OPENAPI = JSON.stringify(openapi(VERSION));
 
 const STATIC: Record<string, { type: string; body: string }> = {
   "/app.css": { type: "text/css", body: readFileSync(new URL("./web/app.css", import.meta.url), "utf8") },
   "/app.js": { type: "text/javascript", body: readFileSync(new URL("./web/app.js", import.meta.url), "utf8") },
 };
 
-function field(body: Body, key: string): string {
-  const value = body[key];
-  if (typeof value !== "string" || value === "") throw new HubError(`missing ${key}`);
-  return value;
-}
-
-const SEARCH_LIMIT = 30;
-const AUTO_SYNC_CHECK_MS = 60_000;
-
-const ACTIONS: Record<string, (ctx: Ctx, body: Body) => Result> = {
-  sent: (ctx, b) =>
-    commands.posted(ctx, field(b, "ticket"), field(b, "label"), {
-      at: null,
-      channel: null,
-      answer: null,
-      sentText: null,
-      sentRef: null,
-    }),
-  match: (ctx, b) => commands.resolveMatch(ctx, field(b, "ticket"), field(b, "label"), field(b, "answer")),
-  "item-done": (ctx, b) => items.close(ctx, [field(b, "id")]),
-  pin: (ctx, b) => pins.setPin(ctx, field(b, "row"), field(b, "on") === "1"),
-  "item-snooze": (ctx, b) => items.snooze(ctx, field(b, "id"), typeof b.for === "string" ? b.for : "1d"),
-  "item-reopen": (ctx, b) => items.reopen(ctx, field(b, "id")),
-  "wait-close": (ctx, b) => waits.closeWait(ctx, field(b, "id")),
-  "wait-pinged": (ctx, b) => waits.pinged(ctx, field(b, "id"), typeof b.for === "string" ? b.for : "1d"),
-  "wait-reopen": (ctx, b) => waits.reopenWait(ctx, field(b, "id")),
-  gate: (ctx, b) => commands.answerGate(ctx, field(b, "ticket"), field(b, "answer")),
-  config: (ctx, b) => {
-    if (field(b, "key") === "syncCommand")
-      throw new HubError("syncCommand is set from the terminal: hub config syncCommand");
-    setConfig(ctx.db, field(b, "key"), field(b, "value"), ctx.now);
-    return { text: "saved", json: { key: b.key } };
-  },
-};
-
-function send(res: ServerResponse, status: number, type: string, body: string): void {
+function send(
+  res: ServerResponse,
+  status: number,
+  type: string,
+  body: string,
+  extra: Record<string, string> = {},
+): void {
   res.writeHead(status, {
+    ...extra,
     "content-type": `${type}; charset=utf-8`,
     "cache-control": "no-store",
     "x-content-type-options": "nosniff",
@@ -82,7 +56,7 @@ function send(res: ServerResponse, status: number, type: string, body: string): 
   res.end(body);
 }
 
-function readBody(req: IncomingMessage): Promise<Body> {
+function readBody(req: IncomingMessage): Promise<Args> {
   return new Promise((resolve, reject) => {
     let raw = "";
     req.setEncoding("utf8");
@@ -94,7 +68,7 @@ function readBody(req: IncomingMessage): Promise<Body> {
       try {
         const value: unknown = raw === "" ? {} : JSON.parse(raw);
         if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error();
-        resolve(value as Body);
+        resolve(value as Args);
       } catch {
         reject(new HubError("body must be a JSON object"));
       }
@@ -172,6 +146,52 @@ export function serve(options: ServeOptions): Promise<Server> {
     return true;
   }
 
+  function authorized(req: IncomingMessage): boolean {
+    const given = Buffer.from(req.headers.authorization ?? "");
+    const want = Buffer.from(`Bearer ${token}`);
+    return given.length === want.length && timingSafeEqual(given, want);
+  }
+
+  async function api(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+    const json = (status: number, value: unknown, extra: Record<string, string> = {}) =>
+      send(res, status, "application/json", JSON.stringify(value), extra);
+    if (!authorized(req)) {
+      json(401, { error: "missing or wrong token: send Authorization: Bearer <the token file next to the database>" });
+      return;
+    }
+    const found = findRoute(req.method ?? "", url.pathname.slice(API.length));
+    if (found === undefined) {
+      json(404, { error: `no route ${url.pathname} (${API}/openapi.json lists them)` });
+      return;
+    }
+    if (found === "no-method") {
+      json(405, { error: `${req.method} is not allowed on ${url.pathname}` });
+      return;
+    }
+    const { route, args } = found;
+    try {
+      let input: Args;
+      if (route.method === "GET") input = queryArgs(route.query ?? {}, url.searchParams);
+      else {
+        if (url.search !== "") throw new HubError("send fields in the JSON body, not the query");
+        input = checkFields(route.body ?? {}, await readBody(req), "body");
+      }
+      const result = route.run(ctx(), { ...input, ...args }, hooks);
+      const status = route.status?.(result) ?? 200;
+      const exit = { "x-hub-exit": String(result.exitCode ?? 0) };
+      if (req.headers.accept === "text/plain") send(res, status, "text/plain", result.text, exit);
+      else json(status, result.json, exit);
+    } catch (error) {
+      if (!(error instanceof HubError)) throw error;
+      json(400, { error: error.message });
+    }
+  }
+
+  const hooks = {
+    syncStatus: () => sync,
+    startSync: () => ({ started: startSync(), status: sync }),
+  };
+
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const host = req.headers.host ?? "";
     if (host !== `127.0.0.1:${port}` && host !== `localhost:${port}`) {
@@ -190,15 +210,6 @@ export function serve(options: ServeOptions): Promise<Server> {
       res.write(": connected\n\n");
       clients.add(res);
       req.on("close", () => clients.delete(res));
-      return;
-    }
-    if (req.method === "GET" && url.pathname === "/api/search") {
-      const found = commands.searchAll(ctx(), url.searchParams.get("q") ?? "", SEARCH_LIMIT);
-      send(res, 200, "application/json", JSON.stringify(found));
-      return;
-    }
-    if (req.method === "GET" && url.pathname === "/api/status") {
-      send(res, 200, "application/json", JSON.stringify(sync));
       return;
     }
     const asset = STATIC[url.pathname];
@@ -236,29 +247,12 @@ export function serve(options: ServeOptions): Promise<Server> {
       send(res, 200, "text/html", part ? body : page(c, title, body, token));
       return;
     }
-    if (req.method === "POST" && url.pathname.startsWith("/api/")) {
-      if (req.headers["x-hub-token"] !== token) {
-        send(res, 403, "text/plain", "bad token");
-        return;
-      }
-      const name = url.pathname.slice(5);
-      try {
-        const body = await readBody(req);
-        if (name === "sync") {
-          const started = startSync();
-          send(res, started ? 202 : 409, "application/json", JSON.stringify(sync));
-          return;
-        }
-        const action = ACTIONS[name];
-        if (action === undefined) {
-          send(res, 404, "text/plain", `no action ${name}`);
-          return;
-        }
-        send(res, 200, "application/json", JSON.stringify(action(ctx(), body).json));
-      } catch (error) {
-        if (!(error instanceof HubError)) throw error;
-        send(res, 400, "text/plain", error.message);
-      }
+    if (url.pathname === `${API}/openapi.json` && req.method === "GET") {
+      send(res, 200, "application/json", OPENAPI);
+      return;
+    }
+    if (url.pathname.startsWith(`${API}/`)) {
+      await api(req, res, url);
       return;
     }
     send(res, 404, "text/plain", "not found");
