@@ -83,6 +83,7 @@ Config lives in the database. `hub config` lists every key with its value:
 | `progressStyle` | `"ring"` | step progress as `ring`, `half` or `bar` |
 | `horizon` | `"14d"` | the period for Steps done, the Done tab, the done count and Activity: `7d`, `14d`, `30d`, `week`, `month` or `all` |
 | `githubReviewQuery` | `"is:pr is:open review-requested:@me archived:false"` | the GitHub search for review requests |
+| `slackAlertChannels` | `[]` | Slack channels whose new messages are alerts (Fix now) |
 | `ignoreRepos` | `{"review_request":[],"pr":[]}` | repos whose review requests or PRs of yours are ignored |
 | `laterHour` | `9` | the hour "later until tomorrow" means |
 | `recordActions` | `git push`, `gh pr create\|merge\|comment\|review\|close\|edit`, `gh issue create\|comment\|close\|edit` | regular expressions for shell commands a session must record in hub before it stops, and whose printed PR the PostToolUse hook links to the ticket on the current branch; `[]` switches the Stop hook off |

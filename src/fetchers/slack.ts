@@ -27,9 +27,11 @@ export const SLACK_KEY: KeySpec = {
 };
 
 type Channel = { id: string; name?: string; is_im?: boolean; is_mpim?: boolean; is_private?: boolean; user?: string };
+type Attachment = { fallback?: string; pretext?: string; title?: string; text?: string };
 type Match = {
   ts: string;
   text: string;
+  attachments?: Attachment[];
   permalink: string;
   user?: string;
   username?: string;
@@ -191,7 +193,9 @@ async function place(dir: Directory, me: string, c: Channel | undefined, fromMe:
 async function line(dir: Directory, me: string, myName: string, m: Match): Promise<string> {
   const where = await place(dir, myName, m.channel, m.user === me);
   const who = m.user === me ? "me" : m.user ? await dir.user(m.user) : (m.username ?? "someone");
-  const text = (await readable(dir, m.text)).replaceAll("\n", " ");
+  const a = m.attachments?.[0];
+  const raw = m.text || a?.title || a?.pretext || a?.text || a?.fallback || "";
+  const text = (await readable(dir, raw)).replaceAll("\n", " ");
   return cut(`${where ? `${where} · ` : ""}${who}: ${text}`, 200);
 }
 
@@ -221,14 +225,31 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
   const newer = (m: Match) => Number(m.ts) > Number(since);
   const mentions = (await search(sys, way, `<@${me}> after:${after}`)).filter(newer);
   const sent = (await search(sys, way, `from:<@${me}> after:${after}`)).filter(newer);
-  const dir = new Directory(sys, way, [...mentions, ...sent]);
+  const alerts: Match[] = [];
+  for (const name of ctx.config.slackAlertChannels) {
+    const found = await search(sys, way, `in:#${name.replace(/^#/, "")} after:${after}`);
+    alerts.push(...found.filter((m) => newer(m) && m.user !== me));
+  }
+  const dir = new Directory(sys, way, [...mentions, ...sent, ...alerts]);
   const myName = auth.user ?? me;
   let newest = Number(since);
-  for (const m of [...mentions, ...sent]) newest = Math.max(newest, Number(m.ts));
+  for (const m of [...mentions, ...sent, ...alerts]) newest = Math.max(newest, Number(m.ts));
 
   const out: Record<string, unknown>[] = [];
+  const alertUrls = new Set(alerts.map((m) => m.permalink));
+  for (const m of alerts) {
+    out.push({
+      source: "slack",
+      kind: "alert",
+      url: m.permalink,
+      title: await line(dir, me, myName, m),
+      author: m.user ? await dir.user(m.user) : m.username,
+      state: "alert",
+      needs_me: true,
+    });
+  }
   for (const m of mentions) {
-    if (m.user === me) continue;
+    if (m.user === me || alertUrls.has(m.permalink)) continue;
     out.push({
       source: "slack",
       kind: "message",
@@ -253,12 +274,12 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
 
   const open = all<ItemRow>(
     ctx.db,
-    `SELECT * FROM item WHERE source = 'slack' AND kind = 'message' AND needs_me = 1 AND closed_at IS NULL
+    `SELECT * FROM item WHERE source = 'slack' AND kind IN ('message', 'alert') AND needs_me = 1 AND closed_at IS NULL
        AND ignored IS NULL ORDER BY first_seen DESC LIMIT ?`,
     RECHECK,
   );
   const toCheck = new Map<string, Record<string, unknown>>();
-  for (const i of open) if (i.url) toCheck.set(i.url, { source: "slack", kind: "message", url: i.url });
+  for (const i of open) if (i.url) toCheck.set(i.url, { source: "slack", kind: i.kind, url: i.url });
   for (const item of out) if (item.needs_me === true) toCheck.set(item.url as string, item);
   for (const [url, item] of toCheck) {
     const at = messageOf(url);
@@ -276,7 +297,7 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
     return thread === null ? [] : [{ ...thread, at: Number(m.ts) }];
   });
   for (const [url, item] of toCheck) {
-    if (item.needs_me === false) continue;
+    if (item.needs_me === false || item.kind === "alert") continue;
     const thread = threadOf(url);
     const at = messageOf(url);
     if (thread === null || at === null) continue;
