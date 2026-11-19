@@ -212,14 +212,37 @@ function closeMenus(except) {
   for (const d of app.querySelectorAll("details.menu[open]")) if (d !== except) d.open = false;
 }
 
-async function post(act, data) {
-  const r = await fetch(`/api/${act}`, {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-hub-token": token },
-    body: JSON.stringify(data),
+const e = encodeURIComponent;
+const later = (d) => (d.for ? { for: d.for } : {});
+const ROUTES = {
+  sent: (d) => ["POST", `/tickets/${e(d.ticket)}/drafts/${e(d.label)}/posted`, {}],
+  match: (d) => ["POST", `/tickets/${e(d.ticket)}/drafts/${e(d.label)}/match`, { answer: d.answer }],
+  gate: (d) => ["POST", `/tickets/${e(d.ticket)}/gate`, { answer: d.answer }],
+  pin: (d) => ["PUT", `/pins/${e(d.row)}`, { on: d.on === "1" }],
+  "item-done": (d) => ["POST", `/items/${e(d.id)}/close`, {}],
+  "item-snooze": (d) => ["POST", `/items/${e(d.id)}/snooze`, later(d)],
+  "item-reopen": (d) => ["POST", `/items/${e(d.id)}/reopen`, {}],
+  "wait-close": (d) => ["POST", `/waits/${e(d.id)}/close`, {}],
+  "wait-pinged": (d) => ["POST", `/waits/${e(d.id)}/pinged`, later(d)],
+  "wait-reopen": (d) => ["POST", `/waits/${e(d.id)}/reopen`, {}],
+  config: (d) => ["PUT", `/config/${e(d.key)}`, { value: JSON.parse(d.value) }],
+  sync: () => ["POST", "/sync", {}],
+};
+
+async function api(method, path, body) {
+  const r = await fetch(`/api/v1${path}`, {
+    method,
+    cache: "no-store",
+    headers: { authorization: `Bearer ${token}`, ...(body ? { "content-type": "application/json" } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
   });
-  if (!r.ok) throw new Error((await r.text()) || `${r.status}`);
+  if (!r.ok) throw new Error((await r.json().catch(() => null))?.error || `${r.status}`);
   return r;
+}
+
+function post(act, data) {
+  const [method, path, body] = ROUTES[act](data);
+  return api(method, path, body);
 }
 
 async function act(button) {
@@ -351,8 +374,8 @@ async function runSearch(q, keepActive = false) {
     hideResults();
     return;
   }
-  const r = await fetch(`/api/search?q=${encodeURIComponent(q)}`, { cache: "no-store" });
-  if (!r.ok || seq !== searchSeq) return;
+  const r = await api("GET", `/find?q=${encodeURIComponent(q)}`).catch(() => null);
+  if (!r || seq !== searchSeq) return;
   if (!keepActive) activeHit = 0;
   showResults(await r.json());
 }

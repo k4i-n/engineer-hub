@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, test } from "node:test";
+import { ROUTES } from "../src/api.ts";
 import { type Io, run } from "../src/cli.ts";
 import { type Server, serve } from "../src/serve.ts";
 
@@ -32,12 +33,14 @@ function hub(argv: string[], stdin = ""): string {
   return out;
 }
 
-function post(path: string, body: Record<string, string>, token = server.token): Promise<Response> {
-  return fetch(`${server.url}${path}`, {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-hub-token": token },
-    body: JSON.stringify(body),
-  });
+function call(method: string, path: string, body?: unknown, token = server.token): Promise<Response> {
+  const init: RequestInit = { method, headers: { authorization: `Bearer ${token}` } };
+  if (body !== undefined) init.body = JSON.stringify(body);
+  return fetch(`${server.url}/api/v1${path}`, init);
+}
+
+function setConfigKey(key: string, value: string): Promise<Response> {
+  return call("PUT", `/config/${key}`, { value: JSON.parse(value) });
 }
 
 function rawGet(path: string, host: string): Promise<number> {
@@ -64,7 +67,7 @@ async function waitFor<T>(check: () => Promise<T | undefined>, ms = 3000): Promi
 type SyncState = { status: string; at: string | null; detail: string | null };
 
 async function syncState(): Promise<SyncState> {
-  return (await (await fetch(`${server.url}/api/status`)).json()) as SyncState;
+  return (await (await call("GET", "/sync")).json()) as SyncState;
 }
 
 beforeEach(async () => {
@@ -126,7 +129,7 @@ describe("serve", () => {
     assert.doesNotMatch(before, /class="stat /);
     assert.match(before, /data-needs-count="4"/);
     const id = /data-act="item-done" data-id="(\d+)"/.exec(before)?.[1] ?? "";
-    await post("/api/item-done", { id });
+    await call("POST", `/items/${id}/close`, {});
     const after = await (await fetch(`${server.url}/?part=1`)).text();
     assert.deepEqual(verbs(after), verbs(before));
     assert.match(
@@ -134,7 +137,7 @@ describe("serve", () => {
       /is-dim[^>]*data-key="item-\d+"[\s\S]*?<span class="dim-label">done<\/span>[\s\S]*?<span class="rail"><button[^>]*data-act="item-reopen"[^>]*data-hotkey="u"/,
     );
     assert.match(after, /data-needs-count="3"/);
-    assert.equal((await post("/api/gate", { ticket: "ENG-42", answer: "yes" })).status, 200);
+    assert.equal((await call("POST", "/tickets/ENG-42/gate", { answer: "yes" })).status, 200);
     assert.match(await (await fetch(`${server.url}/?part=1`)).text(), /<span class="dim-label">yes<\/span>/);
   });
 
@@ -155,24 +158,24 @@ describe("serve", () => {
     }
     const last = rows.at(-1)?.[1] ?? "";
     assert.notEqual(rows[0]?.[1], last);
-    assert.equal((await post("/api/pin", { row: last, on: "1" })).status, 200);
+    assert.equal((await call("PUT", `/pins/${encodeURIComponent(last ?? "")}`, { on: true })).status, 200);
     const pinned = await (await fetch(`${server.url}/?part=1`)).text();
     const first = /<li class="(need [^"]*)" data-key="([^"]+)"/.exec(pinned);
     assert.equal(first?.[2], last);
     assert.match(first?.[1] ?? "", /\bpinned\b/);
     assert.match(pinned, new RegExp(`data-act="pin" data-row="${last}" data-on="0"`));
-    assert.equal((await post("/api/pin", { row: "ticket-1", on: "1" })).status, 400);
+    assert.equal((await call("PUT", "/pins/ticket-1", { on: true })).status, 400);
   });
 
   test("settings show the database and save config through the same checks as the CLI", async () => {
     const html = await (await fetch(`${server.url}/settings`)).text();
     assert.ok(html.includes(dbFile));
     assert.match(html, /Schema<\/span><div class="set-control">v2/);
-    assert.equal((await post("/api/config", { key: "openLinearIn", value: '"app"' })).status, 200);
-    const command = await post("/api/config", { key: "syncCommand", value: '["sh","-c","touch /tmp/x"]' });
+    assert.equal((await setConfigKey("openLinearIn", '"app"')).status, 200);
+    const command = await setConfigKey("syncCommand", '["sh","-c","touch /tmp/x"]');
     assert.equal(command.status, 400);
     assert.doesNotMatch(html, /data-config-input="syncCommand"/);
-    const bad = await post("/api/config", { key: "theme", value: '"pink"' });
+    const bad = await setConfigKey("theme", '"pink"');
     assert.equal(bad.status, 400);
     assert.match(await bad.text(), /theme must be one of/);
     hub(
@@ -230,7 +233,7 @@ describe("serve", () => {
       }),
     );
     const layout = { left: ["today", "review"], right: ["tickets"] };
-    assert.equal((await post("/api/config", { key: "layout", value: JSON.stringify(layout) })).status, 200);
+    assert.equal((await setConfigKey("layout", JSON.stringify(layout))).status, 200);
     const html = await (await fetch(`${server.url}/?part=1`)).text();
     const order = (col: string) =>
       [
@@ -246,10 +249,10 @@ describe("serve", () => {
     );
     const ticket = await (await fetch(`${server.url}/t/ENG-42?part=1`)).text();
     assert.match(ticket, /<h2>Needs you<\/h2>[\s\S]*?pull\/9/);
-    const bad = await post("/api/config", { key: "layout", value: '{"left":["today","today"],"right":[]}' });
+    const bad = await setConfigKey("layout", '{"left":["today","today"],"right":[]}');
     assert.equal(bad.status, 400);
     assert.match(await bad.text(), /layout lists a block twice/);
-    assert.equal((await post("/api/config", { key: "layout", value: '{"left":["nope"],"right":[]}' })).status, 400);
+    assert.equal((await setConfigKey("layout", '{"left":["nope"],"right":[]}')).status, 400);
   });
 
   test("the overview sits in the top row and counts needs, steps, tickets and steps done per day", async () => {
@@ -269,21 +272,21 @@ describe("serve", () => {
       /data-key="t-ENG-42"[\s\S]*?<span class="t-progress style-ring"><svg class="ring"[\s\S]*?<span class="pct">50%<\/span>/,
     );
 
-    assert.equal((await post("/api/config", { key: "chartDays", value: "7" })).status, 200);
-    assert.equal((await post("/api/config", { key: "progressStyle", value: '"half"' })).status, 200);
+    assert.equal((await setConfigKey("chartDays", "7")).status, 200);
+    assert.equal((await setConfigKey("progressStyle", '"half"')).status, 200);
     const after = await (await fetch(`${server.url}/?part=1`)).text();
     assert.equal([...after.matchAll(/data-tip="/g)].length, 7);
     assert.match(after, /<span class="t-progress style-half"><svg class="half"/);
     const ticket = await (await fetch(`${server.url}/t/ENG-42?part=1`)).text();
     assert.match(ticket, /<span class="t-progress style-half big">/);
-    assert.equal((await post("/api/config", { key: "chartDays", value: "9" })).status, 400);
-    assert.equal((await post("/api/config", { key: "progressStyle", value: '"pie"' })).status, 400);
+    assert.equal((await setConfigKey("chartDays", "9")).status, 400);
+    assert.equal((await setConfigKey("progressStyle", '"pie"')).status, 400);
   });
 
   test("a card can move to the top row or be hidden, and settings can show it again", async () => {
     const layout = { top: ["tickets"], left: ["today"], right: ["overview"] };
-    assert.equal((await post("/api/config", { key: "layout", value: JSON.stringify(layout) })).status, 200);
-    assert.equal((await post("/api/config", { key: "hiddenBlocks", value: '["activity"]' })).status, 200);
+    assert.equal((await setConfigKey("layout", JSON.stringify(layout))).status, 200);
+    assert.equal((await setConfigKey("hiddenBlocks", '["activity"]')).status, 200);
     const html = await (await fetch(`${server.url}/?part=1`)).text();
     assert.match(html, /data-col="top"><div class="block" data-block="tickets" id="b-tickets">/);
     assert.match(html, /<div class="block" data-block="activity" id="b-activity" hidden><\/div>/);
@@ -293,10 +296,10 @@ describe("serve", () => {
       settings,
       /class="chip-toggle" aria-pressed="false" data-config="hiddenBlocks" data-value="\[\]">Activity</,
     );
-    const bad = await post("/api/config", { key: "hiddenBlocks", value: '["nope"]' });
+    const bad = await setConfigKey("hiddenBlocks", '["nope"]');
     assert.equal(bad.status, 400);
     assert.match(await bad.text(), /hiddenBlocks has an unknown block nope/);
-    const twice = await post("/api/config", { key: "layout", value: '{"top":["today"],"left":["today"],"right":[]}' });
+    const twice = await setConfigKey("layout", '{"top":["today"],"left":["today"],"right":[]}');
     assert.equal(twice.status, 400);
   });
 
@@ -314,7 +317,7 @@ describe("serve", () => {
     );
     hub(["step", "add", "ENG-7", "measure webhook latency"]);
     const find = async (q: string) =>
-      (await (await fetch(`${server.url}/api/search?q=${encodeURIComponent(q)}`)).json()) as {
+      (await (await call("GET", `/find?q=${encodeURIComponent(q)}`)).json()) as {
         kind: string;
         title: string;
         sub: string;
@@ -347,7 +350,7 @@ describe("serve", () => {
     assert.equal(await rawGet("/", "evil.example:80"), 403);
     const port = new URL(server.url).port;
     assert.equal(await rawGet("/", `localhost:${port}`), 200);
-    assert.equal((await post("/api/item-done", { id: "1" }, "wrong")).status, 403);
+    assert.equal((await call("POST", "/items/1/close", {}, "wrong")).status, 401);
   });
 
   test("the token is kept in a file only the user can read and survives a restart", async () => {
@@ -358,7 +361,7 @@ describe("serve", () => {
     await server.close();
     server = await serve({ dbPath: dbFile, port: 0, now: () => new Date(), env: process.env });
     assert.equal(server.token, first);
-    assert.equal((await post("/api/item-done", { id: "1" }, first)).status, 200);
+    assert.equal((await call("POST", "/items/1/close", {}, first)).status, 200);
 
     await server.close();
     chmodSync(file, 0o644);
@@ -392,25 +395,28 @@ describe("serve", () => {
       page,
       /<details class="menu"[^>]*><summary class="ic ic-more"[^>]*>[\s\S]*?<div class="menu-pop">[\s\S]*?data-act="item-snooze" data-id="\d+" data-for="1h"/,
     );
-    assert.equal((await post("/api/item-snooze", { id, for: "1h" })).status, 200);
+    assert.equal((await call("POST", `/items/${id}/snooze`, { for: "1h" })).status, 200);
     assert.equal(hub(["items", "--needs-me"]), "no items");
     const db = new DatabaseSync(dbFile);
     const row = db.prepare("SELECT snoozed_until FROM item WHERE id = ?").get(Number(id)) as { snoozed_until: string };
     db.close();
     const minutes = (Date.parse(row.snoozed_until) - Date.now()) / 60000;
     assert.ok(minutes > 58 && minutes <= 60, `snoozed ${minutes} minutes`);
-    assert.equal((await post("/api/item-snooze", { id, for: "soon" })).status, 400);
-    assert.equal((await post("/api/item-done", { id })).status, 200);
+    assert.equal((await call("POST", `/items/${id}/snooze`, { for: "soon" })).status, 400);
+    assert.equal((await call("POST", `/items/${id}/close`, {})).status, 200);
     assert.match(hub(["items", "--all"]), /pull\/9 \| closed$/m);
 
     hub(["draft", "ENG-7", "ask product", "--stdin"], "Can we cap exports?");
-    assert.equal((await post("/api/sent", { ticket: "ENG-7", label: "ask product" })).status, 200);
+    assert.equal(
+      (await call("POST", `/tickets/ENG-7/drafts/${encodeURIComponent("ask product")}/posted`, {})).status,
+      200,
+    );
     assert.match(hub(["drafts", "ENG-7"]), /ask product \| posted \| .* \| wording pending/);
 
-    const bad = await post("/api/wait-close", { id: "42" });
+    const bad = await call("POST", "/waits/42/close", {});
     assert.equal(bad.status, 400);
     assert.match(await bad.text(), /no open wait 42/);
-    assert.equal((await post("/api/nope", {})).status, 404);
+    assert.equal((await call("POST", "/nope", {})).status, 404);
   });
 
   test("a write from another process reaches open pages as a change event", async () => {
@@ -436,8 +442,8 @@ describe("serve", () => {
     const setCommand = (argv: string[]) =>
       db.prepare("INSERT OR REPLACE INTO config(key, value) VALUES ('syncCommand', ?)").run(JSON.stringify(argv));
     setCommand(["node", "-e", "setTimeout(() => process.stdout.write(process.env.HUB_DB), 300)"]);
-    assert.equal((await post("/api/sync", {})).status, 202);
-    assert.equal((await post("/api/sync", {})).status, 409);
+    assert.equal((await call("POST", "/sync", {})).status, 202);
+    assert.equal((await call("POST", "/sync", {})).status, 409);
     assert.match(
       await (await fetch(`${server.url}/?part=1`)).text(),
       /class="top syncing"[\s\S]*class="ic ic-sync sync-btn" data-act="sync" title="Syncing" aria-label="Syncing" disabled>/,
@@ -449,7 +455,7 @@ describe("serve", () => {
     assert.deepEqual([finished.status, finished.detail], ["finished", dbFile]);
 
     setCommand(["node", "-e", "console.error('no connector'); process.exit(3)"]);
-    assert.equal((await post("/api/sync", {})).status, 202);
+    assert.equal((await call("POST", "/sync", {})).status, 202);
     const failed = await waitFor(async () => {
       const s = await syncState();
       return s.status === "running" ? undefined : s;
@@ -480,6 +486,76 @@ describe("serve", () => {
     clock = new Date("2026-11-18T10:00:00Z");
     await new Promise((r) => setTimeout(r, 80));
     assert.equal((await syncState()).at, ran.at);
-    assert.equal((await post("/api/config", { key: "syncEvery", value: '"5m"' })).status, 400);
+    assert.equal((await setConfigKey("syncEvery", '"5m"')).status, 400);
+  });
+});
+
+describe("api v1", () => {
+  test("every route needs the token except the OpenAPI document, which lists them all", async () => {
+    const bare = await fetch(`${server.url}/api/v1/tickets`);
+    assert.equal(bare.status, 401);
+    assert.match(((await bare.json()) as { error: string }).error, /Authorization: Bearer/);
+    const doc = (await (await fetch(`${server.url}/api/v1/openapi.json`)).json()) as {
+      paths: Record<
+        string,
+        Record<string, { operationId: string; parameters?: { in: string; description?: string }[] }>
+      >;
+    };
+    const ops = Object.values(doc.paths).flatMap((p) => Object.values(p));
+    assert.deepEqual(ops.map((o) => o.operationId).sort(), ROUTES.map((r) => r.name).sort());
+    for (const o of ops) for (const p of o.parameters ?? []) assert.ok(p.description, `${o.operationId} ${p.in} param`);
+  });
+
+  test("reads return the CLI's JSON, or its text with Accept: text/plain", async () => {
+    const json = (await (await call("GET", "/tickets/ENG-42")).json()) as { ticket: { id: string } };
+    assert.equal(json.ticket.id, "ENG-42");
+    const text = await fetch(`${server.url}/api/v1/tickets/ENG-42`, {
+      headers: { authorization: `Bearer ${server.token}`, accept: "text/plain" },
+    });
+    assert.equal(text.headers.get("x-hub-exit"), "0");
+    assert.equal(await text.text(), hub(["ticket", "ENG-42"]));
+    const lint = await fetch(`${server.url}/api/v1/lint`, {
+      headers: { authorization: `Bearer ${server.token}`, accept: "text/plain" },
+    });
+    assert.equal(lint.status, 200);
+    assert.equal(lint.headers.get("x-hub-exit"), "1");
+  });
+
+  test("bodies are checked against the route's fields", async () => {
+    const error = async (r: Response) => ((await r.json()) as { error: string }).error;
+    assert.match(await error(await call("POST", "/tickets/ENG-42/events", { txt: "x" })), /unknown body field txt/);
+    assert.match(await error(await call("POST", "/tickets/ENG-42/events", {})), /missing text/);
+    assert.match(await error(await call("POST", "/tickets/ENG-42/events", { text: 3 })), /text must be a string/);
+    assert.match(await error(await call("POST", "/tickets/ENG-42/events?text=x", {})), /JSON body, not the query/);
+    assert.match(await error(await call("GET", "/items?needs=1")), /unknown query field needs/);
+    assert.equal((await call("DELETE", "/tickets/ENG-42")).status, 405);
+    assert.equal((await call("GET", "/nope")).status, 404);
+    assert.equal((await call("POST", "/tickets/ENG-42/events", { text: "from the api" })).status, 200);
+    assert.match(hub(["events", "ENG-42", "-n", "1"]), /from the api$/);
+  });
+
+  test("a ticket patch is all or nothing", async () => {
+    const before = hub(["ticket", "ENG-42"]);
+    const bad = await call("PATCH", "/tickets/ENG-42", { next: "ship it", status: "x".repeat(300) });
+    assert.equal(bad.status, 400);
+    assert.equal(hub(["ticket", "ENG-42"]), before);
+    const ok = await call("PATCH", "/tickets/ENG-42", { next: "ship it", dir: "todo" });
+    assert.equal(ok.status, 200);
+    assert.match(hub(["ticket", "ENG-42"]), /^ENG-42 \| todo \|[\s\S]*next: ship it/);
+  });
+
+  test("items go in as a batch and waits close by thread url", async () => {
+    const put = await call("POST", "/items", {
+      items: [
+        { source: "github", kind: "review_request", url: "https://github.com/acme/web/pull/1", needs_me: true },
+        { source: "slack", kind: "thread", url: "https://acme.slack.com/archives/C1/p1" },
+      ],
+    });
+    assert.equal(put.status, 200);
+    assert.match(hub(["items", "--needs-me"]), /pull\/1/);
+    const url = "https://acme.slack.com/archives/C1/p1";
+    assert.equal((await call("POST", "/waits", { ticket: "ENG-42", who: "ana", url, ping_after: "1d" })).status, 200);
+    assert.equal((await call("POST", `/waits/${encodeURIComponent(url)}/close`, {})).status, 200);
+    assert.match(hub(["waits"]), /no open waits|^$/);
   });
 });
