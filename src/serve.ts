@@ -5,7 +5,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { AddressInfo } from "node:net";
 import { dirname, resolve } from "node:path";
 import { type Args, checkFields, findRoute, openapi, queryArgs, runRoute } from "./api.ts";
-import type { Ctx } from "./commands.ts";
+import { type Backup, backup, backupDir, checkRestorable, listBackups, replaceDb } from "./backup.ts";
+import type { Ctx, Result } from "./commands.ts";
 import { loadConfig } from "./config.ts";
 import { one, openDb, SCHEMA_VERSION, type SourceRow } from "./db.ts";
 import { type Fetcher, Runner } from "./fetch.ts";
@@ -23,6 +24,7 @@ export type ServeOptions = {
   env: NodeJS.ProcessEnv;
   autoSyncCheckMs?: number;
   fetchCheckMs?: number;
+  backupCheckMs?: number;
   system?: System;
   fetchers?: Fetcher[];
 };
@@ -36,6 +38,7 @@ const API = "/api/v1";
 const OUTPUT_TAIL = 2_000;
 const AUTO_SYNC_CHECK_MS = 60_000;
 const FETCH_CHECK_MS = 15_000;
+const BACKUP_CHECK_MS = 10 * 60_000;
 
 const VERSION = (JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string })
   .version;
@@ -110,8 +113,8 @@ function fetching(c: Ctx, runner: Runner): Fetching[] {
 
 export function serve(options: ServeOptions): Promise<Server> {
   const token = loadToken(tokenPath(options.dbPath));
-  const db = openDb(options.dbPath);
-  const watch = openDb(options.dbPath);
+  let db = openDb(options.dbPath);
+  let watch = openDb(options.dbPath);
   const clients = new Set<ServerResponse>();
   let sync: SyncState = { status: "idle", at: null, detail: null };
   let child: ChildProcess | null = null;
@@ -143,6 +146,60 @@ export function serve(options: ServeOptions): Promise<Server> {
     runner.tick().catch(() => {});
   }, options.fetchCheckMs ?? FETCH_CHECK_MS);
   fetchTimer.unref();
+  const folder = () => backupDir(ctx().config.backupDir, options.dbPath);
+  const saveBackupState = (name: string | null, error: string | null) => {
+    const state = JSON.stringify({ at: nowIso(options.now()), name, error });
+    db.prepare(
+      "INSERT INTO meta(key, value) VALUES ('backup', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    ).run(state);
+  };
+  function backupNow(): Backup {
+    try {
+      const made = backup(db, folder(), options.now(), ctx().config.backupKeep);
+      saveBackupState(made.name, null);
+      return made;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      saveBackupState(null, message);
+      throw new HubError(`backup failed: ${message}`);
+    }
+  }
+  const backupIfDue = () => {
+    try {
+      const c = ctx();
+      if (!c.config.autoBackup) return;
+      const every = Date.parse(afterDuration(new Date(0), c.config.backupEvery, "backupEvery"));
+      const newest = listBackups(folder())[0];
+      if (newest !== undefined && options.now().getTime() - Date.parse(newest.at) < every) return;
+      backupNow();
+    } catch {}
+  };
+  backupIfDue();
+  const backupTimer = setInterval(backupIfDue, options.backupCheckMs ?? BACKUP_CHECK_MS);
+  backupTimer.unref();
+  function restore(name: string): Result {
+    const source = checkRestorable(folder(), name);
+    const saved = backup(db, folder(), options.now(), Number.POSITIVE_INFINITY, "-before-restore");
+    db.close();
+    watch.close();
+    try {
+      replaceDb(options.dbPath, source);
+      db = openDb(options.dbPath);
+    } catch (error) {
+      replaceDb(options.dbPath, saved.path);
+      db = openDb(options.dbPath);
+      watch = openDb(options.dbPath);
+      throw error;
+    }
+    watch = openDb(options.dbPath);
+    lastVersion = dataVersion();
+    broadcast();
+    return {
+      text: `restored ${name}; the database before it is ${saved.name}`,
+      json: { restored: name, saved: saved.name },
+    };
+  }
+
   const keepalive = setInterval(() => {
     for (const client of clients) client.write(": keepalive\n\n");
   }, KEEPALIVE_MS);
@@ -264,6 +321,18 @@ export function serve(options: ServeOptions): Promise<Server> {
     syncStatus: () => sync,
     startSync: () => ({ started: startSync(), status: sync }),
     fetchNow: (source: string | null) => runner.now(source),
+    backupNow: (): Result => {
+      const made = backupNow();
+      return { text: `backed up to ${made.path}`, json: made };
+    },
+    backups: (): Result => {
+      const list = listBackups(folder());
+      return {
+        text: list.map((b) => `${b.name}  ${Math.ceil(b.size / 1024)} KB`).join("\n") || `no backups in ${folder()}`,
+        json: list,
+      };
+    },
+    restore,
   };
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -309,6 +378,8 @@ export function serve(options: ServeOptions): Promise<Server> {
             {
               path: options.dbPath,
               size: statSync(options.dbPath).size,
+              backupFolder: folder(),
+              backups: listBackups(folder()),
               schema: schema ?? SCHEMA_VERSION,
             },
             fetching(c, runner),
@@ -352,6 +423,7 @@ export function serve(options: ServeOptions): Promise<Server> {
     clearInterval(keepalive);
     clearInterval(autoSync);
     clearInterval(fetchTimer);
+    clearInterval(backupTimer);
     child?.kill("SIGTERM");
     for (const client of clients) client.end();
     server.closeAllConnections();
@@ -366,6 +438,7 @@ export function serve(options: ServeOptions): Promise<Server> {
       clearInterval(keepalive);
       clearInterval(autoSync);
       clearInterval(fetchTimer);
+      clearInterval(backupTimer);
       db.close();
       watch.close();
       reject(error);

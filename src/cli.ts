@@ -44,6 +44,7 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         step add <id> <title> | step done <id> <n> [--evidence <url>]
         day set <date> (--file <path> | --stdin) | ticket-new <id> <title> [--dir todo]
         move <id> <dir> | order <id> <place | -> | gate <id> (yes | no) | config <key> <json>
+backup: backup | backups | restore <name>
 import: import --root <dir> [--apply]
 serve:  serve [--port 7420] | service install [--port 7420] | service status | service uninstall
         mcp-headers (the Authorization header for an MCP client's headersHelper)`;
@@ -290,6 +291,9 @@ const COMMANDS: Record<string, Handler> = {
       error: v.error,
     }),
   sources: () => c("sources"),
+  backup: () => c("backup"),
+  backups: () => c("backups"),
+  restore: (a) => c("restore", { name: arg(a, 0, "restore <backup name>") }),
   fetch: (a) => c("fetch", a[0] === undefined ? {} : { source: a[0] }),
   moved: (_a, v) => {
     if (v.as === undefined) throw new HubError("usage: hub moved --as <session id> [--start]");

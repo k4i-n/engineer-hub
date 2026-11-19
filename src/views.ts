@@ -1,3 +1,4 @@
+import type { Backup, BackupState } from "./backup.ts";
 import { area, bar, donut, half, legend, percent, ring, type Slice, stack } from "./charts.ts";
 import { byOrder, type Ctx, has, openTickets, recentlyDone } from "./commands.ts";
 import { BLOCKS, type Config, DEFAULT_LAYOUT, type Layout } from "./config.ts";
@@ -27,7 +28,7 @@ export type SyncState = {
   at: string | null;
   detail: string | null;
 };
-export type DbInfo = { path: string; size: number; schema: string };
+export type DbInfo = { path: string; size: number; schema: string; backupFolder: string; backups: Backup[] };
 
 type Tone = "red" | "orange" | "amber" | "green" | "teal" | "blue" | "violet" | "grey";
 type Data = Record<string, string | number>;
@@ -863,6 +864,17 @@ function sourcesLine(ctx: Ctx, sources: SourceRow[]): string {
   return `<span class="synced" title="${esc(detail)}">${ago(ctx, latest) === "now" ? "synced just now" : `synced ${esc(ago(ctx, latest))} ago`}</span>${problems.join("")}`;
 }
 
+function backupState(ctx: Ctx): BackupState | null {
+  const value = one<{ value: string }>(ctx.db, "SELECT value FROM meta WHERE key = 'backup'")?.value;
+  return value === undefined ? null : (JSON.parse(value) as BackupState);
+}
+
+function backupProblem(ctx: Ctx): string {
+  const state = backupState(ctx);
+  if (state?.error == null) return "";
+  return `<a class="src src-bad" href="/settings" title="${esc(state.error)}"><i></i>backup<small>failed</small></a>`;
+}
+
 function sourceChip(ctx: Ctx, s: SourceRow): string {
   const state = sourceState(ctx, s);
   const title = [`last sync ${when(ctx, s.last_sync)}`, s.cursor ? `cursor ${s.cursor}` : null, s.last_error]
@@ -884,7 +896,7 @@ function header(ctx: Ctx, sync: SyncState, active: "home" | "settings" | "ticket
   const syncTitle = ctx.config.autoSync ? `Sync (auto every ${ctx.config.syncEvery})` : "Sync";
   return `<header class="top${running ? " syncing" : ""}">
 <a class="brand" href="/"><span class="logo"></span>hub${needCount > 0 ? `<span class="count hot" title="needs you">${needCount}</span>` : ""}</a>
-<div class="sources">${sourcesLine(ctx, sources)}</div>
+<div class="sources">${sourcesLine(ctx, sources)}${backupProblem(ctx)}</div>
 <div class="search" role="search"><input type="search" data-search-box placeholder="Search" aria-label="Search everything" autocomplete="off" spellcheck="false"><div class="search-pop" role="listbox" hidden></div></div>
 <div class="sync"${started}>${result}<span class="live" title="live"></span><button type="button" class="ic ic-sync sync-btn" data-act="sync" title="${running ? "Syncing" : syncTitle}" aria-label="${running ? "Syncing" : "Sync"}"${running ? " disabled" : ""}>${svg("sync")}</button></div>
 <a class="gear${active === "settings" ? " on" : ""}" href="${active === "settings" ? "/" : "/settings"}" title="Settings" aria-label="Settings">⚙</a>
@@ -1079,6 +1091,13 @@ function ignoredRows(ctx: Ctx): string {
   );
 }
 
+function lastBackup(ctx: Ctx, newest: Backup | undefined): string {
+  const state = backupState(ctx);
+  if (state?.error != null) return `<span class="src-state tone-red">${esc(state.error)}</span>`;
+  if (newest === undefined) return `<span class="src-state">none yet</span>`;
+  return `<span class="src-state" title="${esc(newest.path)}">${esc(newest.name)} · ${esc(ago(ctx, newest.at) === "now" ? "just now" : `${ago(ctx, newest.at)} ago`)}</span>`;
+}
+
 export function settingsBody(ctx: Ctx, sync: SyncState, db: DbInfo, fetching: Fetching[] = []): string {
   const c = ctx.config;
   const shortcuts: [string, string][] = [
@@ -1207,7 +1226,31 @@ ${section(
   null,
   row("Path", `<code class="path">${esc(db.path)}</code>${button("Copy", { copy: db.path })}`) +
     row("Size", esc(size(db.size))) +
-    row("Schema", `v${esc(db.schema)}`),
+    row("Schema", `v${esc(db.schema)}`) +
+    row("Backup", toggle("autoBackup", c.autoBackup)) +
+    row(
+      "Every",
+      segmented("backupEvery", c.backupEvery, [
+        ["1h", "1 hour"],
+        ["6h", "6 hours"],
+        ["12h", "12 hours"],
+        ["1d", "1 day"],
+        ["7d", "7 days"],
+      ]),
+    ) +
+    row(
+      "Keep",
+      segmented(
+        "backupKeep",
+        c.backupKeep,
+        [7, 14, 30].map((n) => [n, String(n)]),
+      ),
+    ) +
+    row(
+      "Folder",
+      `<input class="text" data-config-input="backupDir" value="${esc(c.backupDir)}" placeholder="${esc(db.backupFolder)}" spellcheck="false">`,
+    ) +
+    row("Last", `${lastBackup(ctx, db.backups[0])}${button("Back up now", { act: "backup" })}`),
   "set-sec",
 )}
 ${section("Keyboard", null, `<dl class="keys">${shortcuts.map(([k, v]) => `<dt><kbd>${esc(k)}</kbd></dt><dd>${esc(v)}</dd>`).join("")}</dl>`, "set-sec")}

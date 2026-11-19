@@ -26,6 +26,7 @@ const NOT_TOOLS = [
   "item_ignore",
   "item_unignore",
   "repo_unignore",
+  "restore",
 ];
 const HUMAN_FIELDS: Record<string, string[]> = { match: ["answer"] };
 

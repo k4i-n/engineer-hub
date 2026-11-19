@@ -13,6 +13,7 @@ const LATER_TOAST = {
   "draft-later": { "1h": "Send in an hour", "4h": "Send in 4 hours", tomorrow: "Send tomorrow" },
 };
 const DONE_TEXT = {
+  backup: "Backed up",
   "item-done": "Done",
   "item-reopen": "Back in the list",
   "wait-close": "Answered",
@@ -240,6 +241,7 @@ const ROUTES = {
   "wait-reopen": (d) => ["POST", `/waits/${e(d.id)}/reopen`, {}],
   config: (d) => ["PUT", `/config/${e(d.key)}`, { value: JSON.parse(d.value) }],
   sync: () => ["POST", "/sync", {}],
+  backup: () => ["POST", "/backups", {}],
 };
 
 async function api(method, path, body) {

@@ -34,6 +34,10 @@ export type Config = {
   hiddenBlocks: string[];
   progressStyle: string;
   horizon: string;
+  autoBackup: boolean;
+  backupEvery: string;
+  backupDir: string;
+  backupKeep: number;
   laterHour: number;
 };
 
@@ -98,6 +102,10 @@ export const DEFAULTS: Config = {
   hiddenBlocks: [],
   progressStyle: "ring",
   horizon: "14d",
+  autoBackup: true,
+  backupEvery: "1d",
+  backupDir: "",
+  backupKeep: 14,
   laterHour: 9,
 };
 
@@ -109,6 +117,8 @@ const CHOICES: Partial<Record<keyof Config, string[]>> = {
   fetchEvery: ["1m", "5m", "15m", "30m"],
   progressStyle: ["ring", "half", "bar"],
   horizon: HORIZONS,
+  backupEvery: ["1h", "6h", "12h", "1d", "7d"],
+  backupKeep: ["7", "14", "30"],
 };
 
 type Key = keyof Config;
@@ -186,6 +196,9 @@ function semanticError(key: Key, value: unknown): string | undefined {
     if (lists.some((l) => !Array.isArray(l) || l.some((r) => typeof r !== "string" || !/^[\w.-]+\/[\w.-]+$/.test(r)))) {
       return 'ignoreRepos takes owner/repo lists, e.g. {"review_request":["acme/noisy"],"pr":[]}';
     }
+  }
+  if (key === "backupDir" && !/^($|~$|~\/|\/)/.test(String(value))) {
+    return 'backupDir is an absolute folder or ~/..., or "" for backups/ next to the database';
   }
   if (key === "trackerSyncMarkers" && Array.isArray(value) && value.length !== 2) {
     return "trackerSyncMarkers takes exactly two strings: start and end";
