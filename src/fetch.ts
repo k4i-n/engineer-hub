@@ -7,7 +7,7 @@ import * as sources from "./sources.ts";
 import { afterDuration, HubError } from "./util.ts";
 import * as waits from "./waits.ts";
 
-export type Fetched = { items: unknown[]; cursor: string; answered?: string[] };
+export type Fetched = { items: unknown[]; cursor: string; answered?: string[]; warning?: string | null };
 export type Check = { ok: boolean; how: string; fix: string[] };
 export type Fetcher = {
   name: string;
@@ -29,7 +29,7 @@ export function write(ctx: Ctx, name: string, fetched: Fetched): string {
       if (!(error instanceof HubError)) throw error;
     }
   }
-  sources.synced(ctx, name, { cursor: fetched.cursor, error: null });
+  sources.synced(ctx, name, { cursor: fetched.cursor, error: null, warning: fetched.warning ?? null });
   return parts.join("; ") || "nothing new";
 }
 
@@ -86,7 +86,7 @@ export class Runner {
       return `${f.name}: ${write(this.ctx(), f.name, fetched)}`;
     } catch (error) {
       const message = error instanceof Error ? lastLine(error.message) : String(error);
-      sources.synced(this.ctx(), f.name, { cursor: null, error: message });
+      sources.synced(this.ctx(), f.name, { cursor: null, error: message, warning: null });
       return `${f.name}: ${message}`;
     } finally {
       state.running = false;

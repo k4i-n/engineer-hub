@@ -2,7 +2,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, st
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { SCHEMA_VERSION } from "./db.ts";
+import { opensAs, SCHEMA_VERSION } from "./db.ts";
 import { HubError } from "./util.ts";
 
 export type Backup = { name: string; path: string; size: number; at: string };
@@ -63,7 +63,7 @@ export function checkRestorable(dir: string, name: string): string {
   const path = join(dir, name);
   if (!existsSync(path)) throw new HubError(`no backup ${name} in ${dir}`);
   const schema = schemaOf(path);
-  if (schema !== SCHEMA_VERSION) {
+  if (!opensAs(schema)) {
     throw new HubError(`${name} has schema v${schema ?? "?"}, this hub needs v${SCHEMA_VERSION}`);
   }
   return path;
