@@ -907,7 +907,15 @@ describe("moved", () => {
     );
     later(1);
     assert.equal(await ok("moved", "--as", "s2"), "");
-    assert.match(await ok("moved", "--as", "s1"), /Review request: Fix login[\s\S]*Message: ana: on call\?/);
+    stdin =
+      '{"source":"slack","kind":"message","url":"https://acme.slack.com/archives/C1/p1763350000123456","state":"replied","needs_me":false}';
+    await ok("item", "put", "--stdin");
+    later(1);
+    assert.equal(
+      await ok("moved", "--as", "s2"),
+      ["hub, since your last prompt:", "  replied: ana: on call?"].join("\n"),
+    );
+    assert.match(await ok("moved", "--as", "s1"), /Review request: Fix login[\s\S]*replied: ana: on call\?/);
     assert.match((await hub("moved", "--as", "bad id!")).err, /agent must be a session id/);
   });
 
