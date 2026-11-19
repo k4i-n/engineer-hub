@@ -1,5 +1,5 @@
 import type { Ctx } from "../commands.ts";
-import { one } from "../db.ts";
+import { all, one } from "../db.ts";
 import type { Fetched, Fetcher } from "../fetch.ts";
 import { type KeySpec, keyedCall, type System } from "../keys.ts";
 import { cut, HubError } from "../util.ts";
@@ -15,7 +15,7 @@ export const LINEAR_KEY: KeySpec = {
   allow: ["POST /graphql"],
 };
 
-const QUERY = `query($since: DateTimeOrDuration!) {
+const QUERY = `query($since: DateTimeOrDuration!, $tickets: [ID!]!) {
   issues(filter: { assignee: { isMe: { eq: true } }, updatedAt: { gt: $since } }, first: 50) {
     nodes { identifier title url updatedAt priorityLabel assignee { name } state { name type } }
   }
@@ -24,6 +24,16 @@ const QUERY = `query($since: DateTimeOrDuration!) {
       type createdAt
       ... on IssueNotification { issue { identifier title url } comment { url body } actor { name } }
     }
+  }
+  comments(
+    filter: {
+      createdAt: { gt: $since }
+      user: { isMe: { eq: false } }
+      issue: { or: [{ assignee: { isMe: { eq: true } } }, { id: { in: $tickets } }] }
+    }
+    first: 50
+  ) {
+    nodes { url body user { name } issue { identifier title url } }
   }
 }`;
 
@@ -43,8 +53,9 @@ type Note = {
   comment?: { url: string; body: string } | null;
   actor?: { name: string } | null;
 };
+type Comment = { url: string; body: string; user?: { name: string } | null; issue?: Issue | null };
 type Answer = {
-  data?: { issues: { nodes: Issue[] }; notifications: { nodes: Note[] } };
+  data?: { issues: { nodes: Issue[] }; notifications: { nodes: Note[] }; comments: { nodes: Comment[] } };
   errors?: { message: string }[];
 };
 
@@ -56,7 +67,11 @@ async function fetchLinear(sys: System, ctx: Ctx, cursor: string | null): Promis
   const started = ctx.now.toISOString();
   const since = cursor ?? new Date(ctx.now.getTime() - FIRST_LOOK_MS).toISOString();
   const way = await keyWay(sys, LINEAR_KEY);
-  const text = await keyedCall(sys, way, LINEAR_KEY, "POST", "/graphql", { query: QUERY, variables: { since } });
+  const tickets = all<{ id: string }>(ctx.db, "SELECT id FROM ticket").map((t) => t.id);
+  const text = await keyedCall(sys, way, LINEAR_KEY, "POST", "/graphql", {
+    query: QUERY,
+    variables: { since, tickets },
+  });
   const answer = JSON.parse(text) as Answer;
   if (answer.data === undefined) throw new HubError(`linear: ${answer.errors?.[0]?.message ?? "no data"}`);
   const out: unknown[] = answer.data.issues.nodes.map((i) => {
@@ -81,6 +96,21 @@ async function fetchLinear(sys: System, ctx: Ctx, cursor: string | null): Promis
       title: `${n.issue.identifier} ${n.actor?.name ?? "someone"} mentioned you${said}`,
       author: n.actor?.name,
       state: "mention",
+      needs_me: true,
+    });
+  }
+  const mentioned = new Set(answer.data.notifications.nodes.map((n) => n.comment?.url));
+  for (const c of answer.data.comments.nodes) {
+    if (c.issue == null || mentioned.has(c.url)) continue;
+    const who = c.user?.name ?? "someone";
+    out.push({
+      source: "linear",
+      kind: "message",
+      ref: c.url,
+      url: c.url,
+      title: `${c.issue.identifier} ${who} commented: ${cut(c.body.replaceAll("\n", " "), 160)}`,
+      author: who,
+      state: "comment",
       needs_me: true,
     });
   }
