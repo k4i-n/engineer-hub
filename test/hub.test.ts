@@ -685,6 +685,63 @@ describe("send at", () => {
   });
 });
 
+describe("moved", () => {
+  const later = (minutes: number) => {
+    now = new Date(now.getTime() + minutes * 60_000);
+  };
+
+  test("session start counts what needs you; later looks list only what moved since the last one", async () => {
+    await imported();
+    assert.equal(await ok("moved", "--as", "s1", "--start"), "");
+    stdin = [
+      '{"source":"github","kind":"review_request","url":"https://github.com/acme/web/pull/7","title":"Fix login","needs_me":true}',
+      '{"source":"grafana","kind":"alert","ref":"a-1","title":"5xx","needs_me":true}',
+    ].join("\n");
+    await ok("item", "put", "--stdin");
+    later(1);
+    assert.equal(
+      await ok("moved", "--as", "s2", "--start"),
+      "hub: 2 need you: 1 review request, 1 alert. The hub brief tool has the details.",
+    );
+    later(1);
+    assert.equal(await ok("moved", "--as", "s2"), "");
+    later(1);
+    stdin =
+      '{"source":"slack","kind":"message","url":"https://acme.slack.com/archives/C1/p1763350000123456","title":"ana: on call?","state":"mention","needs_me":true}';
+    await ok("item", "put", "--stdin");
+    await ok("wait", "ENG-42", "Ken", "https://acme.slack.com/archives/C1/p1763340000000100");
+    await ok("wait", "close", "https://acme.slack.com/archives/C1/p1763340000000100");
+    later(1);
+    assert.equal(
+      await ok("moved", "--as", "s2"),
+      ["hub, since your last prompt:", "  Message: ana: on call? (mention)", "  answered: Ken on ENG-42"].join("\n"),
+    );
+    later(1);
+    assert.equal(await ok("moved", "--as", "s2"), "");
+    assert.match(await ok("moved", "--as", "s1"), /Review request: Fix login[\s\S]*Message: ana: on call\?/);
+    assert.match((await hub("moved", "--as", "bad id!")).err, /agent must be a session id/);
+  });
+
+  test("the hook reads the session from stdin, and stays silent on bad input or with hub down", async () => {
+    await imported();
+    stdin = '{"source":"grafana","kind":"alert","ref":"a-1","title":"5xx","needs_me":true}';
+    await ok("item", "put", "--stdin");
+    later(1);
+    stdin = JSON.stringify({ session_id: "abc-1", hook_event_name: "SessionStart" });
+    assert.equal(await ok("moved", "--hook"), "hub: 1 need you: 1 alert. The hub brief tool has the details.");
+    later(1);
+    stdin = JSON.stringify({ session_id: "abc-1", hook_event_name: "UserPromptSubmit", prompt: "go" });
+    const quiet = await hub("moved", "--hook");
+    assert.deepEqual([quiet.code, quiet.out, quiet.err], [0, "", ""]);
+    stdin = "not json";
+    assert.deepEqual(await hub("moved", "--hook"), { code: 0, out: "", err: "" });
+    await server.close();
+    stdin = JSON.stringify({ session_id: "abc-1", hook_event_name: "UserPromptSubmit" });
+    assert.deepEqual(await hub("moved", "--hook"), { code: 0, out: "", err: "" });
+    server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] });
+  });
+});
+
 describe("client", () => {
   test("with no hub running the CLI says how to start one", async () => {
     const url = server.url;

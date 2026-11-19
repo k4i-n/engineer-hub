@@ -39,6 +39,7 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         wait <id> <who> <url> [--ping-after 1d] | wait close <wait | url> | wait pinged <wait> [--for 1d|tomorrow] | wait reopen <wait>
         source <name> [--cursor <c>] [--error <text>] | fetch [source]
         source add <name> --every 5m -- <program> [args] | source remove <name>
+        moved --as <session id> [--start] | moved --hook (reads a Claude Code hook's JSON on stdin)
         step add <id> <title> | step done <id> <n> [--evidence <url>]
         day set <date> (--file <path> | --stdin) | ticket-new <id> <title> [--dir todo]
         move <id> <dir> | gate <id> (yes | no) | config <key> <json>
@@ -67,6 +68,9 @@ const OPTIONS = {
   "ping-after": { type: "string" },
   "send-at": { type: "string" },
   every: { type: "string" },
+  as: { type: "string" },
+  start: { type: "boolean" },
+  hook: { type: "boolean" },
   due: { type: "boolean" },
   cursor: { type: "string" },
   error: { type: "string" },
@@ -99,6 +103,9 @@ type Values = {
   "ping-after"?: string;
   "send-at"?: string;
   every?: string;
+  as?: string;
+  start?: boolean;
+  hook?: boolean;
   due?: boolean;
   cursor?: string;
   error?: string;
@@ -279,6 +286,10 @@ const COMMANDS: Record<string, Handler> = {
     }),
   sources: () => c("sources"),
   fetch: (a) => c("fetch", a[0] === undefined ? {} : { source: a[0] }),
+  moved: (_a, v) => {
+    if (v.as === undefined) throw new HubError("usage: hub moved --as <session id> [--start]");
+    return c("moved", { agent: v.as, start: v.start === true });
+  },
   brief: () => c("brief"),
   steps: (a) => c("steps", { id: arg(a, 0, "steps <id>") }),
   step: (a, v) => {
@@ -455,6 +466,23 @@ function mcpHeaders(values: Values, io: Io): number {
   }
 }
 
+async function hook(values: Values, io: Io): Promise<number> {
+  try {
+    const input = JSON.parse(io.readStdin()) as { session_id?: unknown; hook_event_name?: unknown };
+    if (typeof input.session_id !== "string") return 0;
+    const call = c("moved", { agent: input.session_id, start: input.hook_event_name === "SessionStart" });
+    const quiet: Io = {
+      ...io,
+      stdout: (text) => {
+        if (text.trim() !== "") io.stdout(text);
+      },
+      stderr: () => {},
+    };
+    await request(call, values, quiet);
+  } catch {}
+  return 0;
+}
+
 export async function run(argv: string[], io: Io): Promise<number> {
   let parsed: { values: Values; positionals: string[] };
   try {
@@ -467,6 +495,7 @@ export async function run(argv: string[], io: Io): Promise<number> {
   if (command === "serve") return startServer(parsed.values, io);
   if (command === "service") return runService(args, parsed.values, io);
   if (command === "mcp-headers") return mcpHeaders(parsed.values, io);
+  if (command === "moved" && parsed.values.hook) return hook(parsed.values, io);
   const handler = command === undefined ? undefined : COMMANDS[command];
   if (command === undefined || handler === undefined) {
     io.stderr(USAGE);

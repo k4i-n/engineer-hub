@@ -4,6 +4,7 @@ import * as commands from "./commands.ts";
 import { one, SETTABLE_FIELDS, transaction, type WaitRow } from "./db.ts";
 import { applyImport, collectImport, countPlan, formatSummary } from "./importer.ts";
 import * as items from "./items.ts";
+import { moved } from "./moved.ts";
 import * as pins from "./pins.ts";
 import * as sources from "./sources.ts";
 import * as steps from "./steps.ts";
@@ -538,6 +539,18 @@ export const ROUTES: Route[] = [
     about: "Fetch the built-in sources that are on (or one) now, without waiting for the timer.",
     body: { source: { type: "string", about: "github, linear or slack" } },
     run: (_ctx, a, hooks) => hooks.fetchNow(opt(a, "source")),
+  },
+  {
+    name: "moved",
+    method: "POST",
+    path: "/moved",
+    about:
+      "What moved since this agent's last look (new or changed items that need the human, answered waits, pings due, the human's clicks), and move the look on. start gives a short count instead.",
+    body: {
+      agent: { type: "string", required: true, about: "the agent's session id" },
+      start: { type: "boolean", about: "session start: counts only" },
+    },
+    run: (ctx, a) => moved(ctx, str(a, "agent"), a.start === true),
   },
   {
     name: "sync_status",
