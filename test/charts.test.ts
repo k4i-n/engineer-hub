@@ -39,3 +39,9 @@ test("the area chart has one hover target per day, labelled with the day and cou
     ["11-18 · 0 steps", "11-19 · 4 steps"],
   );
 });
+
+test("an area chart with one point draws a flat line across", () => {
+  const html = area([{ day: "2026-11-19", n: 3 }], "steps");
+  assert.match(html, /points="0,10 100,10"/);
+  assert.match(html, /style="left:0%;right:0%"/);
+});

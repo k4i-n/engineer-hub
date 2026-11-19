@@ -1,7 +1,7 @@
 import { esc } from "./markdown.ts";
 
 export type Slice = { label: string; value: number; tone: string; href?: string };
-export type Day = { day: string; n: number };
+export type Day = { day: string; n: number; label?: string };
 
 const GAP = 1.2;
 
@@ -89,13 +89,18 @@ export function area(days: Day[], unit: string): string {
   const max = Math.max(1, ...days.map((d) => d.n));
   const step = days.length > 1 ? 100 / (days.length - 1) : 100;
   const height = (d: Day) => round(5 + (d.n / max) * 85);
-  const line = days.map((d, i) => `${round(i * step)},${round(100 - height(d))}`).join(" ");
+  const only = days.length === 1 && days[0] !== undefined ? days[0] : null;
+  const line =
+    only === null
+      ? days.map((d, i) => `${round(i * step)},${round(100 - height(d))}`).join(" ")
+      : `0,${round(100 - height(only))} 100,${round(100 - height(only))}`;
+  const pad = only === null ? round(-step / 2) : 0;
   const hits = days
     .map(
       (d) =>
-        `<span data-tip="${esc(`${d.day.slice(5)} · ${d.n} ${unit}`)}"><i style="bottom:${height(d)}%"></i></span>`,
+        `<span data-tip="${esc(`${d.label ?? d.day.slice(5)} · ${d.n} ${unit}`)}"><i style="bottom:${height(d)}%"></i></span>`,
     )
     .join("");
-  const first = days[0]?.day.slice(5) ?? "";
-  return `<div class="area"><div class="plot"><svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="area-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="fill-top"/><stop offset="1" class="fill-bottom"/></linearGradient></defs><polygon class="fill" points="0,100 ${line} 100,100"/><polyline class="line" points="${line}" vector-effect="non-scaling-stroke"/></svg><div class="hits" style="left:${round(-step / 2)}%;right:${round(-step / 2)}%">${hits}</div></div><div class="axis"><span>${esc(first)}</span><span>today</span></div></div>`;
+  const first = days[0] === undefined ? "" : (days[0].label ?? days[0].day.slice(5));
+  return `<div class="area"><div class="plot"><svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="area-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="fill-top"/><stop offset="1" class="fill-bottom"/></linearGradient></defs><polygon class="fill" points="0,100 ${line} 100,100"/><polyline class="line" points="${line}" vector-effect="non-scaling-stroke"/></svg><div class="hits" style="left:${pad}%;right:${pad}%">${hits}</div></div><div class="axis"><span>${esc(first)}</span><span>today</span></div></div>`;
 }
