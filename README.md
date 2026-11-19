@@ -160,6 +160,19 @@ Sync runs `syncCommand` (default `claude -p /engineer-hub:hub-sync` with `hub` a
 hub config syncCommand '["claude","-p","/engineer-hub:hub-sync","--allowedTools","Bash(hub:*),Bash(gh search:*),Bash(gh pr view:*),mcp__claude_ai_Slack,mcp__claude_ai_Linear,mcp__claude_ai_Gmail"]'
 ```
 
+## API
+
+`hub serve` answers a JSON API at `http://127.0.0.1:7420/api/v1/`, the same reads and writes as the CLI with the same checks and limits; the dashboard uses it too. `/api/v1/openapi.json` lists every route. Send the token file next to the database as a bearer token:
+
+```sh
+curl -H "Authorization: Bearer $(cat ~/.hub/token)" http://127.0.0.1:7420/api/v1/tickets/ENG-42
+curl -H "Authorization: Bearer $(cat ~/.hub/token)" -H "Accept: text/plain" http://127.0.0.1:7420/api/v1/next
+curl -X PATCH -H "Authorization: Bearer $(cat ~/.hub/token)" -H "Content-Type: application/json" \
+  -d '{"next":"open the PR","gate":"-"}' http://127.0.0.1:7420/api/v1/tickets/ENG-42
+```
+
+Responses are the CLI's `--json` output, or its text with `Accept: text/plain` (the CLI's exit code is in `x-hub-exit`). Writes take a JSON body; an unknown, missing or mistyped field is refused with `400 {"error": ...}`. A ticket `PATCH` applies all its fields or none. Config keys that run commands (`syncCommand`) are set from the terminal only.
+
 ## Import from a markdown ticket folder
 
 ```sh
