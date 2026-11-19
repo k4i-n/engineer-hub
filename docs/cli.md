@@ -36,7 +36,10 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 | `hub posted <id> <label> [--at <when>] [--channel <c>] [--answer <text>] [--ref <url>] [--file \| --stdin]` | marks a draft posted or answered; the text given is the wording actually sent, which may differ from the draft (without it the draft shows "wording pending") |
 | `hub link <id> <url> [--kind <k>] [--title <t>]` | attaches the URL to the ticket as an item; source and kind come from the URL |
 | `hub match <id> <label> --ref <url> (--file \| --stdin)`, `hub match <id> <label> (yes \| no)` | proposes a sent message as the wording of a draft when the agent is unsure; yes marks the draft posted with it, no drops it |
-| `hub step add <id> <title>`, `hub step done <id> <n> [--evidence <url>]` | appends a step, marks one done and logs it |
+| `hub step add <id> <title> [--at <n>]`, `hub step done <id> <n> [--evidence <url>]` | adds a step (at the end, or at place n with the rest moving down), marks one done and logs it |
+| `hub step edit <id> <n> <title>`, `hub step undo <id> <n>`, `hub step rm <id> <n>` | changes a step's title, marks a done step not done (logged), removes a step (the rest move up, so steps stay 1 to n) |
+| `hub note-mv <id> <title> <new title>`, `hub note-rm <id> <title>` | renames or removes a note |
+| `hub draft-mv <id> <label> <new label>`, `hub draft-rm <id> <label>` | renames a draft, or removes one never sent (a sent draft stays as the record) |
 | `hub item put --stdin` | stores items read from a source, one JSON object per line ([format](sources.md#items-from-connectors)) |
 | `hub item close <item>...`, `hub item snooze <item> [--for 1d|tomorrow]`, `hub item attach <item> <id>` | marks items handled, hides one for a while (a change brings it back), attaches one to a ticket; `<item>` is the `#` number or the ref |
 | `hub item ignore <item> [--repo]`, `hub item unignore <item> [--repo]` | never shows the item again, whatever changes (it stays in `hub items --all`); `--repo` ignores every review request, or every PR of yours, from its repo, now and later (config `ignoreRepos`) |
