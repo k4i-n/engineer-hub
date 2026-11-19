@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { HubError } from "./util.ts";
 
-export const SCHEMA_VERSION = "2";
+export const SCHEMA_VERSION = "3";
 
 export type Ticket = {
   id: string;
@@ -33,7 +33,7 @@ export type Ticket = {
 
 export type EventRow = {
   id: number;
-  ticket_id: string;
+  ticket_id: string | null;
   ts: string;
   kind: string;
   text: string;
@@ -53,6 +53,7 @@ export type DraftRow = {
   answer: string | null;
   match_text: string | null;
   match_ref: string | null;
+  send_at: string | null;
 };
 export type ItemRow = {
   id: number;
@@ -133,7 +134,7 @@ CREATE INDEX event_ticket ON event(ticket_id, ts);
 CREATE TABLE note(id INTEGER PRIMARY KEY, ticket_id TEXT, title TEXT, body TEXT, kind TEXT, position INTEGER, updated_at TEXT,
   UNIQUE(ticket_id, title));
 CREATE TABLE draft(id INTEGER PRIMARY KEY, ticket_id TEXT, label TEXT, body TEXT, status TEXT, channel TEXT, posted_at TEXT,
-  sent_text TEXT, sent_ref TEXT, answer TEXT, match_text TEXT, match_ref TEXT,
+  sent_text TEXT, sent_ref TEXT, answer TEXT, match_text TEXT, match_ref TEXT, send_at TEXT,
   created_at TEXT, updated_at TEXT, UNIQUE(ticket_id, label));
 CREATE TABLE item(id INTEGER PRIMARY KEY, source TEXT NOT NULL, ref TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, title TEXT,
   url TEXT, state TEXT, author TEXT, ticket_id TEXT, needs_me INTEGER NOT NULL DEFAULT 0,
@@ -155,6 +156,10 @@ ${ftsTable("draft", "draft_fts", "id", ["ticket_id", "label", "body", "sent_text
 INSERT INTO meta(key, value) VALUES ('schema_version', '${SCHEMA_VERSION}');
 `;
 
+const UPGRADES: Record<string, { to: string; sql: string }> = {
+  "2": { to: "3", sql: "ALTER TABLE draft ADD COLUMN send_at TEXT;" },
+};
+
 export function openDb(path: string): DatabaseSync {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
@@ -164,7 +169,15 @@ export function openDb(path: string): DatabaseSync {
     transaction(db, () => db.exec(SCHEMA));
     return db;
   }
-  const version = one<{ value: string }>(db, "SELECT value FROM meta WHERE key = 'schema_version'")?.value;
+  let version = one<{ value: string }>(db, "SELECT value FROM meta WHERE key = 'schema_version'")?.value;
+  const upgrade = version === undefined ? undefined : UPGRADES[version];
+  if (upgrade !== undefined) {
+    transaction(db, () => {
+      db.exec(upgrade.sql);
+      db.prepare("UPDATE meta SET value = ? WHERE key = 'schema_version'").run(upgrade.to);
+    });
+    version = upgrade.to;
+  }
   if (version === SCHEMA_VERSION) return db;
   db.close();
   throw new HubError(

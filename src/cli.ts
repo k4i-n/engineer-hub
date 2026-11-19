@@ -29,7 +29,8 @@ read:   ticket <id> | board [regex] | next | gates | changed --since <YYYY-MM-DD
         steps <id>
 write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent] [--ref <url>]
         note <id> <title> (--file <path> | --stdin) [--kind detail]
-        draft <id> <label> (--file <path> | --stdin) [--channel <c>]
+        draft <id> <label> (--file <path> | --stdin) [--channel <c>] [--send-at <when>]
+        draft-later <id> <label> [--for 1h|tomorrow|tomorrow 12:00]
         match <id> <label> --ref <url> (--file | --stdin) | match <id> <label> (yes | no)
         posted <id> <label> [--at <when>] [--channel <c>] [--answer <text>] [--ref <url>] [--file | --stdin]
         link <id> <url> [--kind <k>] [--title <t>]
@@ -62,6 +63,7 @@ const OPTIONS = {
   all: { type: "boolean" },
   ticket: { type: "string" },
   "ping-after": { type: "string" },
+  "send-at": { type: "string" },
   due: { type: "boolean" },
   cursor: { type: "string" },
   error: { type: "string" },
@@ -92,6 +94,7 @@ type Values = {
   all?: boolean;
   ticket?: string;
   "ping-after"?: string;
+  "send-at"?: string;
   due?: boolean;
   cursor?: string;
   error?: string;
@@ -215,7 +218,12 @@ const COMMANDS: Record<string, Handler> = {
       label: arg(a, 1, usage),
       body: body(v, io),
       ...(v.channel === undefined ? {} : { channel: v.channel }),
+      ...(v["send-at"] === undefined ? {} : { send_at: v["send-at"] }),
     });
+  },
+  "draft-later": (a, v) => {
+    const usage = "draft-later <id> <label> [--for 1h|tomorrow|tomorrow 12:00]";
+    return c("draft_later", { id: arg(a, 0, usage), label: arg(a, 1, usage), for: v.for });
   },
   posted: (a, v, io) => {
     const usage = "posted <id> <label>";

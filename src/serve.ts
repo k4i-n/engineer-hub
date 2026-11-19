@@ -4,7 +4,7 @@ import { readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { resolve } from "node:path";
-import { type Args, checkFields, findRoute, openapi, queryArgs } from "./api.ts";
+import { type Args, checkFields, findRoute, openapi, queryArgs, runRoute } from "./api.ts";
 import type { Ctx } from "./commands.ts";
 import { loadConfig } from "./config.ts";
 import { one, openDb, SCHEMA_VERSION } from "./db.ts";
@@ -190,7 +190,7 @@ export function serve(options: ServeOptions): Promise<Server> {
         if (url.search !== "") throw new HubError("send fields in the JSON body, not the query");
         input = checkFields(route.body ?? {}, await readBody(req), "body");
       }
-      const result = route.run(ctx(), { ...input, ...args }, hooks);
+      const result = runRoute(ctx(), route, { ...input, ...args }, hooks, req.headers["x-hub-actor"] === "human");
       const status = route.status?.(result) ?? 200;
       const exit = { "x-hub-exit": String(result.exitCode ?? 0) };
       if (req.headers.accept === "text/plain") send(res, status, "text/plain", result.text, exit);

@@ -39,7 +39,7 @@ export function itemByRef(db: DatabaseSync, ref: string): ItemRow | undefined {
   return one<ItemRow>(db, "SELECT * FROM item WHERE ref = ?", ref);
 }
 
-function findItem(db: DatabaseSync, key: string): ItemRow {
+export function findItem(db: DatabaseSync, key: string): ItemRow {
   const item = /^\d+$/.test(key)
     ? one<ItemRow>(db, "SELECT * FROM item WHERE id = ?", Number(key))
     : itemByRef(db, key);

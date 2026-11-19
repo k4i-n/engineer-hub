@@ -639,9 +639,46 @@ describe("db", () => {
     db.close();
     assert.throws(
       () => serve({ dbPath: dbFile, port: 0, now: () => now, env: {} }),
-      /has schema v1, this hub needs v2: move the file aside and re-import/,
+      /has schema v1, this hub needs v3: move the file aside and re-import/,
     );
     server = await serve({ dbPath: join(dir, "other.db"), port: 0, now: () => now, env: {} });
+  });
+});
+
+describe("schema upgrade", () => {
+  test("a v2 database gains draft.send_at and becomes v3 when hub serve opens it", async () => {
+    await imported();
+    await server.close();
+    const db = new DatabaseSync(dbFile);
+    db.exec("ALTER TABLE draft DROP COLUMN send_at; UPDATE meta SET value = '2' WHERE key = 'schema_version'");
+    db.close();
+    server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {} });
+    assert.equal(sql<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'")[0]?.value, "3");
+    assert.equal(sql<{ n: number }>("SELECT count(*) AS n FROM draft")[0]?.n, EXPECTED.drafts);
+    await ok("draft", "ENG-7", "later", "--stdin", "--send-at", "tomorrow 12:00");
+  });
+});
+
+describe("send at", () => {
+  test("a draft's send time takes a duration, tomorrow, a clock time or a date and time", async () => {
+    await imported();
+    const send = async (when: string) => {
+      stdin = "text";
+      return ok("draft", "ENG-7", "x", "--stdin", "--send-at", when);
+    };
+    assert.match(await send("4h"), /send at 2026-11-13 18:20$/);
+    assert.match(await send("tomorrow"), /send at 2026-11-14 09:00$/);
+    assert.match(await send("tomorrow 12:00"), /send at 2026-11-14 12:00$/);
+    assert.match(await send("15:00"), /send at 2026-11-13 15:00$/);
+    assert.match(await send("12:00"), /send at 2026-11-14 12:00$/);
+    assert.match(await send("2026-11-20 09:30"), /send at 2026-11-20 09:30$/);
+    assert.match((await hub("draft", "ENG-7", "x", "--stdin", "--send-at", "noon")).err, /send_at takes 30m, 4h/);
+    assert.match((await hub("draft", "ENG-7", "x", "--stdin", "--send-at", "25:00")).err, /no time 25:00/);
+    assert.match(await ok("draft-later", "ENG-7", "x", "--for", "tomorrow 08:00"), /send at 2026-11-14 08:00$/);
+    assert.match(await ok("brief"), /ENG-7 \| x \| - \| send 2026-11-14 08:00 \| text/);
+    stdin = "";
+    await ok("draft", "ENG-7", "x", "--stdin");
+    assert.doesNotMatch(await ok("brief"), /send 2026/);
   });
 });
 
