@@ -872,7 +872,7 @@ function syncTitle(ctx: Ctx, sources: SourceRow[]): string {
   return [
     "Sync",
     latest === undefined ? null : `synced ${agoText(ctx, latest)}`,
-    ctx.config.autoSync ? `auto every ${ctx.config.syncEvery}` : null,
+    ctx.config.claudeSync && ctx.config.autoSync ? `Claude every ${ctx.config.syncEvery}` : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -1043,8 +1043,8 @@ function toggle(key: string, on: boolean): string {
   return `<button type="button" role="switch" aria-checked="${on}" class="switch${on ? " on" : ""}" data-config="${esc(key)}" data-value="${esc(JSON.stringify(!on))}"><span class="knob"></span></button>`;
 }
 
-function row(label: string, control: string): string {
-  return `<div class="set-row"><span class="set-label">${esc(label)}</span><div class="set-control">${control}</div></div>`;
+function row(label: string, control: string, off = false): string {
+  return `<div class="set-row${off ? " off" : ""}"${off ? " inert" : ""}><span class="set-label">${esc(label)}</span><div class="set-control">${control}</div></div>`;
 }
 
 function size(bytes: number): string {
@@ -1216,7 +1216,8 @@ ${section(
 ${section(
   "Sync",
   null,
-  row("Auto sync", toggle("autoSync", c.autoSync)) +
+  row("Run Claude", toggle("claudeSync", c.claudeSync)) +
+    row("Auto sync", toggle("autoSync", c.autoSync), !c.claudeSync) +
     row(
       "Every",
       segmented("syncEvery", c.syncEvery, [
@@ -1226,8 +1227,9 @@ ${section(
         ["2h", "2 hours"],
         ["4h", "4 hours"],
       ]),
+      !c.claudeSync,
     ) +
-    row("Command", codeBlock(JSON.stringify(c.syncCommand))),
+    row("Command", codeBlock(JSON.stringify(c.syncCommand)), !c.claudeSync),
   "set-sec",
 )}
 ${section(

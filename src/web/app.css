@@ -1456,6 +1456,9 @@ a.chip-btn:hover {
 .set-row:first-child {
   border-top: 0;
 }
+.set-row.off {
+  opacity: 0.45;
+}
 .set-label {
   width: 130px;
   flex: none;
