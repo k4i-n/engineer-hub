@@ -353,6 +353,9 @@ describe("items", () => {
     assert.match(ok("items"), /alert-991/);
     assert.match(hub("item", "snooze", "alert-991", "--for", "soon").err, /--for takes a duration/);
     assert.match(ok("item", "snooze", "alert-991", "--for", "tomorrow"), /snoozed until 2026-11-14 09:00$/);
+    ok("config", "laterHour", "7");
+    assert.match(ok("item", "snooze", "alert-991", "--for", "tomorrow"), /snoozed until 2026-11-14 07:00$/);
+    assert.match(hub("config", "laterHour", "24").err, /laterHour is an hour from 0 to 23/);
 
     ok("item", "attach", "alert-991", "ENG-42");
     assert.match(ok("events", "ENG-42", "-n", "1"), /Attached Alert API 5xx above 2%$/);

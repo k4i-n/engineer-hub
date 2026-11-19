@@ -61,11 +61,9 @@ export function openTickets(ctx: Ctx): Ticket[] {
   );
 }
 
-const DONE_WINDOW_MS = 14 * 86_400_000;
-
 export function recentlyDone(ctx: Ctx): Ticket[] {
   const open = new Set(openTickets(ctx).map((t) => t.id));
-  const since = new Date(ctx.now.getTime() - DONE_WINDOW_MS).toISOString();
+  const since = new Date(ctx.now.getTime() - ctx.config.doneDays * 86_400_000).toISOString();
   return all<Ticket>(ctx.db, "SELECT * FROM ticket WHERE updated_at >= ? ORDER BY updated_at DESC, id", since).filter(
     (t) => !open.has(t.id),
   );

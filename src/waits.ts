@@ -64,7 +64,7 @@ function openWait(ctx: Ctx, key: string): WaitRow {
 export function pinged(ctx: Ctx, key: string, again: string): Result {
   const w = openWait(ctx, key);
   if (w.closed_at !== null) throw new HubError(`wait #${w.id} is closed`);
-  const after = laterTime(ctx.now, again, ctx.config.timezone, "--for");
+  const after = laterTime(ctx.now, again, ctx.config.timezone, ctx.config.laterHour, "--for");
   const at = nowIso(ctx.now);
   transaction(ctx.db, () => {
     ctx.db.prepare("UPDATE wait SET ping_after = ?, pinged_at = ? WHERE id = ?").run(after, at, w.id);
