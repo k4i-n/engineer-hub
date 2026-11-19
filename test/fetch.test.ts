@@ -60,17 +60,24 @@ const PR = (url: string, extra: Record<string, unknown> = {}) => ({
   author: { login: "ana" },
   state: "OPEN",
   merged: false,
+  viewerDidAuthor: true,
   reviewDecision: null,
   commits: { nodes: [{ commit: { statusCheckRollup: { state: "SUCCESS" } } }] },
   ...extra,
 });
 
-function graphql(requested: unknown[], mine: unknown[]): (args: string[]) => Ran {
+function graphql(requested: unknown[], mine: unknown[], byUrl: Record<string, unknown> = {}): (args: string[]) => Ran {
   return (args) => {
     if (args[0] === "auth") return { code: 0, stdout: "", stderr: "Logged in to github.com" };
+    const lookups = args.flatMap((a) => {
+      const m = /^(p\d+)=(.*)$/.exec(a);
+      return m?.[1] === undefined || m[2] === undefined ? [] : [[m[1], byUrl[m[2]] ?? null]];
+    });
     return {
       code: 0,
-      stdout: JSON.stringify({ data: { requested: { nodes: requested }, mine: { nodes: mine } } }),
+      stdout: JSON.stringify({
+        data: { requested: { nodes: requested }, mine: { nodes: mine }, ...Object.fromEntries(lookups) },
+      }),
       stderr: "",
     };
   };
@@ -158,6 +165,30 @@ describe("github", () => {
     const query = (calls.find((c) => c[1] === "api") ?? []).join(" ");
     assert.match(query, /isDraft/);
     assert.match(query, /latestReviews\(first: 20\) \{ nodes \{ state \} \}/);
+  });
+
+  test("a stored PR that search no longer returns is looked up by URL, so a missed merge does not stay in review", async () => {
+    const url = "https://github.com/acme/web/pull/601";
+    answers.gh = graphql([], [PR(url)]);
+    await hub("fetch", "github");
+    answers.gh = graphql([], [], { [url]: PR(url, { merged: true, state: "MERGED" }) });
+    await hub("fetch", "github");
+    assert.match(await hub("items", "--all", "--source", "github"), /title of 601 \| merged \|/);
+    const query = calls.filter((c) => c[1] === "api").at(-1) ?? [];
+    assert.ok(query.includes(`p0=${url}`));
+    assert.ok(query.some((a) => a.includes("p0: resource(url: $p0)")));
+
+    await hub("fetch", "github");
+    assert.ok(!(calls.filter((c) => c[1] === "api").at(-1) ?? []).some((a) => a.startsWith("p0=")));
+  });
+
+  test("a teammate's PR linked to a ticket gets its state but never needs you", async () => {
+    const url = "https://github.com/acme/web/pull/602";
+    await hub("link", "ENG-42", url);
+    answers.gh = graphql([], [], { [url]: PR(url, { viewerDidAuthor: false, reviewDecision: "APPROVED" }) });
+    await hub("fetch", "github");
+    assert.match(await hub("items", "--all", "--source", "github"), /title of 602 \| approved \| ENG-42 \|/);
+    assert.doesNotMatch(await hub("items", "--needs-me"), /pull\/602/);
   });
 
   test("a PR attaches to the ticket named in its title, else its branch name or body, in any case", async () => {
