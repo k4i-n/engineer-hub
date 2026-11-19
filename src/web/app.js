@@ -96,6 +96,21 @@ function foldGroups() {
   for (const g of app.querySelectorAll("details.ngroup")) g.open = !closed.has(g.dataset.group);
 }
 
+function sectionKey(key) {
+  const page = location.pathname.split("/")[1] || "home";
+  return `${page}:${key}`;
+}
+
+function setFold(b, folded) {
+  b.setAttribute("aria-expanded", String(!folded));
+  b.closest("section").classList.toggle("is-folded", folded);
+}
+
+function foldSections() {
+  const closed = new Set(stored("hub.closedSections", []));
+  for (const b of app.querySelectorAll("button[data-fold]")) setFold(b, closed.has(sectionKey(b.dataset.fold)));
+}
+
 function foldCleared() {
   const kept = new Set();
   for (const g of app.querySelectorAll("details.ngroup")) {
@@ -132,6 +147,7 @@ function foldToday() {
 function afterRender(first) {
   applyTab();
   foldGroups();
+  foldSections();
   foldCleared();
   foldToday();
   const keys = needKeys();
@@ -528,6 +544,16 @@ document.addEventListener("click", async (e) => {
   if (b?.dataset.todayToggle !== undefined) {
     store("hub.todayExpanded", !stored("hub.todayExpanded", false));
     refresh();
+    return;
+  }
+  if (b?.dataset.fold !== undefined) {
+    const closed = new Set(stored("hub.closedSections", []));
+    const key = sectionKey(b.dataset.fold);
+    const folded = !closed.has(key);
+    if (folded) closed.add(key);
+    else closed.delete(key);
+    store("hub.closedSections", [...closed]);
+    setFold(b, folded);
     return;
   }
   if (b?.dataset.tab) {

@@ -345,8 +345,10 @@ describe("serve", () => {
     const page = await counts("/t/ENG-7?part=1");
     assert.match(
       home.html,
-      /<h2>Drafts<\/h2><span class="tabs" role="tablist" data-tabs="drafts"><button[^>]*data-tab="open" aria-selected="true">Open/,
+      /data-fold="Drafts" aria-expanded="true">Drafts<\/button><\/h2><span class="tabs" role="tablist" data-tabs="drafts"><button[^>]*data-tab="open" aria-selected="true">Open/,
     );
+    for (const key of ["Overview", "Tickets", "Today", "Activity"])
+      assert.match(home.html, new RegExp(`<h2><button type="button" class="fold" data-fold="${key}"`));
     await hub(["draft", "ENG-7", "tell qa", "--stdin"], "fix is on staging");
     await hub(["posted", "ENG-7", "tell qa"]);
     const homeAfter = await counts("/?part=1");
@@ -438,7 +440,7 @@ describe("serve", () => {
       /data-key="t-ENG-42"[\s\S]*?<span class="pill tone-red need-pill" title="[^"]*Review[^"]*">\d+ needs? you<\/span>/,
     );
     const ticket = await (await fetch(`${server.url}/t/ENG-42?part=1`)).text();
-    assert.match(ticket, /<h2>Needs you<\/h2>[\s\S]*?pull\/9/);
+    assert.match(ticket, /data-fold="Needs you" aria-expanded="true">Needs you<\/button><\/h2>[\s\S]*?pull\/9/);
     const bad = await setConfigKey("layout", '{"left":["today","today"],"right":[]}');
     assert.equal(bad.status, 400);
     assert.match(await bad.text(), /layout lists a block twice/);
