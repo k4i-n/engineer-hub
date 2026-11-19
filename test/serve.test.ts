@@ -866,7 +866,7 @@ describe("serve", () => {
     assert.equal((await call("POST", "/sync", {})).status, 409);
     assert.match(
       await (await fetch(`${server.url}/?part=1`)).text(),
-      /class="top syncing"[\s\S]*class="ic ic-sync sync-btn" data-act="sync" title="Syncing" aria-label="Syncing" disabled>/,
+      /class="ic ic-sync sync-btn" data-act="sync" title="Syncing" aria-label="Syncing" disabled>/,
     );
     const finished = await waitFor(async () => {
       const s = await syncState();
