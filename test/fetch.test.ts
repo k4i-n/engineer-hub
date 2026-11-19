@@ -633,6 +633,93 @@ describe("slack", () => {
     assert.doesNotMatch(await hub("sources"), /warning/);
   });
 
+  test("messages in alert channels are alerts that need you until my ✅, even a mention, and my thread reply keeps them open", async () => {
+    await hub("config", "fetch", '{"github":false,"slack":true}');
+    await hub("config", "slackAlertChannels", '["#alerts-prod","oncall"]');
+    answers.security = (args) =>
+      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+    const bot = ts(300);
+    const pinged = ts(200);
+    const fixed = ts(100);
+    const mine = ts(50);
+    const at = (t: string, channel = "C07") => `https://acme.slack.com/archives/${channel}/p${t.replace(".", "")}`;
+    const alerts = { id: "C07", name: "alerts-prod" };
+    const queries: string[] = [];
+    const ok = (body: unknown) => ({ status: 200, body: JSON.stringify({ ok: true, ...(body as object) }) });
+    httpAnswer = (url) => {
+      const u = new URL(url);
+      const p = u.searchParams;
+      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, user: "khai" });
+      if (u.pathname === "/api/search.messages") {
+        const q = p.get("query") ?? "";
+        queries.push(q);
+        const page = (matches: unknown[]) => ok({ messages: { matches } });
+        if (q.startsWith("from:")) {
+          return page([
+            {
+              ts: mine,
+              text: "looking",
+              permalink: `${at(mine)}?thread_ts=${bot}&cid=C07`,
+              user: ME,
+              channel: alerts,
+            },
+          ]);
+        }
+        const ping = { ts: pinged, text: `<@${ME}> db disk 90%`, permalink: at(pinged), user: "U2", channel: alerts };
+        if (q.startsWith("in:#alerts-prod")) {
+          return page([
+            {
+              ts: bot,
+              text: "",
+              attachments: [{ title: "API 5xx above 2%", fallback: "[FIRING] API 5xx" }],
+              permalink: at(bot),
+              username: "Grafana",
+              channel: alerts,
+            },
+            ping,
+            { ts: mine, text: "looking", permalink: at(mine), user: ME, channel: alerts },
+          ]);
+        }
+        if (q.startsWith("in:#oncall")) {
+          return page([
+            {
+              ts: fixed,
+              text: "deploy failed",
+              permalink: at(fixed, "C08"),
+              username: "CI",
+              channel: { id: "C08", name: "oncall" },
+            },
+          ]);
+        }
+        return page([ping]);
+      }
+      if (u.pathname === "/api/reactions.get") {
+        if (p.get("timestamp") === fixed) {
+          return ok({ message: { reactions: [{ name: "white_check_mark", users: [ME] }] } });
+        }
+        return ok({ message: { reactions: [] } });
+      }
+      return { status: 404, body: "" };
+    };
+    assert.match(await hub("fetch", "slack"), /items: 4 new/);
+    assert.ok(queries.some((q) => /^in:#alerts-prod after:\d{4}-\d{2}-\d{2}$/.test(q)));
+    assert.ok(queries.some((q) => /^in:#oncall after:/.test(q)));
+    const needs = await hub("items", "--needs-me", "--source", "slack");
+    assert.match(needs, /slack\/alert \| needs you \| #alerts-prod · Grafana: API 5xx above 2% \| alert/);
+    assert.match(needs, /slack\/alert \| needs you \| #alerts-prod · U2: @U0ME db disk 90% \| alert/);
+    assert.doesNotMatch(needs, /deploy failed/);
+    assert.match(
+      await hub("items", "--source", "slack"),
+      /slack\/alert \| #oncall · CI: deploy failed \| reacted :white_check_mark:/,
+    );
+    assert.doesNotMatch(await hub("items", "--source", "slack"), /slack\/alert[^\n]*looking/);
+    const page = await (await fetch(server.url)).text();
+    assert.match(page, /data-group="fix"(?:(?!<\/section>)[\s\S])*API 5xx above 2%/);
+    const settings = await (await fetch(`${server.url}/settings`)).text();
+    assert.ok(settings.includes('data-config-input="slackAlertChannels" data-list value="#alerts-prod, #oncall"'));
+    await assert.rejects(hub("config", "slackAlertChannels", '["Alerts Prod"]'), /not a Slack channel name/);
+  });
+
   test("my later reply in a mention's thread takes it off my list, in this fetch or a later one", async () => {
     await hub("config", "fetch", '{"github":false,"slack":true}');
     answers.security = (args) =>

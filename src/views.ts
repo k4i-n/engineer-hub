@@ -1381,6 +1381,10 @@ ${section(
       "Review requests",
       `<input class="text" data-config-input="githubReviewQuery" value="${esc(c.githubReviewQuery)}" spellcheck="false">`,
     ) +
+    row(
+      "Alert channels",
+      `<input class="text" data-config-input="slackAlertChannels" data-list value="${esc(c.slackAlertChannels.map((n) => `#${n.replace(/^#/, "")}`).join(", "))}" spellcheck="false">`,
+    ) +
     ignoredRows(ctx) +
     row(
       "Every",

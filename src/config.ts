@@ -31,6 +31,7 @@ export type Config = {
   fetch: Record<string, boolean>;
   fetchEvery: string;
   githubReviewQuery: string;
+  slackAlertChannels: string[];
   ignoreRepos: Record<string, string[]>;
   hiddenBlocks: string[];
   progressStyle: string;
@@ -101,6 +102,7 @@ export const DEFAULTS: Config = {
   fetch: { github: true, linear: false, slack: false },
   fetchEvery: "1m",
   githubReviewQuery: "is:pr is:open review-requested:@me archived:false",
+  slackAlertChannels: [],
   ignoreRepos: { review_request: [], pr: [] },
   hiddenBlocks: [],
   progressStyle: "ring",
@@ -209,6 +211,11 @@ function semanticError(key: Key, value: unknown): string | undefined {
   }
   if (key === "githubReviewQuery" && String(value).trim() === "") {
     return 'githubReviewQuery is a GitHub search, e.g. "is:pr is:open review-requested:@me archived:false"';
+  }
+  if (key === "slackAlertChannels") {
+    const bad = (value as string[]).find((name) => !/^#?[a-z0-9][a-z0-9._-]{0,79}$/.test(name));
+    if (bad !== undefined)
+      return `slackAlertChannels has ${bad}, which is not a Slack channel name, e.g. ["alerts-prod"]`;
   }
   if (key === "ignoreRepos") {
     const lists = Object.values(value as Record<string, unknown>);

@@ -677,7 +677,9 @@ document.addEventListener(
 document.addEventListener("change", (e) => {
   const el = e.target.closest("[data-config-input]");
   if (!el) return;
-  const value = el.dataset.json !== undefined ? el.value.trim() : JSON.stringify(el.value.trim());
+  const text = el.value.trim();
+  const list = () => JSON.stringify(text.split(/[\s,]+/).filter((v) => v !== ""));
+  const value = el.dataset.json !== undefined ? text : el.dataset.list !== undefined ? list() : JSON.stringify(text);
   saveConfig(el.dataset.configInput, value, el);
 });
 
