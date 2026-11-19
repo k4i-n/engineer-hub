@@ -851,18 +851,30 @@ function sourceState(ctx: Ctx, s: SourceRow): "ok" | "stale" | "bad" {
   return ctx.now.getTime() - new Date(s.last_sync).getTime() > STALE_MS ? "stale" : "ok";
 }
 
-function sourcesLine(ctx: Ctx, sources: SourceRow[]): string {
-  if (sources.length === 0) return "";
-  const latest =
-    sources
-      .map((s) => s.last_sync)
-      .sort()
-      .at(-1) ?? nowIso(ctx.now);
-  const detail = sources
-    .map((s) => `${s.name} ${when(ctx, s.last_sync)}${s.last_error ? `: ${s.last_error}` : ""}`)
-    .join("\n");
-  const problems = sources.filter((s) => sourceState(ctx, s) !== "ok").map((s) => sourceChip(ctx, s));
-  return `<span class="synced" title="${esc(detail)}">${ago(ctx, latest) === "now" ? "synced just now" : `synced ${esc(ago(ctx, latest))} ago`}</span>${problems.join("")}`;
+function sourceProblems(ctx: Ctx, sources: SourceRow[]): string {
+  return sources
+    .filter((s) => sourceState(ctx, s) !== "ok")
+    .map((s) => sourceChip(ctx, s))
+    .join("");
+}
+
+function agoText(ctx: Ctx, iso: string): string {
+  const age = ago(ctx, iso);
+  return age === "now" ? "just now" : `${age} ago`;
+}
+
+function syncTitle(ctx: Ctx, sources: SourceRow[]): string {
+  const latest = sources
+    .map((s) => s.last_sync)
+    .sort()
+    .at(-1);
+  return [
+    "Sync",
+    latest === undefined ? null : `synced ${agoText(ctx, latest)}`,
+    ctx.config.autoSync ? `auto every ${ctx.config.syncEvery}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function backupState(ctx: Ctx): BackupState | null {
@@ -894,12 +906,11 @@ function header(ctx: Ctx, sync: SyncState, active: "home" | "settings" | "ticket
         ? `<span class="sync-result" title="${esc(sync.detail ?? "")}">${esc(cut(sync.detail || `Synced ${when(ctx, sync.at ?? nowIso(ctx.now))}`, 90))}</span>`
         : "";
   const started = running && sync.at ? ` data-started="${esc(sync.at)}"` : "";
-  const syncTitle = ctx.config.autoSync ? `Sync (auto every ${ctx.config.syncEvery})` : "Sync";
   return `<header class="top${running ? " syncing" : ""}">
 <a class="brand" href="/"><span class="logo"></span>hub${needCount > 0 ? `<span class="count hot" title="needs you">${needCount}</span>` : ""}</a>
-<div class="sources">${sourcesLine(ctx, sources)}${backupProblem(ctx)}</div>
+<div class="sources">${sourceProblems(ctx, sources)}${backupProblem(ctx)}</div>
 <div class="search" role="search"><input type="search" data-search-box placeholder="Search" aria-label="Search everything" autocomplete="off" spellcheck="false"><div class="search-pop" role="listbox" hidden></div></div>
-<div class="sync"${started}>${result}<button type="button" class="ic ic-sync sync-btn" data-act="sync" title="${running ? "Syncing" : syncTitle}" aria-label="${running ? "Syncing" : "Sync"}"${running ? " disabled" : ""}>${svg("sync")}</button></div>
+<div class="sync"${started}>${result}<button type="button" class="ic ic-sync sync-btn" data-act="sync" title="${running ? "Syncing" : esc(syncTitle(ctx, sources))}" aria-label="${running ? "Syncing" : "Sync"}"${running ? " disabled" : ""}>${svg("sync")}</button></div>
 <a class="gear${active === "settings" ? " on" : ""}" href="${active === "settings" ? "/" : "/settings"}" title="Settings" aria-label="Settings">⚙</a>
 <div class="strip"></div>
 </header>`;
