@@ -261,6 +261,18 @@ describe("serve", () => {
     );
   });
 
+  test("draft bodies and labels and note titles render markdown, Copy keeps the raw text", async () => {
+    await hub(["draft", "ENG-7", "ask `ops`", "--stdin"], "Run:\n```\nmake db\n```");
+    await hub(["note", "ENG-7", "about **limits**", "--stdin"], "body");
+    const html = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.match(html, /<span class="d-label">ask <code>ops<\/code><\/span>/);
+    assert.match(html, /<span class="d-line">Run: <code>make db<\/code><\/span>/);
+    assert.match(html, /<div class="d-body md"><p>Run:<\/p><pre><code>make db<\/code><\/pre><\/div>/);
+    assert.match(html, /data-copy="Run:\n```\nmake db\n```"/);
+    const page = await (await fetch(`${server.url}/t/ENG-7?part=1`)).text();
+    assert.match(page, /<summary>about <strong>limits<\/strong><\/summary>/);
+  });
+
   test("the page shows each thing once: no ticket id twice, no Sent? draft in Drafts, only unhealthy sources", async () => {
     await hub(
       ["item", "put", "--stdin"],

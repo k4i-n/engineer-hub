@@ -886,7 +886,8 @@ button.busy::after {
 .md li.md-task[hidden] {
   display: none;
 }
-:is(.md, .need-title, .need-sub, .t-title, .t-next, .s-title, .e-text, .page-head h1) code {
+:is(.md, .need-title, .need-sub, .ask, .t-title, .t-next, .s-title, .e-text, .page-head h1, .d-label, .d-line, summary)
+  code {
   font:
     12.5px ui-monospace,
     SFMono-Regular,
@@ -901,6 +902,10 @@ button.busy::after {
   padding: 8px 10px;
   border-radius: 8px;
   overflow: auto;
+}
+.md pre code {
+  padding: 0;
+  background: none;
 }
 .md-quote {
   color: var(--muted);
@@ -936,13 +941,9 @@ button.busy::after {
   display: flex;
   gap: 6px;
 }
-.d-body {
-  white-space: pre-wrap;
-  font:
-    12.5px / 1.5 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
+.d-body,
+.d-line {
+  font-weight: 400;
   margin: 8px 0 0;
   padding: 8px 10px;
   max-height: 9em;
@@ -1007,10 +1008,10 @@ button.busy::after {
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.state dd > :first-child {
+:is(.state dd, .d-body) > :first-child {
   margin-top: 0;
 }
-.state dd > :last-child {
+:is(.state dd, .d-body) > :last-child {
   margin-bottom: 0;
 }
 .steps {
@@ -1290,10 +1291,15 @@ a.chip-btn:hover {
 .d-fold > summary {
   cursor: pointer;
 }
-.d-fold:not([open]) .d-body {
+.d-line {
+  display: block;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.d-fold[open] .d-line,
+.d-fold:not([open]) .d-body {
+  display: none;
 }
 .synced {
   font-size: 12px;
@@ -1555,27 +1561,27 @@ a.chip-btn:hover {
   min-width: 0;
   flex: 1;
 }
-.text.code,
 .path {
   font:
     12.5px / 1.5 ui-monospace,
     SFMono-Regular,
     Menlo,
     monospace;
+  overflow-wrap: anywhere;
+  flex: 1;
 }
 textarea.text {
   width: 100%;
   resize: vertical;
 }
-pre.text {
+.set-control > .code-block {
+  flex-basis: 100%;
+  min-width: 0;
+}
+.code-block pre {
   margin: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  color: var(--muted);
-}
-.path {
-  overflow-wrap: anywhere;
-  flex: 1;
 }
 .saved {
   color: var(--green);
