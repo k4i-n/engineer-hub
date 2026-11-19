@@ -351,10 +351,6 @@ function showResults(results) {
     a.className = `hit${i === activeHit ? " on" : ""}`;
     a.setAttribute("role", "option");
     if (r.href) a.href = r.href;
-    if (r.href && /^https?:/.test(r.href)) {
-      a.target = "_blank";
-      a.rel = "noreferrer";
-    }
     const kind = document.createElement("span");
     kind.className = "hit-kind";
     kind.textContent = r.kind;
@@ -374,7 +370,20 @@ function showResults(results) {
     tid.className = "hit-tid";
     tid.textContent = r.ticket ?? "";
     a.append(kind, main, tid);
-    pop.append(a);
+    const row = document.createElement("div");
+    row.className = "hit-row";
+    row.append(a);
+    if (r.out) {
+      const out = document.createElement("a");
+      out.className = "hit-out";
+      out.href = r.out;
+      out.target = "_blank";
+      out.rel = "noreferrer";
+      out.title = "Open in a new tab";
+      out.textContent = "↗";
+      row.append(out);
+    }
+    pop.append(row);
   });
   pop.hidden = false;
 }
@@ -439,6 +448,19 @@ function select(li) {
   li.classList.add("sel");
   li.scrollIntoView({ block: "nearest" });
 }
+
+function selectFromHash() {
+  const key = decodeURIComponent(location.hash.slice(1));
+  if (!key.startsWith("item-")) return;
+  const li = app.querySelector(`.needs-list > li[data-key="${CSS.escape(key)}"]`);
+  if (!li) return;
+  for (let d = li.closest("details"); d; d = d.parentElement?.closest("details")) d.open = true;
+  hideResults();
+  select(li);
+}
+
+window.addEventListener("hashchange", selectFromHash);
+selectFromHash();
 
 async function saveConfig(key, value, el) {
   try {

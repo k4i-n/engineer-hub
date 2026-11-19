@@ -252,7 +252,14 @@ export function search(ctx: Ctx, query: string | undefined, limit: number): Resu
   return { text: lines.join("\n") || "no matches", json: hits };
 }
 
-export type Found = { kind: string; title: string; sub: string; href: string | null; ticket: string | null };
+export type Found = {
+  kind: string;
+  title: string;
+  sub: string;
+  href: string | null;
+  out: string | null;
+  ticket: string | null;
+};
 
 const FOUND_KIND: Record<string, string> = { ticket: "Ticket", note: "Note", event: "Log", draft: "Draft" };
 
@@ -292,6 +299,9 @@ export function searchAll(ctx: Ctx, query: string, limit: number): Found[] {
     limit,
   );
   const page = (id: string | null) => (id === null ? null : `/t/${encodeURIComponent(id)}`);
+  const dayStart = startOfDayIso(today(ctx.now, ctx.config.timezone), ctx.config.timezone);
+  const listed = (i: ItemRow) => i.needs_me === 1 && i.ignored === null && (i.closed_at ?? dayStart) >= dayStart;
+  const itemHref = (i: ItemRow) => page(i.ticket_id) ?? (listed(i) ? `/#item-${i.id}` : null);
   const found: Found[] = [
     ...hits
       .filter((h) => h.tbl === "ticket")
@@ -300,13 +310,15 @@ export function searchAll(ctx: Ctx, query: string, limit: number): Found[] {
         title: `${h.ticket_id} ${h.label ?? ""}`,
         sub: h.snip.replace(/[\uE000\uE001]/g, "") === h.label ? "" : h.snip,
         href: page(h.ticket_id),
+        out: null,
         ticket: h.ticket_id,
       })),
     ...items.map((i) => ({
       kind: i.closed_at === null ? "Item" : "Closed item",
       title: i.title ?? i.ref,
       sub: [i.source, i.author, i.state].filter(Boolean).join(" · "),
-      href: i.url ?? (/^https?:/.test(i.ref) ? i.ref : page(i.ticket_id)),
+      href: itemHref(i),
+      out: i.url ?? (/^https?:/.test(i.ref) ? i.ref : null),
       ticket: i.ticket_id,
     })),
     ...steps.map((s) => ({
@@ -314,6 +326,7 @@ export function searchAll(ctx: Ctx, query: string, limit: number): Found[] {
       title: `${s.n}. ${s.title}`,
       sub: "",
       href: page(s.ticket_id),
+      out: null,
       ticket: s.ticket_id,
     })),
     ...hits
@@ -323,6 +336,7 @@ export function searchAll(ctx: Ctx, query: string, limit: number): Found[] {
         title: h.label ?? "",
         sub: h.snip,
         href: page(h.ticket_id),
+        out: null,
         ticket: h.ticket_id,
       })),
   ];

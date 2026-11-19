@@ -388,6 +388,7 @@ describe("serve", () => {
         title: string;
         sub: string;
         href: string | null;
+        out: string | null;
       }[];
     const sync = await find("sync login");
     assert.equal(sync[0]?.kind, "Ticket");
@@ -395,7 +396,22 @@ describe("serve", () => {
     const migration = await find("migration");
     assert.ok(migration.some((h) => h.kind === "Ticket" && /\uE000migration\uE001/i.test(h.sub)));
     const hook = await find("webhook");
-    assert.ok(hook.some((h) => h.kind === "Item" && h.href === "https://github.com/acme/web/pull/77"));
+    assert.ok(
+      hook.some((h) => h.kind === "Item" && h.href === "/t/ENG-42" && h.out === "https://github.com/acme/web/pull/77"),
+    );
+    await hub(
+      ["item", "put", "--stdin"],
+      JSON.stringify({
+        source: "github",
+        kind: "review_request",
+        url: "https://github.com/acme/api/pull/5",
+        title: "Webhook signer",
+        needs_me: true,
+      }),
+    );
+    const loose = (await find("signer")).find((h) => h.kind === "Item");
+    assert.match(loose?.href ?? "", /^\/#item-\d+$/);
+    assert.equal(loose?.out, "https://github.com/acme/api/pull/5");
     assert.ok(hook.some((h) => h.kind === "Step" && h.href === "/t/ENG-7"));
     assert.deepEqual(await find("   "), []);
     assert.ok(Array.isArray(await find('"%_\\')));
