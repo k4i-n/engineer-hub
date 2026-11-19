@@ -240,6 +240,18 @@ const ROUTES = {
   "wait-pinged": (d) => ["POST", `/waits/${e(d.id)}/pinged`, later(d)],
   "wait-reopen": (d) => ["POST", `/waits/${e(d.id)}/reopen`, {}],
   config: (d) => ["PUT", `/config/${e(d.key)}`, { value: JSON.parse(d.value) }],
+  "ticket-title": (d) => ["PATCH", `/tickets/${e(d.ticket)}`, { title: d.value }],
+  "ticket-rename": (d) => ["POST", `/tickets/${e(d.ticket)}/rename`, { to: d.value }],
+  "ticket-merge": (d) => ["POST", `/tickets/${e(d.ticket)}/merge`, { into: d.value }],
+  "ticket-delete": (d) => ["POST", `/tickets/${e(d.ticket)}/delete`, {}],
+  "step-edit": (d) => ["PATCH", `/tickets/${e(d.ticket)}/steps/${e(d.n)}`, { title: d.value }],
+  "step-undo": (d) => ["POST", `/tickets/${e(d.ticket)}/steps/${e(d.n)}/undo`, {}],
+  "step-remove": (d) => ["POST", `/tickets/${e(d.ticket)}/steps/${e(d.n)}/remove`, {}],
+  "note-rename": (d) => ["POST", `/tickets/${e(d.ticket)}/notes/${e(d.title)}/rename`, { to: d.value }],
+  "note-remove": (d) => ["POST", `/tickets/${e(d.ticket)}/notes/${e(d.title)}/remove`, {}],
+  "draft-rename": (d) => ["POST", `/tickets/${e(d.ticket)}/drafts/${e(d.label)}/rename`, { to: d.value }],
+  "draft-remove": (d) => ["POST", `/tickets/${e(d.ticket)}/drafts/${e(d.label)}/remove`, {}],
+  "item-detach": (d) => ["POST", `/items/${e(d.id)}/detach`, {}],
   sync: () => ["POST", "/sync", {}],
   backup: () => ["POST", "/backups", {}],
 };
@@ -268,9 +280,19 @@ async function act(button) {
   const data = { ...button.dataset };
   const name = data.act;
   closeMenus();
+  if (data.ask !== undefined) {
+    const value = prompt(data.ask, data.askValue ?? "")?.trim();
+    if (!value || value === data.askValue) return;
+    data.value = value;
+  }
+  if (data.confirm !== undefined && !confirm(data.confirm)) return;
   button.classList.add("busy");
   try {
     await post(name, data);
+    if (data.go !== undefined) {
+      location.href = data.go.replace("{value}", encodeURIComponent(data.value ?? ""));
+      return;
+    }
     if (name === "sync") return;
     const undo = UNDO[name];
     lastUndo = undo ? () => post(undo, { id: data.id, repo: data.repo }).then(() => toast(DONE_TEXT[undo])) : null;
