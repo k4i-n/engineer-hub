@@ -1,5 +1,5 @@
 import { area, bar, donut, half, legend, percent, ring, type Slice, stack } from "./charts.ts";
-import { byPriorityThenRecent, type Ctx, has, openTickets, recentlyDone } from "./commands.ts";
+import { byOrder, type Ctx, has, openTickets, recentlyDone } from "./commands.ts";
 import { BLOCKS, type Config, DEFAULT_LAYOUT, type Layout } from "./config.ts";
 import {
   all,
@@ -839,7 +839,7 @@ function header(ctx: Ctx, sync: SyncState, active: "home" | "settings" | "ticket
 export function indexBody(ctx: Ctx, sync: SyncState): string {
   const order = ctx.config.openDirs;
   const tickets = openTickets(ctx).sort(
-    (a, b) => order.indexOf(a.dir ?? "") - order.indexOf(b.dir ?? "") || byPriorityThenRecent(a, b),
+    (a, b) => order.indexOf(a.dir ?? "") - order.indexOf(b.dir ?? "") || byOrder(a, b),
   );
   const list = needs(ctx, tickets);
   const active = list.filter((n) => n.dim === null).length;

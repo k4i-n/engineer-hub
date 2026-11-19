@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { HubError } from "./util.ts";
 
-export const SCHEMA_VERSION = "4";
+export const SCHEMA_VERSION = "5";
 
 export type Ticket = {
   id: string;
@@ -27,6 +27,7 @@ export type Ticket = {
   tracker_updated: string | null;
   tracker_json: string | null;
   team: string | null;
+  position: number | null;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -130,7 +131,7 @@ CREATE TABLE ticket(
   title TEXT, dir TEXT, path TEXT,
   status TEXT, repo TEXT, worktree TEXT, branch TEXT, prs TEXT, gate TEXT, decide TEXT, next TEXT, owner TEXT, updated TEXT,
   tracker_state TEXT, tracker_priority TEXT, tracker_assignee TEXT, tracker_url TEXT, tracker_updated TEXT, tracker_json TEXT,
-  team TEXT, created_at TEXT, updated_at TEXT);
+  team TEXT, position INTEGER, created_at TEXT, updated_at TEXT);
 CREATE TABLE event(id INTEGER PRIMARY KEY, ticket_id TEXT, ts TEXT, kind TEXT, text TEXT, source TEXT, ref TEXT, created_at TEXT);
 CREATE INDEX event_ticket ON event(ticket_id, ts);
 CREATE TABLE note(id INTEGER PRIMARY KEY, ticket_id TEXT, title TEXT, body TEXT, kind TEXT, position INTEGER, updated_at TEXT,
@@ -165,6 +166,7 @@ const UPGRADES: Record<string, { to: string; sql: string }> = {
     to: "4",
     sql: "CREATE TABLE script_source(name TEXT PRIMARY KEY, argv TEXT NOT NULL, every TEXT NOT NULL, created_at TEXT NOT NULL);",
   },
+  "4": { to: "5", sql: "ALTER TABLE ticket ADD COLUMN position INTEGER;" },
 };
 
 export function openDb(path: string): DatabaseSync {

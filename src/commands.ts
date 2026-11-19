@@ -45,8 +45,16 @@ function letters(value: string): string {
   return value.toLowerCase().replace(/[^a-z]/g, "");
 }
 
-export function byPriorityThenRecent(a: Ticket, b: Ticket): number {
-  return rank(a.tracker_priority) - rank(b.tracker_priority) || (b.updated_at ?? "").localeCompare(a.updated_at ?? "");
+function place(t: Ticket): number {
+  return t.position ?? Number.MAX_SAFE_INTEGER;
+}
+
+export function byOrder(a: Ticket, b: Ticket): number {
+  return (
+    place(a) - place(b) ||
+    rank(a.tracker_priority) - rank(b.tracker_priority) ||
+    (b.updated_at ?? "").localeCompare(a.updated_at ?? "")
+  );
 }
 
 function touch(ctx: Ctx, id: string): void {
@@ -105,7 +113,7 @@ export function ticket(ctx: Ctx, id: string): Result {
     `gate: ${v(t.gate)}`,
     `decide: ${v(t.decide)}`,
     `next: ${v(t.next)}`,
-    `owner: ${v(t.owner)} | updated: ${v(t.updated)}`,
+    `owner: ${v(t.owner)} | updated: ${v(t.updated)} | order: ${t.position ?? "-"}`,
     `tracker: ${v(t.tracker_state)} | ${v(t.tracker_priority)} | ${v(t.tracker_url)}`,
     `path: ${v(t.path)}`,
     `steps: ${steps.done}/${steps.total}${steps.next ? ` | next step: ${steps.next.n} ${cut(steps.next.title, 100)}` : ""}`,
@@ -133,6 +141,7 @@ export function ticket(ctx: Ctx, id: string): Result {
 export function boardLine(t: Ticket): string {
   let line = `  [${t.tracker_priority || "-"}]`;
   if (trackerDisagrees(t)) line += ` [TRACKER: ${t.tracker_state}]`;
+  if (t.position !== null) line += ` #${t.position}`;
   line += ` ${t.id} | ${cut(t.status || "-", 90)}`;
   if (has(t.prs)) line += ` | PR ${cut(t.prs, 90)}`;
   if (has(t.gate)) line += ` | GATE: ${cut(t.gate, 90)}`;
@@ -153,7 +162,7 @@ export function board(ctx: Ctx, pattern: string | undefined): Result {
   const lines: string[] = [];
   const groups: Record<string, Ticket[]> = {};
   for (const dir of ctx.config.openDirs) {
-    const group = tickets.filter((t) => t.dir === dir).sort(byPriorityThenRecent);
+    const group = tickets.filter((t) => t.dir === dir).sort(byOrder);
     if (group.length === 0) continue;
     groups[dir] = group;
     lines.push(`== ${dir}`, ...group.map(boardLine));
@@ -164,11 +173,18 @@ export function board(ctx: Ctx, pattern: string | undefined): Result {
 export function next(ctx: Ctx): Result {
   const tickets = ctx.config.taskDirs
     .slice(0, 2)
-    .flatMap((dir) => all<Ticket>(ctx.db, "SELECT * FROM ticket WHERE dir = ?", dir).sort(byPriorityThenRecent));
+    .flatMap((dir) => all<Ticket>(ctx.db, "SELECT * FROM ticket WHERE dir = ?", dir).sort(byOrder));
   const lines = tickets.map((t) => `${t.id} | next: ${t.next || "-"} | gate: ${t.gate || "-"}`);
   return {
     text: lines.join("\n") || "nothing in progress or to do",
-    json: tickets.map((t) => ({ id: t.id, dir: t.dir, next: t.next, gate: t.gate, priority: t.tracker_priority })),
+    json: tickets.map((t) => ({
+      id: t.id,
+      dir: t.dir,
+      next: t.next,
+      gate: t.gate,
+      priority: t.tracker_priority,
+      order: t.position,
+    })),
   };
 }
 
@@ -597,9 +613,25 @@ export function move(ctx: Ctx, id: string, dir: string): Result {
   checkDir(ctx, dir);
   getTicket(ctx.db, id);
   ctx.db
-    .prepare("UPDATE ticket SET dir = ?, updated = ?, updated_at = ? WHERE id = ?")
+    .prepare(
+      "UPDATE ticket SET dir = ?1, position = CASE WHEN dir = ?1 THEN position END, updated = ?2, updated_at = ?3 WHERE id = ?4",
+    )
     .run(dir, today(ctx.now, ctx.config.timezone), nowIso(ctx.now), id);
   return { text: `${id} moved to ${dir}`, json: { id, dir } };
+}
+
+export function order(ctx: Ctx, id: string, at: number): Result {
+  if (!Number.isInteger(at) || at < 0) throw new HubError(`place is 1 for the top, or 0 to take ${id} out, not ${at}`);
+  const t = getTicket(ctx.db, id);
+  const list = all<Ticket>(ctx.db, "SELECT * FROM ticket WHERE dir IS ? AND id != ?", t.dir, id).sort(byOrder);
+  if (at > 0) list.splice(Math.min(at, list.length + 1) - 1, 0, t);
+  const ordered = list.findLastIndex((x) => x.id === id || x.position !== null) + 1;
+  const write = ctx.db.prepare("UPDATE ticket SET position = ? WHERE id = ?");
+  for (const [i, x] of list.entries()) write.run(i < ordered ? i + 1 : null, x.id);
+  if (at === 0) write.run(null, id);
+  const position = at === 0 ? null : list.findIndex((x) => x.id === id) + 1;
+  const text = position === null ? `${id} taken out of the order` : `${id} is #${position} in ${t.dir}`;
+  return { text, json: { id, dir: t.dir, order: position } };
 }
 
 export function config(ctx: Ctx, key: string | undefined, value: string | undefined): Result {

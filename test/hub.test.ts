@@ -639,26 +639,85 @@ describe("db", () => {
     db.close();
     assert.throws(
       () => serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] }),
-      /has schema v1, this hub needs v4: move the file aside and re-import/,
+      /has schema v1, this hub needs v5: move the file aside and re-import/,
     );
     server = await serve({ dbPath: join(dir, "other.db"), port: 0, now: () => now, env: {}, fetchers: [] });
   });
 });
 
 describe("schema upgrade", () => {
-  test("a v2 database gains draft.send_at and the script table, and becomes v4, when hub serve opens it", async () => {
+  test("a v2 database gains draft.send_at, the script table and ticket.position, and becomes v5, when hub serve opens it", async () => {
     await imported();
     await server.close();
     const db = new DatabaseSync(dbFile);
     db.exec(
-      "ALTER TABLE draft DROP COLUMN send_at; DROP TABLE script_source; UPDATE meta SET value = '2' WHERE key = 'schema_version'",
+      "ALTER TABLE draft DROP COLUMN send_at; DROP TABLE script_source; ALTER TABLE ticket DROP COLUMN position; UPDATE meta SET value = '2' WHERE key = 'schema_version'",
     );
     db.close();
     server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] });
-    assert.equal(sql<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'")[0]?.value, "4");
+    assert.equal(sql<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'")[0]?.value, "5");
     assert.equal(sql<{ n: number }>("SELECT count(*) AS n FROM script_source")[0]?.n, 0);
     assert.equal(sql<{ n: number }>("SELECT count(*) AS n FROM draft")[0]?.n, EXPECTED.drafts);
     await ok("draft", "ENG-7", "later", "--stdin", "--send-at", "tomorrow 12:00");
+    assert.equal(await ok("order", "ENG-7", "1"), "ENG-7 is #1 in todo");
+  });
+});
+
+describe("order", () => {
+  const backlog = async () =>
+    (await json<Record<string, { id: string; position: number | null }[]>>("board")).backlog?.map(
+      (t) => `${t.id}:${t.position ?? "-"}`,
+    );
+
+  beforeEach(async () => {
+    for (const [i, id] of ["ENG-101", "ENG-102", "ENG-103"].entries()) {
+      now = new Date(NOW.getTime() + i * 60_000);
+      await ok("ticket-new", id, `ticket ${id}`, "--dir", "backlog");
+    }
+  });
+
+  test("a ticket goes to a place in its folder and the tickets above it keep their places", async () => {
+    assert.deepEqual(await backlog(), ["ENG-103:-", "ENG-102:-", "ENG-101:-"]);
+    assert.equal(await ok("order", "ENG-101", "1"), "ENG-101 is #1 in backlog");
+    assert.deepEqual(await backlog(), ["ENG-101:1", "ENG-103:-", "ENG-102:-"]);
+    await ok("order", "ENG-102", "2");
+    assert.deepEqual(await backlog(), ["ENG-101:1", "ENG-102:2", "ENG-103:-"]);
+    await ok("order", "ENG-103", "1");
+    assert.deepEqual(await backlog(), ["ENG-103:1", "ENG-101:2", "ENG-102:3"]);
+    assert.match(await ok("board"), /\[-\] #1 ENG-103 \|/);
+    assert.match(await ok("ticket", "ENG-103"), /\| order: 1$/m);
+  });
+
+  test("a place past the end is the last place, and taking one out closes up the rest", async () => {
+    await ok("order", "ENG-103", "1");
+    await ok("order", "ENG-101", "2");
+    assert.equal(await ok("order", "ENG-103", "9"), "ENG-103 is #3 in backlog");
+    assert.deepEqual(await backlog(), ["ENG-101:1", "ENG-102:2", "ENG-103:3"]);
+    assert.equal(await ok("order", "ENG-101", "-"), "ENG-101 taken out of the order");
+    assert.deepEqual(await backlog(), ["ENG-102:1", "ENG-103:2", "ENG-101:-"]);
+  });
+
+  test("moving to another folder drops the place, and next follows the order", async () => {
+    await ok("order", "ENG-101", "1");
+    await ok("move", "ENG-101", "todo");
+    await ok("move", "ENG-102", "todo");
+    assert.equal(
+      sql<{ position: number | null }>("SELECT position FROM ticket WHERE id = 'ENG-101'")[0]?.position,
+      null,
+    );
+    await ok("order", "ENG-101", "1");
+    await ok("move", "ENG-101", "todo");
+    const next = await json<{ id: string; order: number | null }[]>("next");
+    assert.deepEqual(
+      next.map((t) => `${t.id}:${t.order ?? "-"}`),
+      ["ENG-101:1", "ENG-102:-"],
+    );
+  });
+
+  test("a place is a whole number from 1, or - to drop it", async () => {
+    assert.match((await hub("order", "ENG-101", "0")).err, /usage: hub order <id> <place \| ->/);
+    assert.match((await hub("order", "ENG-101", "first")).err, /usage: hub order/);
+    assert.match((await hub("order", "ENG-404", "1")).err, /ENG-404/);
   });
 });
 
