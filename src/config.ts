@@ -28,6 +28,7 @@ export type Config = {
   syncEvery: string;
   fetch: Record<string, boolean>;
   fetchEvery: string;
+  githubReviewQuery: string;
   hiddenBlocks: string[];
   progressStyle: string;
   chartDays: number;
@@ -91,6 +92,7 @@ export const DEFAULTS: Config = {
   syncEvery: "4h",
   fetch: { github: true, linear: false, slack: false },
   fetchEvery: "1m",
+  githubReviewQuery: "is:pr is:open review-requested:@me archived:false",
   hiddenBlocks: [],
   progressStyle: "ring",
   chartDays: 14,
@@ -175,6 +177,9 @@ function semanticError(key: Key, value: unknown): string | undefined {
   }
   if (key === "laterHour" && !(Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 23)) {
     return "laterHour is an hour from 0 to 23";
+  }
+  if (key === "githubReviewQuery" && String(value).trim() === "") {
+    return 'githubReviewQuery is a GitHub search, e.g. "is:pr is:open review-requested:@me archived:false"';
   }
   if (key === "trackerSyncMarkers" && Array.isArray(value) && value.length !== 2) {
     return "trackerSyncMarkers takes exactly two strings: start and end";

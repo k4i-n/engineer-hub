@@ -6,9 +6,15 @@
 
 | Source | Fetches | Credential |
 |---|---|---|
-| `github` (on by default) | review requests (closed when no longer requested), your PRs updated since the last fetch with review decision and checks: approved, changes requested and checks failing need you | none in hub: it runs your signed-in `gh` |
+| `github` (on by default) | review requests found by the `githubReviewQuery` search (closed when no longer found), your PRs updated since the last fetch with review decision and checks: approved, changes requested and checks failing need you | none in hub: it runs your signed-in `gh` |
 | `linear` | issues assigned to you updated since the last fetch (a new one with no hub ticket needs you; done and canceled do not), and mentions of you in issues and comments | a personal API key with read access |
 | `slack` | messages that mention you (need you), messages you sent (state `sent`, for an agent to match to drafts), and replies in threads you wait on (the wait closes and the reply needs you). Not yet: DMs that do not mention you | a user token (`xoxp-`) |
+
+The review request search defaults to `is:pr is:open review-requested:@me archived:false` and takes any GitHub search filter. Change it in Settings → Sources, where the active search is shown, or from the terminal:
+
+```sh
+hub config githubReviewQuery '"is:pr is:open review-requested:@me archived:false -repo:acme/noisy-repo"'
+```
 
 A source that fails shows its reason in Settings and in the header, with the command that fixes it. Sources with an API key call through sealcall when `sealcall routes` lists a route named after the source, so hub never sees the key; otherwise hub reads its own Keychain item `engineer-hub/<source>` (`HUB_<SOURCE>_KEY` off macOS), which any process running as you can read. For Linear:
 

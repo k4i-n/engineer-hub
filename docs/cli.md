@@ -72,6 +72,7 @@ Config lives in the database. `hub config` lists every key with its value:
 | `progressStyle` | `"ring"` | step progress as `ring`, `half` or `bar` |
 | `chartDays` | `14` | days the overview charts cover: 7, 14 or 30 |
 | `doneDays` | `14` | days the Done tab looks back: 7, 14 or 30 |
+| `githubReviewQuery` | `"is:pr is:open review-requested:@me archived:false"` | the GitHub search for review requests |
 | `laterHour` | `9` | the hour "later until tomorrow" means |
 | `stateFields`, `sections`, `trackerSyncMarkers`, `planDir`, `resumeHeading` | | markdown conventions the importer reads |
 
