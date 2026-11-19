@@ -42,7 +42,7 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         moved --as <session id> [--start] | moved --hook (reads a Claude Code hook's JSON on stdin)
         step add <id> <title> | step done <id> <n> [--evidence <url>]
         day set <date> (--file <path> | --stdin) | ticket-new <id> <title> [--dir todo]
-        move <id> <dir> | gate <id> (yes | no) | config <key> <json>
+        move <id> <dir> | order <id> <place | -> | gate <id> (yes | no) | config <key> <json>
 import: import --root <dir> [--apply]
 serve:  serve [--port 7420] | service install [--port 7420] | service status | service uninstall
         mcp-headers (the Authorization header for an MCP client's headersHelper)`;
@@ -316,6 +316,13 @@ const COMMANDS: Record<string, Handler> = {
   },
   gate: (a) => c("gate", { id: arg(a, 0, "gate <id> (yes | no)"), answer: arg(a, 1, "gate <id> (yes | no)") }),
   move: (a) => c("ticket_set", { id: arg(a, 0, "move <id> <dir>"), dir: arg(a, 1, "move <id> <dir>") }),
+  order: (a) => {
+    const usage = "order <id> <place | -> (1 is the top of its folder, - takes it out)";
+    const value = arg(a, 1, usage);
+    const place = value === "-" ? 0 : Number(value);
+    if (value !== "-" && !(Number.isInteger(place) && place >= 1)) throw new HubError(`usage: hub ${usage}`);
+    return c("ticket_order", { id: arg(a, 0, usage), place });
+  },
   import: (_a, v) => c("import", { root: root(v), apply: v.apply === true }),
 };
 

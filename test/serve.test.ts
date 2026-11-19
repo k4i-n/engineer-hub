@@ -170,7 +170,7 @@ describe("serve", () => {
   test("settings show the database and save config through the same checks as the CLI", async () => {
     const html = await (await fetch(`${server.url}/settings`)).text();
     assert.ok(html.includes(dbFile));
-    assert.match(html, /Schema<\/span><div class="set-control">v4/);
+    assert.match(html, /Schema<\/span><div class="set-control">v5/);
     assert.equal((await setConfigKey("openLinearIn", '"app"')).status, 200);
     const command = await setConfigKey("syncCommand", '["sh","-c","touch /tmp/x"]');
     assert.equal(command.status, 400);
@@ -183,6 +183,30 @@ describe("serve", () => {
       JSON.stringify({ source: "linear", kind: "issue", url: "https://linear.app/acme/issue/ENG-7", needs_me: true }),
     );
     assert.match(await (await fetch(`${server.url}/?part=1`)).text(), /href="linear:\/\/acme\/issue\/ENG-7"/);
+  });
+
+  test("ongoing ticket rows can be dragged within their folder, and a drop is a human action the brief reports", async () => {
+    await hub(["ticket-new", "ENG-8", "Second todo", "--dir", "todo"]);
+    await hub(["move", "ENG-42", "done"]);
+    const html = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.match(html, /data-key="t-ENG-7" data-href="\/t\/ENG-7" draggable="true" data-id="ENG-7" data-dir="todo"/);
+    assert.doesNotMatch(html, /data-key="t-ENG-42"[^>]*draggable/);
+    await call("GET", "/brief");
+    const drop = await fetch(`${server.url}/api/v1/tickets/ENG-7/order`, {
+      method: "PUT",
+      headers: { authorization: `Bearer ${server.token}`, "x-hub-actor": "human", "content-type": "application/json" },
+      body: JSON.stringify({ place: 2 }),
+    });
+    assert.equal(drop.status, 200);
+    const after = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.ok(after.indexOf('data-key="t-ENG-8"') < after.indexOf('data-key="t-ENG-7"'));
+    const brief = await (
+      await fetch(`${server.url}/api/v1/brief`, {
+        headers: { authorization: `Bearer ${server.token}`, accept: "text/plain" },
+      })
+    ).text();
+    assert.match(brief, /ENG-7 put at #2 in its folder/);
+    assert.equal((await call("PUT", "/tickets/ENG-7/order", { place: -1 })).status, 400);
   });
 
   test("tickets split into ongoing and recently done tabs", async () => {

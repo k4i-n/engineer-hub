@@ -499,6 +499,18 @@ function layoutFromDom() {
   return { top: ids("top"), left: ids("left"), right: ids("right") };
 }
 
+async function saveOrder(row) {
+  const rows = [...row.parentElement.querySelectorAll(".ticket[draggable]")].filter(
+    (r) => r.dataset.dir === row.dataset.dir,
+  );
+  try {
+    await api("PUT", `/tickets/${encodeURIComponent(row.dataset.id)}/order`, { place: rows.indexOf(row) + 1 });
+  } catch (error) {
+    toast(error.message, { bad: true });
+    refresh();
+  }
+}
+
 async function saveLayout() {
   try {
     await post("config", { key: "layout", value: JSON.stringify(layoutFromDom()) });
@@ -532,6 +544,12 @@ function clearDrop() {
 }
 
 function dropTarget(e) {
+  if (dragging.matches(".ticket")) {
+    const row = e.target.closest?.(".ticket[draggable]");
+    if (!row || row === dragging || row.dataset.dir !== dragging.dataset.dir) return null;
+    const r = row.getBoundingClientRect();
+    return { el: row, place: e.clientY < r.top + r.height / 2 ? "before" : "after" };
+  }
   const block = e.target.closest?.(".block");
   if (block && block !== dragging) {
     const r = block.getBoundingClientRect();
@@ -544,12 +562,13 @@ function dropTarget(e) {
 
 document.addEventListener("dragstart", (e) => {
   const grip = e.target.closest?.(".grip");
-  if (!grip) return;
+  const row = grip ? null : e.target.closest?.(".ticket[draggable]");
+  if (!grip && !row) return;
   closeMenus();
-  dragging = grip.closest(".block");
-  document.body.classList.add("is-dragging");
+  dragging = grip ? grip.closest(".block") : row;
+  if (grip) document.body.classList.add("is-dragging");
   e.dataTransfer.effectAllowed = "move";
-  e.dataTransfer.setData("text/plain", dragging.dataset.block);
+  e.dataTransfer.setData("text/plain", grip ? dragging.dataset.block : dragging.dataset.id);
   e.dataTransfer.setDragImage(dragging, 24, 24);
   requestAnimationFrame(() => dragging?.classList.add("dragging"));
 });
@@ -572,7 +591,8 @@ document.addEventListener("drop", (e) => {
   if (t.place === "end") t.el.append(dragging);
   else if (t.place === "before") t.el.before(dragging);
   else t.el.after(dragging);
-  saveLayout();
+  if (dragging.matches(".ticket")) saveOrder(dragging);
+  else saveLayout();
 });
 
 document.addEventListener("dragend", () => {

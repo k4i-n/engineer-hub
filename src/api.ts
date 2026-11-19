@@ -121,6 +121,14 @@ export const ROUTES: Route[] = [
     },
   },
   {
+    name: "ticket_order",
+    method: "PUT",
+    path: "/tickets/{id}/order",
+    about: "Put the ticket at a place in its folder's list, renumbering the others; 0 takes it out of the order.",
+    body: { place: { type: "integer", required: true, about: "1 is the top of the folder; 0 takes it out" } },
+    run: (ctx, a) => transaction(ctx.db, () => commands.order(ctx, str(a, "id"), a.place as number)),
+  },
+  {
     name: "gate",
     method: "POST",
     path: "/tickets/{id}/gate",
@@ -731,6 +739,10 @@ const HUMAN_NOTES: Record<string, (ctx: Ctx, a: Args) => Note | null> = {
   draft_later: (_ctx, a) => ({
     ticket: str(a, "id"),
     text: `send draft "${str(a, "label")}" later (${opt(a, "for") ?? "tomorrow"})`,
+  }),
+  ticket_order: (_ctx, a) => ({
+    ticket: str(a, "id"),
+    text: a.place === 0 ? "taken out of the order" : `put at #${a.place as number} in its folder`,
   }),
   match: (_ctx, a) =>
     a.answer === undefined

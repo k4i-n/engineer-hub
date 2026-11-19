@@ -1,5 +1,5 @@
 import { area, bar, donut, half, legend, percent, ring, type Slice, stack } from "./charts.ts";
-import { byPriorityThenRecent, type Ctx, has, openTickets, recentlyDone } from "./commands.ts";
+import { byOrder, type Ctx, has, openTickets, recentlyDone } from "./commands.ts";
 import { BLOCKS, type Config, DEFAULT_LAYOUT, type Layout } from "./config.ts";
 import {
   all,
@@ -699,7 +699,8 @@ function ticketRow(ctx: Ctx, t: Ticket, done = false, needing: Need[] = []): str
       ? `${p.next.n}. ${p.next.title}`
       : (t.next ?? "");
   const priority = (t.tracker_priority ?? "").trim();
-  return `<li class="ticket${done ? " is-closed" : ""}" data-key="t-${esc(t.id)}" data-href="/t/${encodeURIComponent(t.id)}">
+  const drag = done ? "" : ` draggable="true" data-id="${esc(t.id)}" data-dir="${esc(t.dir ?? "")}"`;
+  return `<li class="ticket${done ? " is-closed" : ""}" data-key="t-${esc(t.id)}" data-href="/t/${encodeURIComponent(t.id)}"${drag}>
 <div class="t-top">${ticketLink(t.id)}<span class="t-title">${esc(t.title)}</span>${needPill(needing)}${priority ? pill(priority, PRIORITY_TONE[priority.toLowerCase()] ?? "grey") : ""}${pill(DIR_LABEL[t.dir ?? ""] ?? t.dir ?? "", DIR_TONE[t.dir ?? ""] ?? "grey")}</div>
 <div class="t-meta">${progressView(ctx.config.progressStyle, p.done, p.total, false)}<span class="t-next">${esc(cut(next || "–", 160))}</span><span class="chips">${chips}</span></div>
 </li>`;
@@ -839,7 +840,7 @@ function header(ctx: Ctx, sync: SyncState, active: "home" | "settings" | "ticket
 export function indexBody(ctx: Ctx, sync: SyncState): string {
   const order = ctx.config.openDirs;
   const tickets = openTickets(ctx).sort(
-    (a, b) => order.indexOf(a.dir ?? "") - order.indexOf(b.dir ?? "") || byPriorityThenRecent(a, b),
+    (a, b) => order.indexOf(a.dir ?? "") - order.indexOf(b.dir ?? "") || byOrder(a, b),
   );
   const list = needs(ctx, tickets);
   const active = list.filter((n) => n.dim === null).length;
