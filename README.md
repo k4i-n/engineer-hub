@@ -46,6 +46,43 @@ Each ticket has its own page with state, steps, timeline, items, waits, drafts a
 
 ![Ticket page](docs/images/ticket.png)
 
+## Sources and your setup
+
+Hub's core doesn't depend on any one tool. Tickets, steps, drafts, waits, notes and the day plan live in your local database, and sources only feed **items** into it. A different setup changes which sources you have, not how you work. There are three ways in ([Sources](docs/sources.md)):
+
+1. **Built-in source:** GitHub (review requests and your PRs), Linear and Slack. These carry hub-specific logic, such as closing a review request once it's gone and writing tracker state onto tickets.
+2. **Script source:** your script prints item lines on a timer. It can be on/off, have an interval and get its own dashboard card, all in Settings. Hub only stores what the script prints.
+3. **Agent path:** Claude reads through a connector and writes items with `item_put`, only while a session runs.
+
+One gap applies to every non-Linear tracker: **tracker sync is Linear-only.** Only the Linear built-in writes the tracker's state, priority and assignee onto the matching hub ticket; that's what the board and the `[TRACKER: ...]` warning read. A script source can only print items, so with another tracker the ticket's own fields are the only state hub has.
+
+**Issue trackers**
+
+| Setup | How it fits | Ticket id | Gap |
+|---|---|---|---|
+| GitHub Issues | The built-in GitHub source fetches PRs only, not issues. Add a script source using `gh search issues assignee:@me` (no key needed). | `#123` doesn't fit the default `[A-Z]+-\d+`. Use ids like `GH-123` or `web-123`, and set `ticketIdPattern` to match. | PRs attach to tickets by branch or body only if they use the same id form. No tracker sync. |
+| Jira | Script source on the Jira REST search (`assignee = currentUser() AND updated > -1d`). Comments and mentions are a second query. | `ABC-123` fits the default pattern as-is. | No tracker sync, so Jira status doesn't show on the board. |
+| Notion database | Script source querying the database (filter: assignee is me, edited since `HUB_SINCE`), or the agent path through the Notion connector. | Needs Notion's Unique ID property (for example `TASK-42`); without it there's no id to match PRs and threads. | No tracker sync; comments are a separate API call. |
+
+**Monitoring stack**
+
+All of these become script sources that print `kind: "alert"` and land in Fix now, or in their own card.
+
+| Tool | Feed | Note |
+|---|---|---|
+| Grafana alerting | Firing alerts API with a read-only token | Has resolved state. The script must print resolved alerts with `needs_me: false` so they leave the card. |
+| Better Stack | Uptime incidents API (open incidents) | Same pattern as the bundled incident.io example. |
+| PagerDuty / incident.io | Bundled examples | Untested against live accounts. |
+| Slack alert channels | Built in (`slackAlertChannels`) | Easiest if alerts already post to Slack. No resolved state; your ✅ clears one. |
+
+**What stays the same in every setup**
+
+- The daily plan, steps, drafts and waits work the same, whatever the tracker.
+- A wait closes on reply only through the Slack built-in. With Teams or Discord you'd close waits by hand or write a script for it.
+- If a source has no API or token, the agent path through a connector still works, just not in the background.
+
+What makes a setup work well is a **ticket id that appears in branch names, PR bodies and threads**. With that, items attach themselves. Without it, as with GitHub `#123` or a Notion database with no unique ID, you attach by hand.
+
 ## Docs
 
 - [CLI](docs/cli.md): every command, field limits, config keys, importing a markdown ticket folder
