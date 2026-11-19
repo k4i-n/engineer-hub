@@ -846,9 +846,10 @@ function activitySection(ctx: Ctx): string {
   return section("Activity", events.length, events.length === 0 ? empty() : first + rest, "activity");
 }
 
-function sourceState(ctx: Ctx, s: SourceRow): "ok" | "stale" | "bad" {
+function sourceState(ctx: Ctx, s: SourceRow): "ok" | "stale" | "bad" | "warn" {
   if (s.last_error !== null) return "bad";
-  return ctx.now.getTime() - new Date(s.last_sync).getTime() > STALE_MS ? "stale" : "ok";
+  if (ctx.now.getTime() - new Date(s.last_sync).getTime() > STALE_MS) return "stale";
+  return s.warning === null ? "ok" : "warn";
 }
 
 function sourcesLine(ctx: Ctx, sources: SourceRow[]): string {
@@ -878,7 +879,7 @@ function backupProblem(ctx: Ctx): string {
 
 function sourceChip(ctx: Ctx, s: SourceRow): string {
   const state = sourceState(ctx, s);
-  const title = [`last sync ${when(ctx, s.last_sync)}`, s.cursor ? `cursor ${s.cursor}` : null, s.last_error]
+  const title = [`last sync ${when(ctx, s.last_sync)}`, s.cursor ? `cursor ${s.cursor}` : null, s.last_error, s.warning]
     .filter(Boolean)
     .join("\n");
   return `<span class="src src-${state}" title="${esc(title)}"><i></i>${esc(s.name)}<small>${esc(when(ctx, s.last_sync))}</small></span>`;
@@ -1050,6 +1051,7 @@ export type Fetching = {
   fixes: string[];
   last: string | null;
   error: string | null;
+  warning: string | null;
 };
 
 function sourceRows(ctx: Ctx, list: Fetching[]): string {
@@ -1066,8 +1068,12 @@ function sourceRows(ctx: Ctx, list: Fetching[]): string {
           : f.last !== null
             ? `<span class="src-state">${esc(f.how ?? "ok")} · ${esc(ago(ctx, f.last) === "now" ? "just now" : `${ago(ctx, f.last)} ago`)}</span>`
             : `<span class="src-state">${f.on ? "not fetched yet" : "off"}</span>`;
-      const fixes = f.script === null && f.ok === true && f.error === null ? "" : f.fixes.map(codeBlock).join("");
-      return row(f.name, `${swtch}${state}${fixes}`);
+      const warning = f.warning === null ? "" : `<span class="src-state tone-text-amber">${esc(f.warning)}</span>`;
+      const fixes =
+        f.script === null && f.ok === true && f.error === null && f.warning === null
+          ? ""
+          : f.fixes.map(codeBlock).join("");
+      return row(f.name, `${swtch}${state}${warning}${fixes}`);
     })
     .join("");
 }

@@ -192,7 +192,8 @@ a:hover {
   border-radius: 50%;
   background: var(--green);
 }
-.src-stale i {
+.src-stale i,
+.src-warn i {
   background: var(--amber);
 }
 .src-bad {

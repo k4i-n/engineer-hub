@@ -107,6 +107,7 @@ function fetching(c: Ctx, runner: Runner): Fetching[] {
       fixes: runner.fixes(f),
       last: row?.last_sync ?? null,
       error: row?.last_error ?? null,
+      warning: row?.warning ?? null,
     };
   });
 }
