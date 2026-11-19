@@ -64,6 +64,20 @@ async function waitFor<T>(check: () => Promise<T | undefined>, ms = 3000): Promi
   throw new Error("timed out");
 }
 
+function tabCounts(html: string, group: string): Record<string, number> {
+  const bar = new RegExp(`data-tabs="${group}">[\\s\\S]*?</span>`).exec(html)?.[0] ?? "";
+  return Object.fromEntries(
+    [...bar.matchAll(/data-tab="([a-z]+)" aria-selected="[a-z]+">[^<]+<b>(\d+)<\/b>/g)].map((m) => [
+      m[1],
+      Number(m[2]),
+    ]),
+  );
+}
+
+function today(): string {
+  return new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
+}
+
 type SyncState = { status: string; at: string | null; detail: string | null };
 
 async function syncState(): Promise<SyncState> {
@@ -179,8 +193,76 @@ describe("serve", () => {
     assert.deepEqual(row(303), ["teal", "Comments"]);
     assert.deepEqual(row(304), ["orange", "Fix PR"]);
     assert.deepEqual(row(305), ["green", "Approved"]);
-    assert.doesNotMatch(card, /pr 306</);
+    assert.deepEqual(row(306), ["violet", "Merged"]);
     assert.match(html, new RegExp(`data-needs-count="${before + 3}"`));
+    assert.deepEqual(tabCounts(card, "needs-prs"), { open: 3, draft: 1, review: 2, all: 7 });
+    assert.match(card, /data-tab-panel="all" hidden>\s*<span class="need-main">[\s\S]*?>pr 306</);
+    assert.match(card, /data-tab-panel="draft all" hidden>\s*<span class="need-main">[\s\S]*?>pr 301</);
+    assert.match(card, /data-tab-panel="review all" hidden>\s*<span class="need-main">[\s\S]*?>pr 302</);
+    assert.match(card, /data-tab-panel="open all">\s*<span class="need-main">[\s\S]*?>pr 303</);
+  });
+
+  test("needs cards, Today and Activity open on what is still to do, with the rest under All", async () => {
+    await hub(
+      ["item", "put", "--stdin"],
+      JSON.stringify({ source: "grafana", kind: "alert", ref: "alert-1", title: "API 5xx", needs_me: true }),
+    );
+    await hub(
+      ["day", "set", today(), "--stdin"],
+      "## Today\n\n- [x] write the migration\n- [ ] ship it\n- read the handler\n",
+    );
+    await hub(["step", "add", "ENG-42", "write the migration"]);
+    await hub(["step", "done", "ENG-42", "1"]);
+    await hub(["log", "ENG-42", "read the export code", "--kind", "reading"]);
+    const html = await (await fetch(`${server.url}/?part=1`)).text();
+    const fix = /data-group="fix"[\s\S]*?<\/section>/.exec(html)?.[0] ?? "";
+    assert.deepEqual(tabCounts(fix, "needs-fix"), { open: 1, all: 1 });
+    assert.deepEqual(tabCounts(html, "today"), { open: 2, all: 3 });
+    const activity = tabCounts(html, "activity");
+    assert.equal((activity.all ?? 0) - (activity.work ?? 0) >= 1, true);
+    assert.match(
+      html,
+      /<div data-tab-panel="work">[\s\S]*?step 1 done[\s\S]*?<div data-tab-panel="all" hidden>[\s\S]*?read the export code/,
+    );
+    assert.doesNotMatch(
+      /<div data-tab-panel="work">[\s\S]*?<div data-tab-panel="all"/.exec(html)?.[0] ?? "",
+      /read the export code/,
+    );
+  });
+
+  test("a ticket page opens Steps, Items, Waiting on and Timeline on what is still open", async () => {
+    await hub(["step", "add", "ENG-7", "measure"]);
+    await hub(["step", "add", "ENG-7", "fix"]);
+    await hub(["step", "done", "ENG-7", "1"]);
+    await hub(["wait", "ENG-7", "ana", "https://acme.slack.com/archives/C1/p1"]);
+    await hub(["wait", "ENG-7", "bo", "https://acme.slack.com/archives/C1/p2"]);
+    await hub(["wait", "close", "https://acme.slack.com/archives/C1/p2"]);
+    await hub(
+      ["item", "put", "--stdin"],
+      ["https://github.com/acme/web/pull/71", "https://github.com/acme/web/pull/72"]
+        .map((url) => JSON.stringify({ source: "github", kind: "pr", url, title: url.slice(-2), state: "open" }))
+        .join("\n"),
+    );
+    for (const ref of ["https://github.com/acme/web/pull/71", "https://github.com/acme/web/pull/72"])
+      await hub(["item", "attach", ref, "ENG-7"]);
+    await hub(["item", "close", "https://github.com/acme/web/pull/72"]);
+    const page = await (await fetch(`${server.url}/t/ENG-7?part=1`)).text();
+    const steps = tabCounts(page, "steps");
+    assert.equal((steps.all ?? 0) - (steps.open ?? 0), 1);
+    assert.match(
+      page,
+      /<li class="done" data-tab-panel="all" hidden><span class="check"><\/span><span class="s-title">measure/,
+    );
+    assert.deepEqual(tabCounts(page, "waits"), { open: 1, all: 2 });
+    assert.match(page, /data-tab-panel="all" hidden>[\s\S]*?>bo</);
+    const items = tabCounts(page, "items");
+    assert.equal((items.all ?? 0) - (items.open ?? 0), 1);
+    assert.match(
+      page,
+      /data-tab-panel="all" hidden><span class="verb">[^<]+<\/span><span class="need-main"><a[^>]*>72</,
+    );
+    assert.match(page, /data-key="timeline-work" data-tab-panel="work">/);
+    assert.match(page, /data-key="timeline-all" data-tab-panel="all" hidden>/);
   });
 
   test("every needs row has the same three controls, and a pinned row moves to the top", async () => {
@@ -337,8 +419,9 @@ describe("serve", () => {
   test("Drafts on the dashboard and the ticket page open on unsent drafts, with sent ones under All", async () => {
     const counts = async (path: string) => {
       const html = await (await fetch(`${server.url}${path}`)).text();
+      const bar = /data-tabs="drafts">[\s\S]*?<\/span>/.exec(html)?.[0] ?? "";
       const tab = (name: string) =>
-        Number(new RegExp(`data-tab="${name}" aria-selected="[a-z]+">[A-Za-z]+ <b>(\\d+)</b>`).exec(html)?.[1]);
+        Number(new RegExp(`data-tab="${name}" aria-selected="[a-z]+">[A-Za-z]+ <b>(\\d+)</b>`).exec(bar)?.[1]);
       return { open: tab("open"), all: tab("all"), html };
     };
     const home = await counts("/?part=1");

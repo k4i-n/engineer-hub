@@ -322,6 +322,10 @@ body.is-dragging .col[data-col="top"] {
 .block.drop-after::after {
   bottom: -11px;
 }
+[hidden] {
+  /* biome-ignore lint/complexity/noImportantStyles: hidden must beat the display of rows, lists and cards */
+  display: none !important;
+}
 section {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -373,13 +377,6 @@ button.fold::before {
 }
 button.fold[aria-expanded="true"]::before {
   transform: rotate(45deg);
-}
-.is-folded > :not(.sec-head),
-.is-folded > .sec-head > :not(h2, .count) {
-  display: none;
-}
-.is-folded > .sec-head {
-  margin-bottom: 0;
 }
 h1 {
   font-size: 20px;
@@ -935,10 +932,6 @@ button.busy::after {
   border-color: var(--green);
   color: #fff;
 }
-.md li[hidden],
-.md li.md-task[hidden] {
-  display: none;
-}
 :is(.md, .need-title, .need-sub, .ask, .t-title, .t-next, .s-title, .e-text, .page-head h1, .d-label, .d-line, summary)
   code {
   font:
@@ -1315,6 +1308,11 @@ a.chip-btn:hover {
 }
 .ngroup[open] > summary::before {
   transform: rotate(45deg);
+}
+.ngroup > summary > .tabs {
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
 }
 .g-count {
   font-size: 11px;
@@ -2188,4 +2186,13 @@ kbd {
 .note-actions {
   float: right;
   margin-left: 8px;
+}
+.ngroup:not([open]) > summary > .tabs,
+.ngroup[open] > summary > .g-count,
+.is-folded > :not(.sec-head),
+.is-folded > .sec-head > :not(h2, .count) {
+  display: none;
+}
+.is-folded > .sec-head {
+  margin-bottom: 0;
 }
