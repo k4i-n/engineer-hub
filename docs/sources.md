@@ -6,7 +6,7 @@
 
 | Source | Fetches | Credential |
 |---|---|---|
-| `github` (on by default) | review requests found by the `githubReviewQuery` search (closed when no longer found), your PRs updated since the last fetch with a status from draft, review decision, latest reviews and checks: changes requested, checks failing, approved and commented need you; draft and in review do not | none in hub: it runs your signed-in `gh` |
+| `github` (on by default) | review requests found by the `githubReviewQuery` search (closed when no longer found), your PRs updated since the last fetch, each attached to the ticket whose id is in its title, branch name or body, with a status from draft, review decision, latest reviews and checks: changes requested, checks failing, approved and commented need you; draft and in review do not | none in hub: it runs your signed-in `gh` |
 | `linear` | issues assigned to you updated since the last fetch (a new one with no hub ticket needs you; done and canceled do not), and mentions of you in issues and comments; an issue whose id is a hub ticket also sets that ticket's tracker state, priority, assignee, link and update time (what `board`, `next` and the `[TRACKER: …]` warning read) | a personal API key with read access |
 | `slack` | messages that mention you (need you), messages you sent (state `sent`, for an agent to match to drafts), and replies or a reaction from someone else on your message in threads you wait on (the wait closes and the answer needs you). Slack markup reads as text: `<@U…>` as `@name`, `<#C…>` as `#channel`, groups, `@here` and links; DMs and group DMs are named. Your own ✅ (`white_check_mark`, `heavy_check_mark`, `ballot_box_with_check`, `done`) on a mention takes it off your list; another reaction of yours shows as its state. Your later reply in the mention's thread also takes it off, with state `replied`; `hub item put` with `needs_me: true` puts it back. Not yet: DMs that do not mention you | a user token (`xoxp-`) |
 
@@ -63,7 +63,8 @@ For everything else an agent reads each source (Slack, the tracker, mail, alerts
 | `kind` | `pr`, `issue`, `review_request`, `thread`, `message`, `mail`, `alert`, `doc`, `run` or `other`, required |
 | `ref` | the item's identity; defaults to `url`, one of the two is required |
 | `title`, `url`, `state`, `author` | optional; a missing key keeps the stored value |
-| `ticket` | attach to this ticket; without it an id matching `ticketIdPattern` in the title or URL attaches it |
+| `ticket` | attach to this ticket; without it an id matching `ticketIdPattern` in the title or URL attaches it, else one in `context` |
+| `context` | text searched for a ticket id after the title and URL, such as a PR's branch name and body; not stored (max 8000 chars) |
 | `needs_me` | `true` when the item waits on you |
 
 The batch is checked whole before anything is written. An unchanged item changes nothing. A new item on a ticket, an attach and a state change become `sync` events on the ticket. A state change or a new `needs_me` reopens a closed item.

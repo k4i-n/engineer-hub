@@ -159,6 +159,39 @@ describe("github", () => {
     assert.match(query, /latestReviews\(first: 20\) \{ nodes \{ state \} \}/);
   });
 
+  test("a PR attaches to the ticket named in its title, else its branch name or body, in any case", async () => {
+    await hub("ticket-new", "ENG-43", "Clean up");
+    const pulls = () => [
+      PR("https://github.com/acme/web/pull/401", { body: "Part of ENG-42" }),
+      PR("https://github.com/acme/web/pull/402", { headRefName: "khai/eng-43-cleanup", body: "" }),
+      PR("https://github.com/acme/web/pull/403", { title: "ENG-43 tidy", body: "fixes ENG-42" }),
+      PR("https://github.com/acme/web/pull/404", { body: "fixes ENG-999" }),
+    ];
+    answers.gh = graphql([PR("https://github.com/acme/web/pull/405", { body: "fixes ENG-42" })], pulls());
+    await hub("fetch", "github");
+    const ticketOf = async (n: number) =>
+      (await hub("items", "--all", "--source", "github"))
+        .split("\n")
+        .find((l) => l.includes(`/pull/${n}`))
+        ?.match(/\| (ENG-\d+) \|/)?.[1] ?? null;
+    assert.deepEqual(await Promise.all([401, 402, 403, 404, 405].map(ticketOf)), [
+      "ENG-42",
+      "ENG-43",
+      "ENG-43",
+      null,
+      "ENG-42",
+    ]);
+    await hub("item", "detach", "https://github.com/acme/web/pull/401");
+    answers.gh = graphql(
+      [],
+      pulls().map((pr) => ({ ...pr, reviewDecision: "APPROVED" })),
+    );
+    await hub("fetch", "github");
+    assert.equal(await ticketOf(401), null);
+    const query = (calls.find((c) => c[1] === "api") ?? []).join(" ");
+    assert.match(query, /url title headRefName body author/);
+  });
+
   test("the review request search comes from config, shows in Settings, and a narrower one drops what it leaves out", async () => {
     answers.gh = graphql([PR("https://github.com/acme/noisy/pull/1"), PR("https://github.com/acme/web/pull/7")], []);
     await hub("fetch", "github");
