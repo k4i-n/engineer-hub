@@ -243,7 +243,8 @@ body.offline .top::after {
   border-radius: 999px;
 }
 .gear {
-  font-size: 18px;
+  font-size: 24px;
+  line-height: 1;
   color: var(--muted);
   width: 32px;
   height: 32px;
