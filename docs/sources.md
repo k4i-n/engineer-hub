@@ -8,7 +8,7 @@
 |---|---|---|
 | `github` (on by default) | review requests found by the `githubReviewQuery` search (closed when no longer found), your PRs updated since the last fetch with review decision and checks: approved, changes requested and checks failing need you | none in hub: it runs your signed-in `gh` |
 | `linear` | issues assigned to you updated since the last fetch (a new one with no hub ticket needs you; done and canceled do not), and mentions of you in issues and comments | a personal API key with read access |
-| `slack` | messages that mention you (need you), messages you sent (state `sent`, for an agent to match to drafts), and replies in threads you wait on (the wait closes and the reply needs you). Not yet: DMs that do not mention you | a user token (`xoxp-`) |
+| `slack` | messages that mention you (need you), messages you sent (state `sent`, for an agent to match to drafts), and replies or a reaction from someone else on your message in threads you wait on (the wait closes and the answer needs you). Slack markup reads as text: `<@U…>` as `@name`, `<#C…>` as `#channel`, groups, `@here` and links; DMs and group DMs are named. Your own ✅ (`white_check_mark`, `heavy_check_mark`, `ballot_box_with_check`, `done`) on a mention takes it off your list; another reaction of yours shows as its state. Not yet: DMs that do not mention you | a user token (`xoxp-`) |
 
 The review request search defaults to `is:pr is:open review-requested:@me archived:false` and takes any GitHub search filter. Change it in Settings → Sources, where the active search is shown, or from the terminal:
 
@@ -24,13 +24,17 @@ sealcall add linear --host api.linear.app --header 'Authorization: {key}' --allo
 hub config fetch '{"github":true,"linear":true}'
 ```
 
-For Slack, create an app in your workspace (api.slack.com/apps → From scratch), add the user token scopes `search:read`, `channels:history`, `groups:history`, `im:history`, `mpim:history` and `users:read`, install it to the workspace (some workspaces need an admin to approve), and store the User OAuth Token from the install page:
+For Slack, create an app in your workspace (api.slack.com/apps → From scratch), add the user token scopes `search:read`, `channels:history`, `groups:history`, `im:history`, `mpim:history`, plus for names, DMs and reactions `users:read`, `usergroups:read`, `channels:read`, `groups:read`, `im:read`, `mpim:read` and `reactions:read`, install it to the workspace (some workspaces need an admin to approve), and store the User OAuth Token from the install page:
 
 ```sh
 security add-generic-password -s engineer-hub -a slack -w      # paste the xoxp- token
 sealcall add slack --host slack.com --header 'Authorization: Bearer {key}' \
-  --allow 'GET /api/auth.test' --allow 'GET /api/search.messages' --allow 'GET /api/conversations.replies'   # or sealcall
+  --allow 'GET /api/auth.test' --allow 'GET /api/search.messages' --allow 'GET /api/conversations.replies' \
+  --allow 'GET /api/conversations.info' --allow 'GET /api/users.info' --allow 'GET /api/usergroups.list' \
+  --allow 'GET /api/reactions.get'   # or sealcall
 ```
+
+The second group of scopes is optional: a scope the token lacks (or an endpoint the sealcall route does not allow) only leaves that detail out, ids stay ids, and the source shows an amber warning naming the missing scopes in the header and in Settings → Sources. Adding a scope to an installed app needs a reinstall, which issues a new token; store it again (`sealcall rotate slack` keeps the route).
 
 ### Script sources
 
