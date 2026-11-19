@@ -899,7 +899,7 @@ function header(ctx: Ctx, sync: SyncState, active: "home" | "settings" | "ticket
 <a class="brand" href="/"><span class="logo"></span>hub${needCount > 0 ? `<span class="count hot" title="needs you">${needCount}</span>` : ""}</a>
 <div class="sources">${sourcesLine(ctx, sources)}${backupProblem(ctx)}</div>
 <div class="search" role="search"><input type="search" data-search-box placeholder="Search" aria-label="Search everything" autocomplete="off" spellcheck="false"><div class="search-pop" role="listbox" hidden></div></div>
-<div class="sync"${started}>${result}<span class="live" title="live"></span><button type="button" class="ic ic-sync sync-btn" data-act="sync" title="${running ? "Syncing" : syncTitle}" aria-label="${running ? "Syncing" : "Sync"}"${running ? " disabled" : ""}>${svg("sync")}</button></div>
+<div class="sync"${started}>${result}<button type="button" class="ic ic-sync sync-btn" data-act="sync" title="${running ? "Syncing" : syncTitle}" aria-label="${running ? "Syncing" : "Sync"}"${running ? " disabled" : ""}>${svg("sync")}</button></div>
 <a class="gear${active === "settings" ? " on" : ""}" href="${active === "settings" ? "/" : "/settings"}" title="Settings" aria-label="Settings">⚙</a>
 <div class="strip"></div>
 </header>`;

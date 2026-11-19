@@ -218,17 +218,6 @@ a:hover {
 .sync-result.bad {
   color: var(--red);
 }
-.live {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--green);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 22%, transparent);
-}
-body.offline .live {
-  background: var(--red);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 22%, transparent);
-}
 body.offline .top::after {
   content: "Offline";
   position: absolute;
