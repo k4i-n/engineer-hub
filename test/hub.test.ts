@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -775,6 +776,34 @@ describe("reads", () => {
     assert.equal(await ok("board", "export"), "== todo\n  [-] ENG-7 | - | next: read the export handler");
   });
 
+  test("board and ticket show the state of the ticket's PRs in place of the prs text", async () => {
+    await imported();
+    stdin = [
+      JSON.stringify({
+        source: "github",
+        kind: "pr",
+        url: "https://github.com/acme/web/pull/140",
+        title: "ENG-42: sessions table",
+        state: "approved",
+      }),
+      JSON.stringify({
+        source: "github",
+        kind: "pr",
+        url: "https://github.com/acme/web/pull/141",
+        title: "ENG-42: refresh tokens",
+        state: "checks failing",
+      }),
+    ].join("\n");
+    await ok("item", "put", "--stdin");
+    assert.match(await ok("board"), / ENG-42 \| .* \| PR #101, #140 approved, #141 checks failing \| GATE: /);
+    assert.match(await ok("ticket", "ENG-42"), /^prs: #101 \| #101, #140 approved, #141 checks failing$/m);
+    const pulls = (await json<{ pulls: { state: string }[] }>("ticket", "ENG-42")).pulls.map((i) => i.state);
+    assert.deepEqual(pulls, [null, "approved", "checks failing"]);
+
+    await ok("item", "close", "https://github.com/acme/web/pull/141");
+    assert.match(await ok("board"), / ENG-42 \| .* \| PR #101, #140 approved \| GATE: /);
+  });
+
   test("board hides unfiled tickets the tracker closed", async () => {
     await imported();
     await ok("ticket-new", "ENG-99", "Rotate the staging signing key", "--dir", "unfiled");
@@ -937,6 +966,36 @@ describe("record gate", () => {
     assert.match(await ok("record-gate", "--hook"), /"decision":"block".*deploy\.sh prod/);
     stdin = "not json";
     assert.deepEqual(await hub("record-gate", "--hook"), { code: 0, out: "", err: "" });
+  });
+});
+
+describe("record hook", () => {
+  test("links the PR a push or PR command printed to the one ticket on the checkout's branch", async () => {
+    await imported();
+    const repo = join(dir, "repo");
+    execFileSync("git", ["init", "-q", "-b", "feat/limits", repo]);
+    const pr = "https://github.com/acme/web/pull/150";
+    const post = (command: string, stdout: string) =>
+      JSON.stringify({ tool_name: "Bash", tool_input: { command }, tool_response: { stdout, stderr: "" }, cwd: repo });
+
+    stdin = post("gh pr create --fill", `${pr}\n`);
+    assert.equal(await ok("record", "--hook"), "");
+    await ok("set", "ENG-7", "branch", "feat/limits");
+    stdin = post("gh pr view 150", `${pr}\n`);
+    assert.equal(await ok("record", "--hook"), "");
+    stdin = post("gh pr create --fill", `${pr}\n`);
+    assert.match(
+      await ok("record", "--hook"),
+      /"additionalContext":"hub linked https:\/\/github.com\/acme\/web\/pull\/150 to ENG-7/,
+    );
+    assert.match(await ok("items", "--ticket", "ENG-7"), /pull\/150/);
+    assert.equal(await ok("record", "--hook"), "");
+
+    stdin = post("git push", "remote: https://github.com/acme/web/pull/151#issuecomment-1\n");
+    await ok("set", "ENG-42", "branch", "feat/limits");
+    assert.equal(await ok("record", "--hook"), "");
+    stdin = "not json";
+    assert.deepEqual(await hub("record", "--hook"), { code: 0, out: "", err: "" });
   });
 });
 

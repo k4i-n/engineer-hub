@@ -17,7 +17,7 @@ export const LINEAR_KEY: KeySpec = {
 
 const QUERY = `query($since: DateTimeOrDuration!) {
   issues(filter: { assignee: { isMe: { eq: true } }, updatedAt: { gt: $since } }, first: 50) {
-    nodes { identifier title url state { name type } }
+    nodes { identifier title url updatedAt priorityLabel assignee { name } state { name type } }
   }
   notifications(filter: { createdAt: { gt: $since } }, first: 50) {
     nodes {
@@ -27,7 +27,15 @@ const QUERY = `query($since: DateTimeOrDuration!) {
   }
 }`;
 
-type Issue = { identifier: string; title: string; url: string; state?: { name: string; type: string } };
+type Issue = {
+  identifier: string;
+  title: string;
+  url: string;
+  updatedAt?: string;
+  priorityLabel?: string;
+  assignee?: { name: string } | null;
+  state?: { name: string; type: string };
+};
 type Note = {
   type: string;
   createdAt: string;
@@ -76,7 +84,17 @@ async function fetchLinear(sys: System, ctx: Ctx, cursor: string | null): Promis
       needs_me: true,
     });
   }
-  return { items: out, cursor: started };
+  const tracker = answer.data.issues.nodes
+    .filter((i) => hasTicket(ctx, i.identifier))
+    .map((i) => ({
+      id: i.identifier,
+      state: i.state?.name ?? null,
+      priority: i.priorityLabel === undefined || i.priorityLabel === "No priority" ? null : i.priorityLabel,
+      assignee: i.assignee?.name ?? null,
+      url: i.url,
+      updated: i.updatedAt ?? null,
+    }));
+  return { items: out, cursor: started, tracker };
 }
 
 export const linear: Fetcher = {

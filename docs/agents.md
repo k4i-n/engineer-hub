@@ -18,6 +18,8 @@ The plugin's hooks tell every Claude Code session what moved, without a tool cal
 
 A Stop and SubagentStop hook (`hub record-gate --hook`) blocks a session that ran a command matching `recordActions` (by default `git push`, `gh pr create|merge|comment|review|close|edit` and `gh issue create|comment|close|edit`) and wrote nothing to hub after it, listing the last commands and asking it to log or link them and set the ticket's next. It checks that a hub write came after the action, not that it was the right one, and it fires once per stop. Heredoc bodies are ignored, but other quoted text is not.
 
+A PostToolUse hook (`hub record --hook`) records most of these without the agent: when a `recordActions` command prints a GitHub PR URL that no ticket has yet, and exactly one ticket has the checkout's current branch as its `branch`, it links the PR to that ticket and tells the agent so. An action whose printed PR is linked in hub no longer blocks the stop. Nothing is written when no ticket or more than one has that branch.
+
 ## For agents
 
 With the hub MCP tools connected (plugin or `/mcp`), put this in the agent's instructions; the server's MCP instructions say the same in short:

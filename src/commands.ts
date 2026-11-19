@@ -84,6 +84,19 @@ function trackerDisagrees(t: Ticket): boolean {
   return letters(t.tracker_state) !== letters(t.dir);
 }
 
+export function pullItems(ctx: Ctx, id: string): ItemRow[] {
+  return all<ItemRow>(
+    ctx.db,
+    "SELECT * FROM item WHERE ticket_id = ? AND kind = 'pr' AND closed_at IS NULL ORDER BY id",
+    id,
+  );
+}
+
+export function pullLabel(i: ItemRow): string {
+  const number = /\/pull\/(\d+)/.exec(i.url ?? "")?.[1];
+  return `${number ? `#${number}` : "PR"}${i.state ? ` ${i.state}` : ""}`;
+}
+
 function lastEvents(ctx: Ctx, id: string, limit: number): EventRow[] {
   return all<EventRow>(ctx.db, "SELECT * FROM event WHERE ticket_id = ? ORDER BY ts DESC, id DESC LIMIT ?", id, limit);
 }
@@ -107,11 +120,12 @@ export function ticket(ctx: Ctx, id: string): Result {
   const openWaits =
     one<{ n: number }>(ctx.db, "SELECT count(*) AS n FROM wait WHERE ticket_id = ? AND closed_at IS NULL", id)?.n ?? 0;
   const notes = all<{ title: string }>(ctx.db, "SELECT title FROM note WHERE ticket_id = ? ORDER BY position, id", id);
+  const pulls = pullItems(ctx, id);
   const lines = [
     `${t.id} | ${v(t.dir)} | ${v(t.title)}`,
     `status: ${v(t.status)}`,
     `repo: ${v(t.repo)} | worktree: ${v(t.worktree)} | branch: ${v(t.branch)}`,
-    `prs: ${v(t.prs)}`,
+    `prs: ${v(t.prs)}${pulls.length > 0 ? ` | ${cut(pulls.map(pullLabel).join(", "), 150)}` : ""}`,
     `gate: ${v(t.gate)}`,
     `decide: ${v(t.decide)}`,
     `next: ${v(t.next)}`,
@@ -136,16 +150,18 @@ export function ticket(ctx: Ctx, id: string): Result {
       openWaits,
       steps,
       notes: notes.map((n) => n.title),
+      pulls,
     },
   };
 }
 
-export function boardLine(t: Ticket): string {
+function boardLine(t: Ticket, pulls: ItemRow[]): string {
   let line = `  [${t.tracker_priority || "-"}]`;
   if (trackerDisagrees(t)) line += ` [TRACKER: ${t.tracker_state}]`;
   if (t.position !== null) line += ` #${t.position}`;
   line += ` ${t.id} | ${cut(t.status || "-", 90)}`;
-  if (has(t.prs)) line += ` | PR ${cut(t.prs, 90)}`;
+  if (pulls.length > 0) line += ` | PR ${cut(pulls.map(pullLabel).join(", "), 90)}`;
+  else if (has(t.prs)) line += ` | PR ${cut(t.prs, 90)}`;
   if (has(t.gate)) line += ` | GATE: ${cut(t.gate, 90)}`;
   if (has(t.decide)) line += ` | DECIDE: ${cut(t.decide, 90)}`;
   return `${line} | next: ${cut(t.next || "-", 90)}`;
@@ -162,12 +178,15 @@ export function board(ctx: Ctx, pattern: string | undefined): Result {
     (t) => !filter || filter.test(t.id) || filter.test(t.title ?? "") || filter.test(t.path ?? ""),
   );
   const lines: string[] = [];
-  const groups: Record<string, Ticket[]> = {};
+  const groups: Record<string, (Ticket & { pulls: ItemRow[] })[]> = {};
   for (const dir of ctx.config.openDirs) {
-    const group = tickets.filter((t) => t.dir === dir).sort(byOrder);
+    const group = tickets
+      .filter((t) => t.dir === dir)
+      .sort(byOrder)
+      .map((t) => ({ ...t, pulls: pullItems(ctx, t.id) }));
     if (group.length === 0) continue;
     groups[dir] = group;
-    lines.push(`== ${dir}`, ...group.map(boardLine));
+    lines.push(`== ${dir}`, ...group.map((t) => boardLine(t, t.pulls)));
   }
   return { text: lines.join("\n") || "no open tickets", json: groups };
 }
@@ -825,6 +844,26 @@ export function mergeTicket(ctx: Ctx, id: string, into: string): Result {
   exec(ctx, "UPDATE ticket SET updated_at = ? WHERE id = ?", nowIso(ctx.now), into);
   event(ctx, into, `merged ${id}${from.title ? `: ${from.title}` : ""}`);
   return { text: `${id} merged into ${into}`, json: { id: into, from: id } };
+}
+
+export type TrackerFields = {
+  id: string;
+  state: string | null;
+  priority: string | null;
+  assignee: string | null;
+  url: string | null;
+  updated: string | null;
+};
+
+export function setTracker(ctx: Ctx, t: TrackerFields): boolean {
+  const result = ctx.db
+    .prepare(
+      `UPDATE ticket SET tracker_state = ?1, tracker_priority = ?2, tracker_assignee = ?3, tracker_url = ?4, tracker_updated = ?5
+       WHERE id = ?6 AND (tracker_state, tracker_priority, tracker_assignee, tracker_url, tracker_updated)
+         IS NOT (?1, ?2, ?3, ?4, ?5)`,
+    )
+    .run(t.state, t.priority, t.assignee, t.url, t.updated, t.id);
+  return result.changes > 0;
 }
 
 export function move(ctx: Ctx, id: string, dir: string): Result {

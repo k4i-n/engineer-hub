@@ -6,8 +6,8 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 
 | Read | Prints |
 |---|---|
-| `hub ticket <id>` | state, tracker fields, step progress and the next step, the last 3 events, open drafts, open items and waits, note titles (under 25 lines) |
-| `hub board [regex]` | open tickets grouped by dir, one line each |
+| `hub ticket <id>` | state with the state of each attached PR (`#140 approved`), tracker fields, step progress and the next step, the last 3 events, open drafts, open items and waits, note titles (under 25 lines) |
+| `hub board [regex]` | open tickets grouped by dir, one line each; `PR` shows the attached PRs with their state (`#140 approved, #141 checks failing`), else the `prs` text |
 | `hub next` | the next action of each ticket in progress, then to do, in your order, then by tracker priority |
 | `hub gates` | tickets waiting on a human decision |
 | `hub changed --since <date\|yesterday\|today>` | events and state changes since a day |
@@ -85,7 +85,7 @@ Config lives in the database. `hub config` lists every key with its value:
 | `githubReviewQuery` | `"is:pr is:open review-requested:@me archived:false"` | the GitHub search for review requests |
 | `ignoreRepos` | `{"review_request":[],"pr":[]}` | repos whose review requests or PRs of yours are ignored |
 | `laterHour` | `9` | the hour "later until tomorrow" means |
-| `recordActions` | `git push`, `gh pr create\|merge\|comment\|review\|close\|edit`, `gh issue create\|comment\|close\|edit` | regular expressions for shell commands a session must record in hub before it stops; `[]` switches the Stop hook off |
+| `recordActions` | `git push`, `gh pr create\|merge\|comment\|review\|close\|edit`, `gh issue create\|comment\|close\|edit` | regular expressions for shell commands a session must record in hub before it stops, and whose printed PR the PostToolUse hook links to the ticket on the current branch; `[]` switches the Stop hook off |
 | `autoBackup` | `true` | back up the database on a schedule |
 | `backupEvery` | `"1d"` | how often: `1h`, `6h`, `12h`, `1d` or `7d` |
 | `backupDir` | `""` | backup folder, absolute or `~/…`; empty means `backups/` next to the database |
