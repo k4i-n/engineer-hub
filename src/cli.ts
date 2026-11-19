@@ -38,7 +38,7 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         draft-rm <id> <label> (unsent only) | draft-mv <id> <label> <new label>
         draft-later <id> <label> [--for 1h|tomorrow|tomorrow 12:00]
         match <id> <label> --ref <url> (--file | --stdin) | match <id> <label> (yes | no)
-        posted <id> <label> [--at <when>] [--channel <c>] [--answer <text>] [--ref <url>] [--file | --stdin]
+        posted <id> <label> [--at <when>] [--channel <c>] [--answer <text>] [--ref <url>] [--file | --stdin] | unposted <id> <label>
         link <id> <url> [--kind <k>] [--title <t>]
         item put --stdin | item close <item>... | item snooze <item> [--for 1d|tomorrow] | item reopen <item> | item attach <item> <id> | item detach <item>
         item ignore <item> [--repo] | item unignore <item> [--repo]
@@ -278,6 +278,7 @@ const COMMANDS: Record<string, Handler> = {
     const usage = "draft-later <id> <label> [--for 1h|tomorrow|tomorrow 12:00]";
     return c("draft_later", { id: arg(a, 0, usage), label: arg(a, 1, usage), for: v.for });
   },
+  unposted: (a) => c("unposted", { id: arg(a, 0, "unposted <id> <label>"), label: arg(a, 1, "unposted <id> <label>") }),
   posted: (a, v, io) => {
     const usage = "posted <id> <label>";
     const sent = v.file !== undefined || v.stdin ? body(v, io) : undefined;

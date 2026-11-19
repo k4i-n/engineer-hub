@@ -327,6 +327,12 @@ describe("writes", () => {
     );
     assert.match(await ok("search", "ten per minute"), /^draft ENG-7 ask product:/m);
 
+    assert.equal(await ok("unposted", "ENG-7", "ask product"), 'ENG-7 draft "ask product" not sent');
+    assert.equal(await ok("drafts", "ENG-7"), "ask product | draft | #product");
+    assert.equal(await ok("draft-show", "ENG-7", "ask product"), "Can we cap exports at 10 a minute?");
+    assert.match((await hub("unposted", "ENG-7", "ask product")).err, /is not sent/);
+    await ok("posted", "ENG-7", "ask product");
+
     stdin = "Second try: cap at 20?";
     await ok("draft", "ENG-7", "ask product", "--stdin");
     assert.equal(await ok("drafts", "ENG-7"), "ask product | draft | #product");

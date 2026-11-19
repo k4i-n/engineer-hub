@@ -591,6 +591,19 @@ export function draftRemove(ctx: Ctx, id: string, label: string): Result {
   return { text: `${id} draft "${label}" removed`, json: { ticket_id: id, label } };
 }
 
+export function unposted(ctx: Ctx, id: string, label: string): Result {
+  const draft = getDraft(ctx, id, label);
+  if (draft.status === "draft") throw new HubError(`draft "${label}" on ${id} is not sent`);
+  ctx.db
+    .prepare(
+      `UPDATE draft SET status = 'draft', posted_at = NULL, answer = NULL, sent_text = NULL, sent_ref = NULL, updated_at = ?
+       WHERE ticket_id = ? AND label = ?`,
+    )
+    .run(nowIso(ctx.now), id, label);
+  touch(ctx, id);
+  return { text: `${id} draft "${label}" not sent`, json: { ticket_id: id, label, status: "draft" } };
+}
+
 export function draftRename(ctx: Ctx, id: string, label: string, to: string): Result {
   if (!to.trim()) throw new HubError("draft label is empty");
   getDraft(ctx, id, label);

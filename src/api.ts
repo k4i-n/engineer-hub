@@ -302,6 +302,13 @@ export const ROUTES: Route[] = [
       }),
   },
   {
+    name: "unposted",
+    method: "POST",
+    path: "/tickets/{id}/drafts/{label}/unposted",
+    about: "Mark a sent draft not sent, dropping its sent wording, permalink and answer.",
+    run: (ctx, a) => commands.unposted(ctx, str(a, "id"), str(a, "label")),
+  },
+  {
     name: "draft_remove",
     method: "POST",
     path: "/tickets/{id}/drafts/{label}/remove",
@@ -940,6 +947,7 @@ const HUMAN_NOTES: Record<string, (ctx: Ctx, a: Args) => Note | null> = {
   wait_close: (ctx, a) => waitNote(ctx, str(a, "wait"), "answered"),
   wait_reopen: (ctx, a) => waitNote(ctx, str(a, "wait"), "waiting again"),
   posted: (_ctx, a) => ({ ticket: str(a, "id"), text: `sent draft "${str(a, "label")}"` }),
+  unposted: (_ctx, a) => ({ ticket: str(a, "id"), text: `draft "${str(a, "label")}" not sent` }),
   draft_later: (_ctx, a) => ({
     ticket: str(a, "id"),
     text: `send draft "${str(a, "label")}" later (${opt(a, "for") ?? "tomorrow"})`,
