@@ -84,7 +84,7 @@ hub import --root ~/work/agent --apply   # writes; a second --apply reports chan
 
 The importer reads, and never writes:
 
-- `tasks/<dir>/**/<id>*.md`: a `Status:` / `Repo:` / `Next:` … state block, `## Log` entries (`- 2026-11-12 14:20: text`), `## Messages` drafts (`### label`), and a tracker block between the sync markers.
+- `tasks/<dir>/**/<id>*.md`: a `Status:` / `Repo:` / `Next:` … state block (`Order: 2` or `Order: P2` is the ticket's place, as `hub order` sets it), `## Log` entries (`- 2026-11-12 14:20: text`), `## Messages` drafts (`### label`), and a tracker block between the sync markers.
 - `plan/plan-YYYY-MM-DD.md`: day plans.
 
 Every section lands in the database. Other headings become notes. A state field over its limit is cut and its full text kept in a `State notes` note. After the import, move the markdown folder to a backup: from then on the database is the only source of truth.
