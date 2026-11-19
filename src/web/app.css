@@ -219,17 +219,6 @@ a:hover {
 .sync-result.bad {
   color: var(--red);
 }
-.live {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--green);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 22%, transparent);
-}
-body.offline .live {
-  background: var(--red);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 22%, transparent);
-}
 body.offline .top::after {
   content: "Offline";
   position: absolute;
@@ -244,7 +233,8 @@ body.offline .top::after {
   border-radius: 999px;
 }
 .gear {
-  font-size: 18px;
+  font-size: 24px;
+  line-height: 1;
   color: var(--muted);
   width: 32px;
   height: 32px;
@@ -1302,11 +1292,6 @@ a.chip-btn:hover {
 .d-fold:not([open]) .d-body {
   display: none;
 }
-.synced {
-  font-size: 12px;
-  color: var(--muted);
-  align-self: center;
-}
 .search {
   position: relative;
   flex: 0 1 420px;
@@ -1574,6 +1559,30 @@ a.chip-btn:hover {
 textarea.text {
   width: 100%;
   resize: vertical;
+}
+.src-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  margin-left: 4px;
+}
+.src-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 500;
+}
+.src-status.tone-red {
+  color: var(--red);
+}
+.src-how {
+  font-size: 12px;
+  color: var(--muted);
+  padding-left: 15px;
+}
+.src-script {
+  font-size: 12px;
 }
 .set-control > .code-block {
   flex-basis: 100%;

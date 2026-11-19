@@ -295,7 +295,9 @@ describe("serve", () => {
     assert.match(html, />banner<\/a>/);
     const drafts = /<section class="drafts">[\s\S]*?<\/section>/.exec(html)?.[0] ?? "";
     assert.doesNotMatch(drafts, /ask product/);
-    assert.match(html, /<span class="synced"[^>]*>synced just now<\/span><span class="src src-bad"[^>]*><i><\/i>slack/);
+    assert.match(html, /<div class="sources"><span class="src src-bad"[^>]*><i><\/i>slack/);
+    assert.match(html, /class="ic ic-sync sync-btn" data-act="sync" title="Sync · synced just now/);
+    assert.doesNotMatch(html, /class="live"/);
     assert.doesNotMatch(html, /class="src src-ok"/);
   });
 

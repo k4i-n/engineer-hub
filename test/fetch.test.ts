@@ -143,6 +143,10 @@ describe("github", () => {
     assert.doesNotMatch(needs, /noisy/);
     const settings = await (await fetch(`${server.url}/settings`)).text();
     assert.ok(settings.includes(`data-config-input="githubReviewQuery" value="${narrow}"`));
+    assert.match(
+      settings,
+      /GitHub<\/span>[\s\S]*?<div class="src-info"><span class="src-status tone-green"><span class="dot"><\/span>Synced just now<\/span><span class="src-how">gh, signed in<\/span><\/div>/,
+    );
     const empty = await fetch(`${server.url}/api/v1/config/githubReviewQuery`, {
       method: "PUT",
       headers: { authorization: `Bearer ${server.token}` },
@@ -214,6 +218,7 @@ describe("github", () => {
       settings,
       /gh is not installed[\s\S]*?<div class="md code-block"><pre><code>brew install gh<\/code><\/pre><\/div>/,
     );
+    assert.match(settings, /<span class="src-status tone-red"><span class="dot"><\/span>gh is not installed<\/span>/);
   });
 
   test("the timer fetches only sources that are on, once their interval passed", async () => {
