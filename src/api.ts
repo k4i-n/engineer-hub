@@ -647,15 +647,18 @@ export const ROUTES: Route[] = [
     name: "source_set",
     method: "PATCH",
     path: "/sources/{name}",
-    about: "Turn a script source on or off, or change how often it runs. Its command is set from the terminal only.",
+    about:
+      "Turn a script source on or off, change how often it runs, or name the dashboard card its items go to. Its command is set from the terminal only.",
     body: {
       on: { type: "boolean", about: "run it on its timer" },
       every: { type: "string", about: "30m, 4h or 2d" },
+      section: { type: "string", about: "card title for its items; empty puts them back in the cards by kind" },
     },
     run: (ctx, a) =>
       scripts.setScript(ctx, str(a, "name"), {
         on: a.on === undefined ? null : a.on === true,
         every: opt(a, "every"),
+        section: opt(a, "section"),
       }),
   },
   {

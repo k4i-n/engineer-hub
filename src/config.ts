@@ -46,6 +46,19 @@ export type Config = {
 
 export type Layout = { top: string[]; left: string[]; right: string[] };
 
+const SECTION_ID = /^section-[\p{L}\p{N}-]{1,60}$/u;
+
+export function sectionId(title: string): string {
+  return `section-${title
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-|-$/g, "")}`;
+}
+
+function knownBlock(id: string): boolean {
+  return BLOCKS.includes(id) || SECTION_ID.test(id);
+}
+
 export const BLOCKS = [
   "overview",
   "pinned",
@@ -198,12 +211,12 @@ function semanticError(key: Key, value: unknown): string | undefined {
   }
   if (key === "layout") {
     const ids = Object.values(value as Layout).flat();
-    const unknown = ids.find((id) => !BLOCKS.includes(String(id)));
+    const unknown = ids.find((id) => !knownBlock(String(id)));
     if (unknown !== undefined) return `layout has an unknown block ${String(unknown)} (${BLOCKS.join(", ")})`;
     if (new Set(ids).size !== ids.length) return "layout lists a block twice";
   }
   if (key === "hiddenBlocks") {
-    const unknown = (value as string[]).find((id) => !BLOCKS.includes(id));
+    const unknown = (value as string[]).find((id) => !knownBlock(id));
     if (unknown !== undefined) return `hiddenBlocks has an unknown block ${unknown} (${BLOCKS.join(", ")})`;
   }
   if (key === "laterHour" && !(Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 23)) {
