@@ -6,6 +6,7 @@ import { applyImport, collectImport, countPlan, formatSummary } from "./importer
 import * as items from "./items.ts";
 import { moved } from "./moved.ts";
 import * as pins from "./pins.ts";
+import * as scripts from "./scripts.ts";
 import * as sources from "./sources.ts";
 import * as steps from "./steps.ts";
 import { HubError, nowIso, nowTs } from "./util.ts";
@@ -643,6 +644,28 @@ export const ROUTES: Route[] = [
     run: (ctx, a) => sources.synced(ctx, str(a, "name"), { cursor: opt(a, "cursor"), error: opt(a, "error") }),
   },
   {
+    name: "source_set",
+    method: "PATCH",
+    path: "/sources/{name}",
+    about: "Turn a script source on or off, or change how often it runs. Its command is set from the terminal only.",
+    body: {
+      on: { type: "boolean", about: "run it on its timer" },
+      every: { type: "string", about: "30m, 4h or 2d" },
+    },
+    run: (ctx, a) =>
+      scripts.setScript(ctx, str(a, "name"), {
+        on: a.on === undefined ? null : a.on === true,
+        every: opt(a, "every"),
+      }),
+  },
+  {
+    name: "source_remove",
+    method: "POST",
+    path: "/sources/{name}/remove",
+    about: "Remove a script source.",
+    run: (ctx, a) => scripts.removeScript(ctx, str(a, "name")),
+  },
+  {
     name: "brief",
     method: "GET",
     path: "/brief",
@@ -697,8 +720,8 @@ export const ROUTES: Route[] = [
     name: "fetch",
     method: "POST",
     path: "/fetch",
-    about: "Fetch the built-in sources that are on (or one) now, without waiting for the timer.",
-    body: { source: { type: "string", about: "github, linear or slack" } },
+    about: "Fetch the sources that are on (or one) now, without waiting for the timer.",
+    body: { source: { type: "string", about: "a source name: github, linear, slack or a script source" } },
     run: (_ctx, a, hooks) => hooks.fetchNow(opt(a, "source")),
   },
   {

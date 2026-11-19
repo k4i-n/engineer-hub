@@ -11,7 +11,7 @@ import { openDb } from "./db.ts";
 import { gate, type StopInput } from "./gate.ts";
 import { itemByRef } from "./items.ts";
 import { type PostToolInput, record } from "./record.ts";
-import { addScript, removeScript } from "./scripts.ts";
+import { addScript, removeScript, setScript } from "./scripts.ts";
 import { serve } from "./serve.ts";
 import * as service from "./service.ts";
 import { tokenPath } from "./token.ts";
@@ -46,6 +46,7 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         wait edit <wait> [--who <w>] [--ping-after 1d]
         source <name> [--cursor <c>] [--error <text>] | fetch [source]
         source add <name> --every 5m -- <program> [args] | source remove <name>
+        source set <name> [--on | --off] [--every 5m]
         moved --as <session id> [--start] | moved --hook (reads a Claude Code hook's JSON on stdin)
         record-gate --hook (Stop hook: blocks a session that ran a recordActions command and wrote nothing to hub after)
         record --hook (PostToolUse hook: links the PR a recordActions command printed to the one ticket on the current branch)
@@ -83,6 +84,8 @@ const OPTIONS = {
   "ping-after": { type: "string" },
   "send-at": { type: "string" },
   every: { type: "string" },
+  on: { type: "boolean" },
+  off: { type: "boolean" },
   as: { type: "string" },
   start: { type: "boolean" },
   hook: { type: "boolean" },
@@ -121,6 +124,8 @@ type Values = {
   "ping-after"?: string;
   "send-at"?: string;
   every?: string;
+  on?: boolean;
+  off?: boolean;
   as?: string;
   start?: boolean;
   hook?: boolean;
@@ -476,6 +481,16 @@ function localWrite(command: string, args: string[], values: Values, io: Io): Re
     const usage = "usage: hub source add <name> --every 5m -- <program> [args]";
     if (second === undefined || values.every === undefined) throw new HubError(usage);
     return local(values, io, (ctx) => addScript(ctx, second, values.every as string, args.slice(2)));
+  }
+  if (command === "source" && first === "set") {
+    const usage = "usage: hub source set <name> [--on | --off] [--every 5m]";
+    if (second === undefined || third !== undefined || (values.on === true && values.off === true)) {
+      throw new HubError(usage);
+    }
+    const on = values.on === true ? true : values.off === true ? false : null;
+    const every = values.every ?? null;
+    if (on === null && every === null) throw new HubError(usage);
+    return local(values, io, (ctx) => setScript(ctx, second, { on, every }));
   }
   if (command === "source" && first === "remove") {
     if (second === undefined || third !== undefined) throw new HubError("usage: hub source remove <name>");

@@ -20,10 +20,15 @@ export type Fetcher = {
   key: KeySpec | null;
   every?: string;
   argv?: string[];
+  on?: boolean;
   check: (sys: System) => Promise<Check>;
   fetch: (sys: System, ctx: Ctx, cursor: string | null) => Promise<Fetched>;
 };
 export type Status = { running: boolean; check: Check | null };
+
+export function isOn(c: Ctx, f: Fetcher): boolean {
+  return f.on ?? c.config.fetch[f.name] === true;
+}
 
 export function write(ctx: Ctx, name: string, fetched: Fetched): string {
   const parts: string[] = [];
@@ -66,7 +71,7 @@ export class Runner {
   }
 
   enabled(c: Ctx): Fetcher[] {
-    return this.fetchers(c).filter((f) => f.argv !== undefined || c.config.fetch[f.name] === true);
+    return this.fetchers(c).filter((f) => isOn(c, f));
   }
 
   due(c: Ctx): Fetcher[] {
@@ -112,7 +117,7 @@ export class Runner {
   }
 
   fixes(f: Fetcher): string[] {
-    if (f.argv !== undefined) return [`hub source remove ${f.name}`];
+    if (f.argv !== undefined) return [];
     if (f.key === null) return this.status.get(f.name)?.check?.fix ?? [];
     const c = storeCommands(f.key, this.sys.platform);
     return [c.hub, c.sealcall];
