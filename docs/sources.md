@@ -63,7 +63,8 @@ For everything else an agent reads each source (Slack, the tracker, mail, alerts
 | `kind` | `pr`, `issue`, `review_request`, `thread`, `message`, `mail`, `alert`, `doc`, `run` or `other`, required |
 | `ref` | the item's identity; defaults to `url`, one of the two is required |
 | `title`, `url`, `state`, `author` | optional; a missing key keeps the stored value |
-| `ticket` | attach to this ticket; without it an id matching `ticketIdPattern` in the title or URL attaches it |
+| `ticket` | attach to this ticket; without it an id matching `ticketIdPattern` in the title or URL attaches it, else one in `context` |
+| `context` | text searched for a ticket id after the title and URL, such as a PR's branch name and body; not stored (max 8000 chars) |
 | `needs_me` | `true` when the item waits on you |
 
 The batch is checked whole before anything is written. An unchanged item changes nothing. A new item on a ticket, an attach and a state change become `sync` events on the ticket. A state change or a new `needs_me` reopens a closed item.

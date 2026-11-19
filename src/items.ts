@@ -28,13 +28,14 @@ export type ItemInput = {
   author: string | null;
   ticket_id: string | null;
   needs_me: boolean | null;
+  context: string | null;
 };
 
 export type Upsert = "new" | "changed" | "unchanged";
 
 const MAX_TITLE = 240;
-const MAX_LENGTH: Record<string, number> = { ref: 2048, url: 2048, state: 60, author: 120 };
-const INPUT_KEYS = ["source", "ref", "kind", "title", "url", "state", "author", "ticket", "needs_me"];
+const MAX_LENGTH: Record<string, number> = { ref: 2048, url: 2048, state: 60, author: 120, context: 8000 };
+const INPUT_KEYS = ["source", "ref", "kind", "title", "url", "state", "author", "ticket", "needs_me", "context"];
 
 export function itemByRef(db: DatabaseSync, ref: string): ItemRow | undefined {
   return one<ItemRow>(db, "SELECT * FROM item WHERE ref = ?", ref);
@@ -75,10 +76,11 @@ function event(ctx: Ctx, ticketId: string, text: string, ref: string): void {
 }
 
 function matchTicket(ctx: Ctx, texts: (string | null)[]): string | null {
-  const pattern = new RegExp(ctx.config.ticketIdPattern, "g");
+  const pattern = new RegExp(ctx.config.ticketIdPattern, "gi");
   for (const text of texts) {
-    for (const [id] of (text ?? "").matchAll(pattern)) {
-      if (one(ctx.db, "SELECT 1 FROM ticket WHERE id = ?", id)) return id;
+    for (const [found] of (text ?? "").matchAll(pattern)) {
+      const ticket = one<{ id: string }>(ctx.db, "SELECT id FROM ticket WHERE id = ? COLLATE NOCASE", found);
+      if (ticket) return ticket.id;
     }
   }
   return null;
@@ -103,7 +105,7 @@ export function upsertItem(ctx: Ctx, input: ItemInput, withEvents: boolean): Ups
   const ref = input.url ?? input.ref;
   if (!existing) {
     const ignored = repoIgnored(ctx, input) ? "repo" : null;
-    const ticketId = input.ticket_id ?? matchTicket(ctx, [input.title, input.url, input.ref]);
+    const ticketId = input.ticket_id ?? matchTicket(ctx, [input.title, input.url, input.ref, input.context]);
     if (withEvents && ticketId !== null && ignored === null) event(ctx, ticketId, `New ${describe(input)}`, ref);
     db.prepare(
       `INSERT INTO item(source, ref, kind, title, url, state, author, ticket_id, needs_me, first_seen, changed_at, closed_at, ignored)
@@ -134,7 +136,9 @@ export function upsertItem(ctx: Ctx, input: ItemInput, withEvents: boolean): Ups
     ticket_id:
       input.ticket_id ??
       existing.ticket_id ??
-      (existing.detached ? null : matchTicket(ctx, [input.title, input.url, existing.title, existing.ref])),
+      (existing.detached
+        ? null
+        : matchTicket(ctx, [input.title, input.url, existing.title, existing.ref, input.context])),
     detached: input.ticket_id === null ? existing.detached : 0,
     needs_me: input.needs_me === null ? existing.needs_me : input.needs_me ? 1 : 0,
   };
@@ -217,6 +221,7 @@ export function parseItems(ctx: Ctx, input: string): ItemInput[] {
       author: text(line, "author", o.author),
       ticket_id: ticket,
       needs_me: o.needs_me === undefined ? null : o.needs_me,
+      context: text(line, "context", o.context),
     });
   }
   if (parsed.length === 0) throw new HubError("no items on stdin (one JSON object per line)");
@@ -378,7 +383,18 @@ export function link(ctx: Ctx, id: string, url: string, options: LinkOptions): R
   const kind = options.kind ?? existing?.kind ?? linkKind(url, source);
   upsertItem(
     ctx,
-    { source, ref: url, kind, title: options.title, url, state: null, author: null, ticket_id: id, needs_me: null },
+    {
+      source,
+      ref: url,
+      kind,
+      title: options.title,
+      url,
+      state: null,
+      author: null,
+      ticket_id: id,
+      needs_me: null,
+      context: null,
+    },
     false,
   );
   ctx.db.prepare("UPDATE ticket SET updated_at = ? WHERE id = ?").run(nowIso(ctx.now), id);
