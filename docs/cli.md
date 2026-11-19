@@ -19,7 +19,7 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 | `hub sources` | each source's last sync, cursor and error |
 | `hub steps <id>` | the ticket's steps, done ones ticked, with their evidence |
 | `hub brief` | what a sync needs to judge new messages: sources and cursors, open tickets, unsent drafts, drafts sent with wording pending, waits, tracked items (each section capped at 40 lines) |
-| `hub day [date]` | the RESUME block of a day plan (today, else the latest) |
+| `hub day [date] [--full]` | the rev and RESUME block of a day plan (today, else the latest); `--full` gives the whole plan |
 | `hub lint` | open tickets missing status, next or owner, or over a limit; exit 1 if any |
 | `hub config [key]` | effective config |
 
@@ -39,7 +39,7 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 | `hub item ignore <item> [--repo]`, `hub item unignore <item> [--repo]` | never shows the item again, whatever changes (it stays in `hub items --all`); `--repo` ignores every review request, or every PR of yours, from its repo, now and later (config `ignoreRepos`) |
 | `hub wait <id> <who> <url> [--ping-after 1d]`, `hub wait close <wait \| url>` | records a question asked of someone, closes it when they answer |
 | `hub source <name> [--cursor <c>] [--error <text>]` | records a sync of a source |
-| `hub day set <date> (--file \| --stdin)` | stores a day plan |
+| `hub day set <date> (--file \| --stdin) [--rev <rev>]` | stores a day plan; replacing one needs the rev `hub day` showed, and a stale rev is refused |
 | `hub ticket-new <id> <title> [--dir todo]`, `hub move <id> <dir>` | creates a ticket, moves it between dirs (a move drops its place in the order) |
 | `hub backup`, `hub backups` | backs up the database now, lists the backups newest first |
 | `hub restore <name>` | backs up the current database as `…-before-restore.db`, then replaces it with the named backup while hub keeps running |
@@ -77,6 +77,7 @@ Config lives in the database. `hub config` lists every key with its value:
 | `githubReviewQuery` | `"is:pr is:open review-requested:@me archived:false"` | the GitHub search for review requests |
 | `ignoreRepos` | `{"review_request":[],"pr":[]}` | repos whose review requests or PRs of yours are ignored |
 | `laterHour` | `9` | the hour "later until tomorrow" means |
+| `recordActions` | `git push`, `gh pr create\|merge\|comment\|review\|close\|edit`, `gh issue create\|comment\|close\|edit` | regular expressions for shell commands a session must record in hub before it stops; `[]` switches the Stop hook off |
 | `autoBackup` | `true` | back up the database on a schedule |
 | `backupEvery` | `"1d"` | how often: `1h`, `6h`, `12h`, `1d` or `7d` |
 | `backupDir` | `""` | backup folder, absolute or `~/…`; empty means `backups/` next to the database |

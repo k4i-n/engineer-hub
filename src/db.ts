@@ -100,7 +100,7 @@ export type StepRow = {
   done_at: string | null;
   evidence: string | null;
 };
-export type DayRow = { date: string; resume: string | null; body: string };
+export type DayRow = { date: string; resume: string | null; body: string; updated_at: string | null };
 
 export const LIMITED_FIELDS = ["status", "repo", "prs", "gate", "decide", "next", "owner"] as const;
 export const SETTABLE_FIELDS = [

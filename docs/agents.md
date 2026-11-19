@@ -16,6 +16,8 @@ Tools show as `mcp__plugin_engineer-hub_hub__<tool>`; allow the whole server wit
 
 The plugin's hooks tell every Claude Code session what moved, without a tool call: at session start a one-line count (`hub: 3 need you: 2 review requests, 1 alert; 1 ping due.`), and before each prompt the new or changed items that need you, answered waits, pings that came due and your dashboard clicks since that session's last look (nothing when nothing moved, or when hub is not running). Each session keeps its own mark. The same from a shell: `hub moved --as <session id> [--start]`.
 
+A Stop and SubagentStop hook (`hub record-gate --hook`) blocks a session that ran a command matching `recordActions` (by default `git push`, `gh pr create|merge|comment|review|close|edit` and `gh issue create|comment|close|edit`) and wrote nothing to hub after it, listing the last commands and asking it to log or link them and set the ticket's next. It checks that a hub write came after the action, not that it was the right one, and it fires once per stop. Heredoc bodies are ignored, but other quoted text is not.
+
 ## For agents
 
 With the hub MCP tools connected (plugin or `/mcp`), put this in the agent's instructions; the server's MCP instructions say the same in short:
@@ -25,7 +27,7 @@ Cold start for a ticket: brief, then board or ticket. Read a note only when the 
 During work: log what changed, readings and decisions; ticket_set next (one action) and gate (a decision waiting on the human); link every PR, run, thread or doc touched.
 Waiting on someone: wait_add with ping_after; waits with due says whom to ping.
 Drafts for humans to post: draft_save; when posted: posted with the wording actually sent and its permalink.
-Daily plan: day to resume; day_set after writing it. Longer content: note_save.
+Daily plan: day to resume; day_set after writing it. To change an existing plan: day with full, merge, day_set with its rev. Longer content: note_save.
 State fields are one line each; hub refuses more and says where the text belongs. Never answer a gate or a draft match for the human.
 ```
 
