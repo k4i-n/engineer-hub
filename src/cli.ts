@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -8,6 +9,8 @@ import * as commands from "./commands.ts";
 import { DEFAULTS, dbPath, loadConfig } from "./config.ts";
 import { openDb } from "./db.ts";
 import { gate, type StopInput } from "./gate.ts";
+import { itemByRef } from "./items.ts";
+import { type PostToolInput, record } from "./record.ts";
 import { addScript, removeScript } from "./scripts.ts";
 import { serve } from "./serve.ts";
 import * as service from "./service.ts";
@@ -45,6 +48,7 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         source add <name> --every 5m -- <program> [args] | source remove <name>
         moved --as <session id> [--start] | moved --hook (reads a Claude Code hook's JSON on stdin)
         record-gate --hook (Stop hook: blocks a session that ran a recordActions command and wrote nothing to hub after)
+        record --hook (PostToolUse hook: links the PR a recordActions command printed to the one ticket on the current branch)
         step add <id> <title> [--at <n>] | step done <id> <n> [--evidence <url>]
         step edit <id> <n> <title> | step undo <id> <n> | step rm <id> <n>
         day set <date> (--file <path> | --stdin) [--rev <rev>] | ticket-new <id> <title> [--dir todo]
@@ -550,21 +554,44 @@ async function hook(values: Values, io: Io): Promise<number> {
   return 0;
 }
 
-function recordActions(values: Values, io: Io): string[] {
-  const path = dbPath(values.db, io.env);
-  if (!existsSync(path)) return DEFAULTS.recordActions;
-  const db = openDb(path);
-  try {
-    return loadConfig(db).recordActions;
-  } finally {
-    db.close();
-  }
-}
-
 function recordGate(values: Values, io: Io): number {
   try {
-    const result = gate(JSON.parse(io.readStdin()) as StopInput, recordActions(values, io));
-    if (result !== "") io.stdout(result);
+    const input = JSON.parse(io.readStdin()) as StopInput;
+    const path = dbPath(values.db, io.env);
+    if (!existsSync(path)) {
+      const result = gate(input, DEFAULTS.recordActions);
+      if (result !== "") io.stdout(result);
+      return 0;
+    }
+    const db = openDb(path);
+    try {
+      const linked = (url: string) => (itemByRef(db, url)?.ticket_id ?? null) !== null;
+      const result = gate(input, loadConfig(db).recordActions, linked);
+      if (result !== "") io.stdout(result);
+    } finally {
+      db.close();
+    }
+  } catch {}
+  return 0;
+}
+
+function branchOf(cwd: string): string | null {
+  const git = spawnSync("git", ["-C", cwd, "branch", "--show-current"], { encoding: "utf8", timeout: 3000 });
+  return git.status === 0 ? git.stdout.trim() : null;
+}
+
+function recordHook(values: Values, io: Io): number {
+  try {
+    const input = JSON.parse(io.readStdin()) as PostToolInput;
+    const path = dbPath(values.db, io.env);
+    if (!existsSync(path)) return 0;
+    const db = openDb(path);
+    try {
+      const result = record({ db, config: loadConfig(db), now: io.now() }, input, branchOf);
+      if (result !== "") io.stdout(result);
+    } finally {
+      db.close();
+    }
   } catch {}
   return 0;
 }
@@ -583,6 +610,7 @@ export async function run(argv: string[], io: Io): Promise<number> {
   if (command === "mcp-headers") return mcpHeaders(parsed.values, io);
   if (command === "moved" && parsed.values.hook) return hook(parsed.values, io);
   if (command === "record-gate" && parsed.values.hook) return recordGate(parsed.values, io);
+  if (command === "record" && parsed.values.hook) return recordHook(parsed.values, io);
   const handler = command === undefined ? undefined : COMMANDS[command];
   if (command === undefined || handler === undefined) {
     io.stderr(USAGE);

@@ -85,7 +85,7 @@ Config lives in the database. `hub config` lists every key with its value:
 | `githubReviewQuery` | `"is:pr is:open review-requested:@me archived:false"` | the GitHub search for review requests |
 | `ignoreRepos` | `{"review_request":[],"pr":[]}` | repos whose review requests or PRs of yours are ignored |
 | `laterHour` | `9` | the hour "later until tomorrow" means |
-| `recordActions` | `git push`, `gh pr create\|merge\|comment\|review\|close\|edit`, `gh issue create\|comment\|close\|edit` | regular expressions for shell commands a session must record in hub before it stops; `[]` switches the Stop hook off |
+| `recordActions` | `git push`, `gh pr create\|merge\|comment\|review\|close\|edit`, `gh issue create\|comment\|close\|edit` | regular expressions for shell commands a session must record in hub before it stops, and whose printed PR the PostToolUse hook links to the ticket on the current branch; `[]` switches the Stop hook off |
 | `autoBackup` | `true` | back up the database on a schedule |
 | `backupEvery` | `"1d"` | how often: `1h`, `6h`, `12h`, `1d` or `7d` |
 | `backupDir` | `""` | backup folder, absolute or `~/…`; empty means `backups/` next to the database |
