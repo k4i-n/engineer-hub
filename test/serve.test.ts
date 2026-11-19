@@ -249,6 +249,35 @@ describe("serve", () => {
     assert.match(row, /chip-pop">.*pull\/4.*pull\/5/);
   });
 
+  test("ticket priority shows as bars before the id, urgent as a filled mark, none as an empty slot", async () => {
+    const db = new DatabaseSync(dbFile);
+    const setPriority = (id: string, priority: string | null) =>
+      db.prepare("UPDATE ticket SET tracker_priority = ? WHERE id = ?").run(priority, id);
+    setPriority("ENG-42", "High");
+    setPriority("ENG-7", null);
+    let html = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.match(
+      html,
+      /<div class="t-top"><span class="prio tone-orange" title="High" aria-label="High priority"><svg viewBox="0 0 16 16">(<rect class="on"[^>]*\/>){3}<\/svg><\/span><a[^>]*>ENG-42</,
+    );
+    assert.match(
+      html,
+      /<div class="t-top"><span class="prio tone-grey" aria-hidden="true"><svg viewBox="0 0 16 16">(<rect x[^>]*\/>){3}<\/svg><\/span><a[^>]*>ENG-7</,
+    );
+    assert.doesNotMatch(html, /class="pill tone-orange">High</);
+    setPriority("ENG-7", "Urgent");
+    db.close();
+    html = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.match(
+      html,
+      /<div class="t-top"><span class="prio tone-red prio-urgent" title="Urgent"[^>]*><svg[\s\S]*?<\/svg><\/span><a[^>]*>ENG-7</,
+    );
+    assert.match(
+      await (await fetch(`${server.url}/t/ENG-42`)).text(),
+      /<div class="page-head"><span class="prio tone-orange" title="High"/,
+    );
+  });
+
   test("ticket ids carry their full id as a title and text fields render markdown", async () => {
     await hub(["set", "ENG-7", "decide", "use `retry_after` or **backoff**?"]);
     const html = await (await fetch(`${server.url}/?part=1`)).text();
@@ -587,6 +616,11 @@ describe("serve", () => {
       return s.status === "running" ? undefined : s;
     });
     assert.deepEqual([failed.status, failed.detail], ["failed", "no source is on (hub config fetch)"]);
+    const html = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.match(
+      html,
+      /<div class="sync"><button type="button" class="ic ic-sync sync-btn bad" data-act="sync" title="Sync[^"]*\nFailed: no source is on \(hub config fetch\)"/,
+    );
   });
 
   test("Sync with Claude on runs the configured command once at a time with HUB_DB and HUB_URL set, and reports failure", async () => {
@@ -610,6 +644,10 @@ describe("serve", () => {
       return s.status === "running" ? undefined : s;
     });
     assert.deepEqual([finished.status, finished.detail], ["finished", `${dbFile} ${server.url}`]);
+    assert.match(
+      await (await fetch(`${server.url}/?part=1`)).text(),
+      /<div class="sync"><button type="button" class="ic ic-sync sync-btn" data-act="sync" title="Sync[^"]*\n[^"]+"/,
+    );
 
     setCommand(["node", "-e", "console.error('no connector'); process.exit(3)"]);
     assert.equal((await call("POST", "/sync", {})).status, 202);

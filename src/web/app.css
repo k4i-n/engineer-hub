@@ -208,17 +208,6 @@ a:hover {
   gap: 10px;
   min-width: 0;
 }
-.sync-result {
-  font-size: 12px;
-  color: var(--muted);
-  max-width: 360px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.sync-result.bad {
-  color: var(--red);
-}
 body.offline .top::after {
   content: "Offline";
   position: absolute;
@@ -233,14 +222,21 @@ body.offline .top::after {
   border-radius: 999px;
 }
 .gear {
-  font-size: 24px;
-  line-height: 1;
   color: var(--muted);
-  width: 32px;
-  height: 32px;
+  width: 38px;
+  height: 38px;
   display: grid;
   place-items: center;
   border-radius: 8px;
+}
+.gear svg {
+  width: 23px;
+  height: 23px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 .gear:hover,
 .gear.on {
@@ -370,6 +366,7 @@ h1 {
   font-size: 11px;
 }
 .page-head {
+  --prio-size: 22px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -675,6 +672,31 @@ button.busy::after {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+.prio {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: var(--prio-size, 17px);
+  height: var(--prio-size, 17px);
+  color: var(--tone);
+}
+.prio svg {
+  width: 100%;
+  height: 100%;
+}
+.prio rect {
+  fill: color-mix(in srgb, var(--muted) 28%, transparent);
+}
+.prio rect.on,
+.prio-urgent rect {
+  fill: currentColor;
+}
+.prio-urgent path {
+  fill: none;
+  stroke: var(--on-tone);
+  stroke-width: 2;
+  stroke-linecap: round;
 }
 .t-title {
   flex: 1;
@@ -1674,13 +1696,16 @@ kbd {
 }
 
 .sync-btn {
-  width: 34px;
-  height: 34px;
+  width: 38px;
+  height: 38px;
   color: var(--accent);
 }
 .sync-btn svg {
-  width: 19px;
-  height: 19px;
+  width: 23px;
+  height: 23px;
+}
+.sync-btn.bad {
+  color: var(--red);
 }
 .sync-btn:hover:not(:disabled) {
   color: var(--accent);
@@ -2007,9 +2032,6 @@ kbd {
   .sources {
     order: 5;
     flex-basis: 100%;
-  }
-  .sync-result {
-    display: none;
   }
   .need {
     grid-template-columns: auto minmax(0, 1fr) auto auto;

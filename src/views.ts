@@ -72,6 +72,7 @@ const DIR_TONE: Record<string, Tone> = {
   done: "green",
 };
 const PRIORITY_TONE: Record<string, Tone> = { urgent: "red", high: "orange", medium: "amber", low: "grey" };
+const PRIORITY_BARS: Record<string, number> = { low: 1, medium: 2, high: 3 };
 const EVENT_TONE: Record<string, Tone> = {
   step: "green",
   decision: "amber",
@@ -172,6 +173,7 @@ const ICON: Record<string, string> = {
   merge:
     '<circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="12" r="2"/><path d="M6 7v10"/><path d="M8 5c5 0 8 2.5 8 7"/>',
   link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
+  gear: '<path d="M12.2 2h-.4a2 2 0 0 0-2 2v.2a2 2 0 0 1-1 1.7l-.4.3a2 2 0 0 1-2 0l-.2-.1a2 2 0 0 0-2.7.7l-.2.4a2 2 0 0 0 .7 2.7l.2.1a2 2 0 0 1 1 1.7v.5a2 2 0 0 1-1 1.8l-.2.1a2 2 0 0 0-.7 2.7l.2.4a2 2 0 0 0 2.7.7l.2-.1a2 2 0 0 1 2 0l.4.3a2 2 0 0 1 1 1.7v.2a2 2 0 0 0 2 2h.4a2 2 0 0 0 2-2v-.2a2 2 0 0 1 1-1.7l.4-.3a2 2 0 0 1 2 0l.2.1a2 2 0 0 0 2.7-.7l.2-.4a2 2 0 0 0-.7-2.7l-.2-.1a2 2 0 0 1-1-1.7v-.5a2 2 0 0 1 1-1.8l.2-.1a2 2 0 0 0 .7-2.7l-.2-.4a2 2 0 0 0-2.7-.7l-.2.1a2 2 0 0 1-2 0l-.4-.3a2 2 0 0 1-1-1.7V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
 };
 
 const LATER_TEXT: Record<Later["act"], Record<string, string>> = {
@@ -262,6 +264,19 @@ function answerChip(label: string, data: Data, key: string): string {
 
 function pill(text: string, tone: Tone): string {
   return `<span class="pill tone-${tone}">${esc(text)}</span>`;
+}
+
+function priorityMark(priority: string | null): string {
+  const name = (priority ?? "").trim();
+  const key = name.toLowerCase();
+  const label = name === "" ? ' aria-hidden="true"' : ` title="${esc(name)}" aria-label="${esc(name)} priority"`;
+  const cls = `prio tone-${PRIORITY_TONE[key] ?? "grey"}`;
+  if (key === "urgent")
+    return `<span class="${cls} prio-urgent"${label}><svg viewBox="0 0 16 16"><rect x="1" y="1" width="14" height="14" rx="3.5"/><path d="M8 4.5v4.2M8 11.4v.1"/></svg></span>`;
+  const bars = PRIORITY_BARS[key] ?? 0;
+  const bar = (n: number, x: number, y: number) =>
+    `<rect${n <= bars ? ' class="on"' : ""} x="${x}" y="${y}" width="3" height="${14 - y}" rx="1"/>`;
+  return `<span class="${cls}"${label}><svg viewBox="0 0 16 16">${bar(1, 1.5, 9)}${bar(2, 6.5, 5.5)}${bar(3, 11.5, 2)}</svg></span>`;
 }
 
 function section(title: string, count: number | null, body: string, cls: string, extra = ""): string {
@@ -763,10 +778,9 @@ function ticketRow(ctx: Ctx, t: Ticket, done = false, needing: Need[] = []): str
     : p.next
       ? `${p.next.n}. ${p.next.title}`
       : (t.next ?? "");
-  const priority = (t.tracker_priority ?? "").trim();
   const drag = done ? "" : ` draggable="true" data-id="${esc(t.id)}" data-dir="${esc(t.dir ?? "")}"`;
   return `<li class="ticket${done ? " is-closed" : ""}" data-key="t-${esc(t.id)}" data-href="/t/${encodeURIComponent(t.id)}"${drag}>
-<div class="t-top">${ticketLink(t.id)}<span class="t-title">${line(ctx, t.title ?? "")}</span>${needPill(needing)}${priority ? pill(priority, PRIORITY_TONE[priority.toLowerCase()] ?? "grey") : ""}${pill(DIR_LABEL[t.dir ?? ""] ?? t.dir ?? "", DIR_TONE[t.dir ?? ""] ?? "grey")}</div>
+<div class="t-top">${priorityMark(t.tracker_priority)}${ticketLink(t.id)}<span class="t-title">${line(ctx, t.title ?? "")}</span>${needPill(needing)}${pill(DIR_LABEL[t.dir ?? ""] ?? t.dir ?? "", DIR_TONE[t.dir ?? ""] ?? "grey")}</div>
 <div class="t-meta">${progressView(ctx.config.progressStyle, p.done, p.total, false)}<span class="t-next">${line(ctx, next || "–", 160)}</span><span class="chips">${chips}</span></div>
 </li>`;
 }
@@ -908,19 +922,16 @@ function sourceChip(ctx: Ctx, s: SourceRow): string {
 function header(ctx: Ctx, sync: SyncState, active: "home" | "settings" | "ticket", needCount = 0): string {
   const sources = all<SourceRow>(ctx.db, "SELECT * FROM source ORDER BY name");
   const running = sync.status === "running";
-  const result =
-    sync.status === "failed"
-      ? `<span class="sync-result bad" title="${esc(sync.detail ?? "")}">${esc(cut(sync.detail ?? "Sync failed", 90))}</span>`
-      : sync.status === "finished"
-        ? `<span class="sync-result" title="${esc(sync.detail ?? "")}">${esc(cut(sync.detail || `Synced ${when(ctx, sync.at ?? nowIso(ctx.now))}`, 90))}</span>`
-        : "";
+  const failed = sync.status === "failed";
+  const last = failed ? `Failed: ${sync.detail ?? ""}` : sync.status === "finished" ? sync.detail : null;
+  const title = running ? "Syncing" : [syncTitle(ctx, sources), last].filter(Boolean).join("\n");
   const started = running && sync.at ? ` data-started="${esc(sync.at)}"` : "";
   return `<header class="top${running ? " syncing" : ""}">
 <a class="brand" href="/"><span class="logo"></span>hub${needCount > 0 ? `<span class="count hot" title="needs you">${needCount}</span>` : ""}</a>
 <div class="sources">${sourceProblems(ctx, sources)}${backupProblem(ctx)}</div>
 <div class="search" role="search"><input type="search" data-search-box placeholder="Search" aria-label="Search everything" autocomplete="off" spellcheck="false"><div class="search-pop" role="listbox" hidden></div></div>
-<div class="sync"${started}>${result}<button type="button" class="ic ic-sync sync-btn" data-act="sync" title="${running ? "Syncing" : esc(syncTitle(ctx, sources))}" aria-label="${running ? "Syncing" : "Sync"}"${running ? " disabled" : ""}>${svg("sync")}</button></div>
-<a class="gear${active === "settings" ? " on" : ""}" href="${active === "settings" ? "/" : "/settings"}" title="Settings" aria-label="Settings">⚙</a>
+<div class="sync"${started}><button type="button" class="ic ic-sync sync-btn${failed ? " bad" : ""}" data-act="sync" title="${esc(title)}" aria-label="${running ? "Syncing" : "Sync"}"${running ? " disabled" : ""}>${svg("sync")}</button></div>
+<a class="gear${active === "settings" ? " on" : ""}" href="${active === "settings" ? "/" : "/settings"}" title="Settings" aria-label="Settings">${svg("gear")}</a>
 <div class="strip"></div>
 </header>`;
 }
@@ -980,7 +991,6 @@ export function ticketBody(ctx: Ctx, id: string, sync: SyncState): string {
   );
   const notes = all<NoteRow>(ctx.db, "SELECT * FROM note WHERE ticket_id = ? ORDER BY position, id", id);
   const p = progress(ctx.db, id);
-  const priority = (t.tracker_priority ?? "").trim();
 
   const ticketMenu = moreMenu("menu-ticket", [
     menuItem("edit", "Edit title", { act: "ticket-title", ticket: t.id, ask: "Title", "ask-value": t.title ?? "" }),
@@ -994,7 +1004,7 @@ export function ticketBody(ctx: Ctx, id: string, sync: SyncState): string {
     menuItem("merge", "Merge into…", { act: "ticket-merge", ticket: t.id, ask: "Merge into", go: "/t/{value}" }),
     menuItem("trash", "Delete", { act: "ticket-delete", ticket: t.id, confirm: `Delete ${t.id}?`, go: "/" }),
   ]);
-  const head = `<div class="page-head">${ticketLink(t.id)}<h1>${line(ctx, t.title ?? "")}</h1>${ticketMenu}${priority ? pill(priority, PRIORITY_TONE[priority.toLowerCase()] ?? "grey") : ""}${pill(DIR_LABEL[t.dir ?? ""] ?? t.dir ?? "", DIR_TONE[t.dir ?? ""] ?? "grey")}${t.tracker_state ? pill(t.tracker_state, "violet") : ""}${link(t.tracker_url, "tracker ↗", "head-link")}</div>`;
+  const head = `<div class="page-head">${priorityMark(t.tracker_priority)}${ticketLink(t.id)}<h1>${line(ctx, t.title ?? "")}</h1>${ticketMenu}${pill(DIR_LABEL[t.dir ?? ""] ?? t.dir ?? "", DIR_TONE[t.dir ?? ""] ?? "grey")}${t.tracker_state ? pill(t.tracker_state, "violet") : ""}${link(t.tracker_url, "tracker ↗", "head-link")}</div>`;
   const state = `<dl class="state">${field(ctx, "Status", t.status)}${field(ctx, "Next", t.next, "blue")}${field(ctx, "Approve?", t.gate, "amber")}${field(ctx, "Decide", t.decide, "amber")}${field(ctx, "Repo", [t.repo, t.branch].filter(Boolean).join(" · "))}${field(ctx, "PRs", t.prs)}${field(ctx, "Owner", t.owner)}</dl>`;
   const stepList =
     steps.length === 0
