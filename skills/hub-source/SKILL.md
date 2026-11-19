@@ -38,4 +38,4 @@ hub source add <name> --every 5m -- node ~/.hub/sources/<name>.mjs [args]
 hub fetch <name>
 ```
 
-`hub source add` works from the terminal only; the API and the dashboard cannot add or change a command hub runs. `hub source remove <name>` stops it. Report the first lines of `hub items --source <name>` and nothing else.
+`hub source add` works from the terminal only; the API and the dashboard cannot add or change a command hub runs. `hub source set <name> --off` pauses it, `hub source remove <name>` stops it. Report the first lines of `hub items --source <name>` and nothing else.
