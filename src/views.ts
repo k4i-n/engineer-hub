@@ -913,18 +913,15 @@ function sourceChip(ctx: Ctx, s: SourceRow): string {
 function header(ctx: Ctx, sync: SyncState, active: "home" | "settings" | "ticket", needCount = 0): string {
   const sources = all<SourceRow>(ctx.db, "SELECT * FROM source ORDER BY name");
   const running = sync.status === "running";
-  const result =
-    sync.status === "failed"
-      ? `<span class="sync-result bad" title="${esc(sync.detail ?? "")}">${esc(cut(sync.detail ?? "Sync failed", 90))}</span>`
-      : sync.status === "finished"
-        ? `<span class="sync-result" title="${esc(sync.detail ?? "")}">${esc(cut(sync.detail || `Synced ${when(ctx, sync.at ?? nowIso(ctx.now))}`, 90))}</span>`
-        : "";
+  const failed = sync.status === "failed";
+  const last = failed ? `Failed: ${sync.detail ?? ""}` : sync.status === "finished" ? sync.detail : null;
+  const title = running ? "Syncing" : [syncTitle(ctx, sources), last].filter(Boolean).join("\n");
   const started = running && sync.at ? ` data-started="${esc(sync.at)}"` : "";
   return `<header class="top${running ? " syncing" : ""}">
 <a class="brand" href="/"><span class="logo"></span>hub${needCount > 0 ? `<span class="count hot" title="needs you">${needCount}</span>` : ""}</a>
 <div class="sources">${sourceProblems(ctx, sources)}${backupProblem(ctx)}</div>
 <div class="search" role="search"><input type="search" data-search-box placeholder="Search" aria-label="Search everything" autocomplete="off" spellcheck="false"><div class="search-pop" role="listbox" hidden></div></div>
-<div class="sync"${started}>${result}<button type="button" class="ic ic-sync sync-btn" data-act="sync" title="${running ? "Syncing" : esc(syncTitle(ctx, sources))}" aria-label="${running ? "Syncing" : "Sync"}"${running ? " disabled" : ""}>${svg("sync")}</button></div>
+<div class="sync"${started}><button type="button" class="ic ic-sync sync-btn${failed ? " bad" : ""}" data-act="sync" title="${esc(title)}" aria-label="${running ? "Syncing" : "Sync"}"${running ? " disabled" : ""}>${svg("sync")}</button></div>
 <a class="gear${active === "settings" ? " on" : ""}" href="${active === "settings" ? "/" : "/settings"}" title="Settings" aria-label="Settings">⚙</a>
 <div class="strip"></div>
 </header>`;

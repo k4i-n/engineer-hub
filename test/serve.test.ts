@@ -616,6 +616,11 @@ describe("serve", () => {
       return s.status === "running" ? undefined : s;
     });
     assert.deepEqual([failed.status, failed.detail], ["failed", "no source is on (hub config fetch)"]);
+    const html = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.match(
+      html,
+      /<div class="sync"><button type="button" class="ic ic-sync sync-btn bad" data-act="sync" title="Sync[^"]*\nFailed: no source is on \(hub config fetch\)"/,
+    );
   });
 
   test("Sync with Claude on runs the configured command once at a time with HUB_DB and HUB_URL set, and reports failure", async () => {
@@ -639,6 +644,10 @@ describe("serve", () => {
       return s.status === "running" ? undefined : s;
     });
     assert.deepEqual([finished.status, finished.detail], ["finished", `${dbFile} ${server.url}`]);
+    assert.match(
+      await (await fetch(`${server.url}/?part=1`)).text(),
+      /<div class="sync"><button type="button" class="ic ic-sync sync-btn" data-act="sync" title="Sync[^"]*\n[^"]+"/,
+    );
 
     setCommand(["node", "-e", "console.error('no connector'); process.exit(3)"]);
     assert.equal((await call("POST", "/sync", {})).status, 202);
