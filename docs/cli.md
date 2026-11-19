@@ -25,7 +25,8 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 
 | Write | Does |
 |---|---|
-| `hub set <id> <field> <value>` | field is status, repo, worktree, branch, prs, gate, decide, next or owner |
+| `hub set <id> <field> <value>` | field is title, status, repo, worktree, branch, prs, gate, decide, next or owner |
+| `hub rename <id> <new id>` | changes the ticket's id (a `NEW-` ticket to its tracker id once filed); its timeline, notes, drafts, steps, items, waits and pins follow, and a later write to the old id fails naming the new one |
 | `hub log <id> <text> [--kind log] [--source agent] [--ref <url>]` | adds an event stamped in the configured timezone |
 | `hub note <id> <title> (--file <path> \| --stdin) [--kind detail]` | adds or replaces a note |
 | `hub draft <id> <label> (--file \| --stdin) [--channel <c>] [--send-at <when>]` | adds or replaces a draft; `--send-at` takes `30m`, `4h`, `tomorrow`, `12:00`, `tomorrow 12:00` or `2026-11-20 12:00` |
