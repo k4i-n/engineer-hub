@@ -210,7 +210,10 @@ describe("github", () => {
     assert.match(await hub("fetch"), /^github: gh is not installed$/);
     assert.match(await hub("sources"), /github \| last sync .* \| error: gh is not installed/);
     const settings = await (await fetch(`${server.url}/settings?part=1`)).text();
-    assert.match(settings, /gh is not installed[\s\S]*?<pre class="text code">brew install gh<\/pre>/);
+    assert.match(
+      settings,
+      /gh is not installed[\s\S]*?<div class="md code-block"><pre><code>brew install gh<\/code><\/pre><\/div>/,
+    );
   });
 
   test("the timer fetches only sources that are on, once their interval passed", async () => {

@@ -135,6 +135,15 @@ function line(ctx: Ctx, text: string, max = Number.POSITIVE_INFINITY): string {
   return renderLine(text, (url, label) => link(url, label), max);
 }
 
+function markdown(ctx: Ctx, text: string): string {
+  const link = linker(ctx);
+  return renderMarkdown(text, (url, label) => link(url, label));
+}
+
+function codeBlock(text: string): string {
+  return `<div class="md code-block"><pre><code>${esc(text)}</code></pre></div>`;
+}
+
 function button(
   label: string,
   data: Record<string, string | number>,
@@ -235,7 +244,7 @@ function ignoreItems(ignore: Need["ignore"]): string[] {
 }
 
 function askChips(prompt: string, chips: string[]): string {
-  return `<span class="ask">${prompt === "" ? "" : `<span>${esc(prompt)}</span>`}${chips.join("")}</span>`;
+  return `<span class="ask">${prompt === "" ? "" : `<span>${prompt}</span>`}${chips.join("")}</span>`;
 }
 
 function answerChip(label: string, data: Data, key: string): string {
@@ -354,7 +363,7 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
       tone: "blue",
       title: `<span class="need-title">“${line(ctx, d.match_text ?? "", 180)}”</span>`,
       sub: "",
-      ask: askChips(`Your draft ${d.label}${where}?`, [
+      ask: askChips(`Your draft ${line(ctx, d.label)}${esc(where)}?`, [
         answerChip("Yes", { act: "match", ticket: d.ticket_id, label: d.label, answer: "yes" }, "y"),
         answerChip("No", { act: "match", ticket: d.ticket_id, label: d.label, answer: "no" }, "n"),
       ]),
@@ -373,8 +382,8 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
       since: d.send_at ?? now,
       verb: "Send",
       tone: "teal",
-      title: `<span class="need-title">${esc(d.label)}</span>`,
-      sub: esc(cut([d.channel, d.body.split("\n")[0]].filter(Boolean).join(" · "), 160)),
+      title: `<span class="need-title">${line(ctx, d.label)}</span>`,
+      sub: line(ctx, [d.channel, d.body].filter(Boolean).join(" · "), 160),
       ask: askChips("", [button("Copy", { copy: d.body }, { cls: "chip-btn" })]),
       ticket: d.ticket_id,
       href: null,
@@ -800,8 +809,8 @@ function draftsSection(ctx: Ctx): string {
             ? pill(`send ${when(ctx, d.send_at ?? "")}`, "grey")
             : "";
     return `<li class="draft${sent || later ? " is-dim" : ""}" data-key="d-${esc(d.ticket_id)}-${esc(d.label)}">
-<div class="d-head">${ticketLink(d.ticket_id)}<span class="d-label">${esc(d.label)}</span>${d.channel ? pill(d.channel, "teal") : ""}${state}<span class="d-actions">${button("Copy", { copy: d.body })}${button(sent ? "Sent" : "Sent", { act: "sent", ticket: d.ticket_id, label: d.label }, { cls: sent ? "" : "primary", disabled: sent || d.match_ref !== null })}</span></div>
-<details class="d-fold" data-key="dfold-${esc(d.ticket_id)}-${esc(d.label)}"><summary><pre class="d-body">${esc(d.body)}</pre></summary></details>
+<div class="d-head">${ticketLink(d.ticket_id)}<span class="d-label">${line(ctx, d.label)}</span>${d.channel ? pill(d.channel, "teal") : ""}${state}<span class="d-actions">${button("Copy", { copy: d.body })}${button(sent ? "Sent" : "Sent", { act: "sent", ticket: d.ticket_id, label: d.label }, { cls: sent ? "" : "primary", disabled: sent || d.match_ref !== null })}</span></div>
+<details class="d-fold" data-key="dfold-${esc(d.ticket_id)}-${esc(d.label)}"><summary><span class="d-line">${line(ctx, d.body)}</span><div class="d-body md">${markdown(ctx, d.body)}</div></summary></details>
 </li>`;
   });
   return section(
@@ -912,9 +921,7 @@ ${col("right")}
 function field(ctx: Ctx, label: string, value: string | null, tone: Tone | null = null): string {
   const v = (value ?? "").trim();
   if (v === "" || v === "-") return `<dt>${esc(label)}</dt><dd><span class="muted">–</span></dd>`;
-  const link = linker(ctx);
-  const body = renderMarkdown(v, (url, text) => link(url, text));
-  return `<dt>${esc(label)}</dt><dd class="md${tone ? ` tone-text-${tone}` : ""}">${body}</dd>`;
+  return `<dt>${esc(label)}</dt><dd class="md${tone ? ` tone-text-${tone}` : ""}">${markdown(ctx, v)}</dd>`;
 }
 
 export function ticketBody(ctx: Ctx, id: string, sync: SyncState): string {
@@ -964,7 +971,7 @@ export function ticketBody(ctx: Ctx, id: string, sync: SyncState): string {
   });
   const draftRows = drafts.map(
     (d) =>
-      `<li class="draft" data-key="td-${esc(d.label)}"><div class="d-head"><span class="d-label">${esc(d.label)}</span>${pill(d.status, d.status === "draft" ? "blue" : "green")}${d.channel ? pill(d.channel, "teal") : ""}<span class="d-actions">${button("Copy", { copy: d.sent_text ?? d.body })}</span></div><pre class="d-body">${esc(d.sent_text ?? d.body)}</pre></li>`,
+      `<li class="draft" data-key="td-${esc(d.label)}"><div class="d-head"><span class="d-label">${line(ctx, d.label)}</span>${pill(d.status, d.status === "draft" ? "blue" : "green")}${d.channel ? pill(d.channel, "teal") : ""}<span class="d-actions">${button("Copy", { copy: d.sent_text ?? d.body })}</span></div><div class="d-body md">${markdown(ctx, d.sent_text ?? d.body)}</div></li>`,
   );
   const own = needs(ctx, [t]).filter((n) => n.ticket === t.id && n.dim === null && !n.key.startsWith("wait-"));
   const ticketNeeds =
@@ -978,7 +985,7 @@ export function ticketBody(ctx: Ctx, id: string, sync: SyncState): string {
         );
   const noteRows = notes.map(
     (n) =>
-      `<details data-key="note-${esc(n.title)}"><summary>${esc(n.title)}</summary><div class="md">${renderMarkdown(n.body, (url, text) => link(url, text))}</div></details>`,
+      `<details data-key="note-${esc(n.title)}"><summary>${line(ctx, n.title)}</summary><div class="md">${markdown(ctx, n.body)}</div></details>`,
   );
   return `${header(ctx, sync, "ticket")}
 ${head}
@@ -1046,10 +1053,7 @@ function sourceRows(ctx: Ctx, list: Fetching[]): string {
           : f.last !== null
             ? `<span class="src-state">${esc(f.how ?? "ok")} · ${esc(ago(ctx, f.last) === "now" ? "just now" : `${ago(ctx, f.last)} ago`)}</span>`
             : `<span class="src-state">${f.on ? "not fetched yet" : "off"}</span>`;
-      const fixes =
-        f.script === null && f.ok === true && f.error === null
-          ? ""
-          : f.fixes.map((cmd) => `<pre class="text code">${esc(cmd)}</pre>`).join("");
+      const fixes = f.script === null && f.ok === true && f.error === null ? "" : f.fixes.map(codeBlock).join("");
       return row(f.name, `${swtch}${state}${fixes}`);
     })
     .join("");
@@ -1175,7 +1179,7 @@ ${section(
         ["4h", "4 hours"],
       ]),
     ) +
-    row("Command", `<pre class="text code">${esc(JSON.stringify(c.syncCommand))}</pre>`),
+    row("Command", codeBlock(JSON.stringify(c.syncCommand))),
   "set-sec",
 )}
 ${section(
