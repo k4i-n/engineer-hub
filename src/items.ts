@@ -277,25 +277,29 @@ function inRepo(ctx: Ctx, kind: string, repo: string, ignoredWithRepo: boolean):
   ).filter((i) => repoOf(i) === repo);
 }
 
-export function ignore(ctx: Ctx, key: string, wholeRepo: boolean): Result {
-  const item = findItem(ctx.db, key);
+export function ignoreRepo(ctx: Ctx, kind: string, repo: string): Result {
+  if (kind !== "review_request" && kind !== "pr") throw new HubError("kind must be review_request or pr");
   const at = nowIso(ctx.now);
-  const repo = repoOf(item);
-  if (wholeRepo && repo === null) throw new HubError(`#${item.id} is not a GitHub review request or PR`);
-  const targets = wholeRepo && repo !== null ? inRepo(ctx, item.kind, repo, false) : [item];
+  const targets = inRepo(ctx, kind, repo, false);
   transaction(ctx.db, () => {
-    if (wholeRepo && repo !== null) {
-      const list = ctx.config.ignoreRepos[item.kind] ?? [];
-      if (!list.includes(repo)) setIgnoreRepos(ctx, item.kind, [...list, repo]);
-    }
+    const list = ctx.config.ignoreRepos[kind] ?? [];
+    if (!list.includes(repo)) setIgnoreRepos(ctx, kind, [...list, repo]);
     for (const i of targets) {
-      ctx.db
-        .prepare("UPDATE item SET ignored = ?, closed_at = coalesce(closed_at, ?) WHERE id = ?")
-        .run(wholeRepo ? "repo" : "item", at, i.id);
+      ctx.db.prepare("UPDATE item SET ignored = 'repo', closed_at = coalesce(closed_at, ?) WHERE id = ?").run(at, i.id);
     }
   });
-  const text = wholeRepo ? `${KIND_NAME[item.kind] ?? item.kind}s from ${repo} ignored` : `#${item.id} ignored`;
-  return { text, json: { ids: targets.map((i) => i.id), repo: wholeRepo ? repo : null } };
+  return { text: `${KIND_NAME[kind] ?? kind}s from ${repo} ignored`, json: { ids: targets.map((i) => i.id), repo } };
+}
+
+export function ignore(ctx: Ctx, key: string, wholeRepo: boolean): Result {
+  const item = findItem(ctx.db, key);
+  const repo = repoOf(item);
+  if (wholeRepo && repo === null) throw new HubError(`#${item.id} is not a GitHub review request or PR`);
+  if (wholeRepo && repo !== null) return ignoreRepo(ctx, item.kind, repo);
+  ctx.db
+    .prepare("UPDATE item SET ignored = 'item', closed_at = coalesce(closed_at, ?) WHERE id = ?")
+    .run(nowIso(ctx.now), item.id);
+  return { text: `#${item.id} ignored`, json: { ids: [item.id], repo: null } };
 }
 
 export function unignoreRepo(ctx: Ctx, kind: string, repo: string): Result {

@@ -764,6 +764,59 @@ describe("serve", () => {
     assert.equal((await call("POST", "/nope", {})).status, 404);
   });
 
+  test("every dashboard click that changes state can be taken back", async () => {
+    const json = async (r: Promise<Response>) => {
+      const res = await r;
+      assert.equal(res.status, 200, await res.clone().text());
+      return (await res.json()) as Record<string, unknown>;
+    };
+    const ticket = async (id: string) => (await json(call("GET", `/tickets/${id}`))) as { gate: string | null };
+    const gate = (await ticket("ENG-42")).gate;
+    await json(call("POST", "/tickets/ENG-42/gate", { answer: "yes" }));
+    const home = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.match(home, /data-act="gate-reopen" data-ticket="ENG-42"/);
+    await json(call("POST", "/tickets/ENG-42/gate/reopen", {}));
+    assert.equal((await ticket("ENG-42")).gate, gate);
+    assert.doesNotMatch(await hub(["events", "ENG-42", "--full"]), /Yes: /);
+    assert.equal((await call("POST", "/tickets/ENG-42/gate/reopen", {})).status, 400);
+
+    const wait = await json(
+      call("POST", "/waits", {
+        ticket: "ENG-7",
+        who: "ana",
+        url: "https://acme.slack.com/archives/C1/p9",
+        ping_after: "1h",
+      }),
+    );
+    const pinged = await json(call("POST", `/waits/${wait.id}/pinged`, { for: "tomorrow" }));
+    assert.deepEqual(pinged.before, { ping_after: wait.ping_after, pinged_at: null });
+    assert.match(await hub(["events", "ENG-7", "--full"]), /Pinged ana/);
+    await json(call("POST", `/waits/${wait.id}/unpinged`, { ping_after: wait.ping_after }));
+    assert.doesNotMatch(await hub(["events", "ENG-7", "--full"]), /Pinged ana/);
+    assert.match(await hub(["waits"]), /ana/);
+
+    await hub(["draft", "ENG-7", "tell qa", "--stdin"], "fix is on staging");
+    const later = await json(call("POST", "/tickets/ENG-7/drafts/tell%20qa/later", { for: "4h" }));
+    assert.deepEqual(later.before, { send_at: null });
+    await json(call("POST", "/tickets/ENG-7/drafts/tell%20qa/send-at", {}));
+    assert.equal(await hub(["drafts", "ENG-7"]).then((t) => /tell qa \| draft(?! .*send)/.test(t)), true);
+
+    const sent = { sent_text: "fix is live on staging", sent_ref: "https://acme.slack.com/archives/C1/p10" };
+    await json(call("POST", "/tickets/ENG-7/drafts/tell%20qa/match", sent));
+    const asked = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.match(asked, /data-act="match" data-ticket="ENG-7" data-label="tell qa" data-text="fix is live on staging"/);
+    await json(call("POST", "/tickets/ENG-7/drafts/tell%20qa/match", { answer: "yes" }));
+    await json(call("POST", "/tickets/ENG-7/drafts/tell%20qa/unposted", {}));
+    await json(call("POST", "/tickets/ENG-7/drafts/tell%20qa/match", sent));
+    assert.match(await (await fetch(`${server.url}/?part=1`)).text(), /data-key="match-ENG-7-tell qa"/);
+
+    await json(call("POST", "/ignores/ignore", { kind: "pr", repo: "acme/web" }));
+    assert.match(await hub(["config", "ignoreRepos"]), /acme\/web/);
+    await json(call("POST", "/ignores/unignore", { kind: "pr", repo: "acme/web" }));
+    assert.doesNotMatch(await hub(["config", "ignoreRepos"]), /acme\/web/);
+    assert.equal((await call("POST", "/ignores/ignore", { kind: "issue", repo: "acme/web" })).status, 400);
+  });
+
   test("a write from another process reaches open pages as a change event", async () => {
     const events = await fetch(`${server.url}/events`);
     const reader = events.body?.getReader();

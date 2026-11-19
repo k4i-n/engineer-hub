@@ -88,8 +88,28 @@ export function pinged(ctx: Ctx, key: string, again: string): Result {
   });
   return {
     text: `wait #${w.id}: pinged ${w.who}, next ping after ${shown(ctx, after)}`,
-    json: { id: w.id, ping_after: after },
+    json: { id: w.id, ping_after: after, before: { ping_after: w.ping_after, pinged_at: w.pinged_at } },
   };
+}
+
+export function unpinged(ctx: Ctx, key: string, pingAfter: string | null, pingedAt: string | null): Result {
+  const w = openWait(ctx, key);
+  if (w.closed_at !== null) throw new HubError(`wait #${w.id} is closed`);
+  if (w.pinged_at === null) throw new HubError(`wait #${w.id} was not pinged`);
+  for (const value of [pingAfter, pingedAt])
+    if (value !== null && Number.isNaN(Date.parse(value))) throw new HubError(`not a time: ${value}`);
+  const at = nowIso(ctx.now);
+  transaction(ctx.db, () => {
+    ctx.db.prepare("UPDATE wait SET ping_after = ?, pinged_at = ? WHERE id = ?").run(pingAfter, pingedAt, w.id);
+    ctx.db
+      .prepare(
+        `DELETE FROM event WHERE id = (SELECT id FROM event WHERE ticket_id = ? AND kind = 'log' AND source = 'human'
+           AND text = ? AND ref = ? AND created_at = ?)`,
+      )
+      .run(w.ticket_id, `Pinged ${w.who}`, w.url, w.pinged_at);
+    ctx.db.prepare("UPDATE ticket SET updated_at = ? WHERE id = ?").run(at, w.ticket_id);
+  });
+  return { text: `wait #${w.id}: ping taken back`, json: { id: w.id, ping_after: pingAfter } };
 }
 
 export function reopenWait(ctx: Ctx, key: string): Result {
