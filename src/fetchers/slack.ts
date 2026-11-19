@@ -7,6 +7,8 @@ import { keyCheck, keyWay } from "./keyed.ts";
 
 const FIRST_LOOK_S = 2 * 86_400;
 const DAY_S = 86_400;
+const THREAD_LOOK_S = 3 * DAY_S;
+const THREADS = 20;
 const DONE_REACTIONS = new Set(["white_check_mark", "heavy_check_mark", "ballot_box_with_check", "done"]);
 const RECHECK = 30;
 const NO_SCOPE = new Set(["missing_scope", "no_permission", "not_allowed_token_type"]);
@@ -140,6 +142,15 @@ class Directory {
     return this.groups.get(id) ?? id;
   }
 
+  async replies(channel: string, ts: string, oldest: string): Promise<Match[]> {
+    const r = await this.soft<Answer & { messages: Match[] }>(
+      "conversations.replies",
+      { channel, ts, oldest, limit: "100" },
+      "channels:history",
+    );
+    return r?.messages ?? [];
+  }
+
   async reactions(channel: string, ts: string): Promise<{ user: string | null; reactions: Reaction[] } | null> {
     const r = await this.soft<Answer & { message?: { user?: string; reactions?: Reaction[] } }>(
       "reactions.get",
@@ -170,6 +181,35 @@ async function readable(dir: Directory, text: string): Promise<string> {
   }
   parts.push(text.slice(last));
   return parts.join("").replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
+}
+
+function inDm(c: Channel): boolean {
+  return c.is_im === true || c.is_mpim === true || c.id.startsWith("D") || (c.name ?? "").startsWith("mpdm-");
+}
+
+function spot(m: Match): string {
+  const where = messageOf(m.permalink);
+  return where === null ? m.permalink : `${where.channel}/${where.ts}`;
+}
+
+async function threadReplies(dir: Directory, me: string, since: string, sent: Match[]): Promise<Match[]> {
+  const threads = new Map<string, { where: Channel; ts: string; origin: string }>();
+  for (const m of sent) {
+    const thread = threadOf(m.permalink);
+    if (thread === null || threads.size >= THREADS) continue;
+    const where = m.channel ?? { id: thread.channel };
+    if (inDm(where)) continue;
+    threads.set(`${thread.channel}/${thread.ts}`, { where, ts: thread.ts, origin: new URL(m.permalink).origin });
+  }
+  const found: Match[] = [];
+  for (const t of threads.values()) {
+    for (const m of await dir.replies(t.where.id, t.ts, since)) {
+      if (m.ts === t.ts || m.user === me || Number(m.ts) <= Number(since)) continue;
+      const link = `${t.origin}/archives/${t.where.id}/p${m.ts.replace(".", "")}?thread_ts=${t.ts}&cid=${t.where.id}`;
+      found.push({ ...m, channel: t.where, permalink: link });
+    }
+  }
+  return found;
 }
 
 async function place(dir: Directory, me: string, c: Channel | undefined, fromMe: boolean): Promise<string> {
@@ -221,22 +261,29 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
   const auth = await slackGet<Answer & { user_id: string; user?: string }>(sys, way, "auth.test", {});
   const me = auth.user_id;
   const since = cursor ?? String(Math.floor(ctx.now.getTime() / 1000) - FIRST_LOOK_S);
-  const after = new Date((Number(since) - DAY_S) * 1000).toISOString().slice(0, 10);
+  const day = (s: number) => new Date((s - DAY_S) * 1000).toISOString().slice(0, 10);
+  const after = day(Number(since));
+  const threadsAfter = day(Math.min(Number(since), Math.floor(ctx.now.getTime() / 1000) - THREAD_LOOK_S));
   const newer = (m: Match) => Number(m.ts) > Number(since);
   const mentions = (await search(sys, way, `<@${me}> after:${after}`)).filter(newer);
-  const sent = (await search(sys, way, `from:<@${me}> after:${after}`)).filter(newer);
+  const recent = await search(sys, way, `from:<@${me}> after:${threadsAfter}`);
+  const sent = recent.filter(newer);
+  const dms = (await search(sys, way, `to:<@${me}> after:${after}`)).filter(
+    (m) => newer(m) && m.user !== me && m.channel !== undefined && inDm(m.channel),
+  );
   const alerts: Match[] = [];
   for (const name of ctx.config.slackAlertChannels) {
     const found = await search(sys, way, `in:#${name.replace(/^#/, "")} after:${after}`);
     alerts.push(...found.filter((m) => newer(m) && m.user !== me));
   }
-  const dir = new Directory(sys, way, [...mentions, ...sent, ...alerts]);
+  const dir = new Directory(sys, way, [...mentions, ...recent, ...dms, ...alerts]);
   const myName = auth.user ?? me;
+  const inThreads = await threadReplies(dir, me, since, recent);
   let newest = Number(since);
-  for (const m of [...mentions, ...sent, ...alerts]) newest = Math.max(newest, Number(m.ts));
+  for (const m of [...mentions, ...sent, ...dms, ...alerts, ...inThreads]) newest = Math.max(newest, Number(m.ts));
 
   const out: Record<string, unknown>[] = [];
-  const alertUrls = new Set(alerts.map((m) => m.permalink));
+  const seen = new Set(alerts.map(spot));
   for (const m of alerts) {
     out.push({
       source: "slack",
@@ -249,7 +296,8 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
     });
   }
   for (const m of mentions) {
-    if (m.user === me || alertUrls.has(m.permalink)) continue;
+    if (m.user === me || seen.has(spot(m))) continue;
+    seen.add(spot(m));
     out.push({
       source: "slack",
       kind: "message",
@@ -257,6 +305,19 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
       title: await line(dir, me, myName, m),
       author: m.user ? await dir.user(m.user) : m.username,
       state: "mention",
+      needs_me: true,
+    });
+  }
+  for (const [m, state] of [...dms.map((d) => [d, "dm"] as const), ...inThreads.map((r) => [r, "reply"] as const)]) {
+    if (seen.has(spot(m))) continue;
+    seen.add(spot(m));
+    out.push({
+      source: "slack",
+      kind: "message",
+      url: m.permalink,
+      title: await line(dir, me, myName, m),
+      author: m.user ? await dir.user(m.user) : m.username,
+      state,
       needs_me: true,
     });
   }
@@ -292,16 +353,19 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
     item.state = reacted.state;
     item.needs_me = !reacted.done;
   }
-  const replies = sent.flatMap((m) => {
+  const replies = recent.flatMap((m) => {
     const thread = threadOf(m.permalink);
-    return thread === null ? [] : [{ ...thread, at: Number(m.ts) }];
+    const dm = m.channel !== undefined && inDm(m.channel);
+    return thread === null ? [] : [{ ...thread, at: Number(m.ts), dm }];
   });
   for (const [url, item] of toCheck) {
     if (item.needs_me === false || item.kind === "alert") continue;
     const thread = threadOf(url);
     const at = messageOf(url);
     if (thread === null || at === null) continue;
-    const replied = replies.some((r) => r.channel === thread.channel && r.ts === thread.ts && r.at > Number(at.ts));
+    const replied = replies.some(
+      (r) => r.channel === thread.channel && r.at > Number(at.ts) && (r.dm || r.ts === thread.ts),
+    );
     if (!replied) continue;
     if (!out.includes(item)) out.push(item);
     item.state = "replied";

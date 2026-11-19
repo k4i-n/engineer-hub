@@ -509,7 +509,8 @@ describe("slack", () => {
       }
       if (u.pathname === "/api/conversations.replies") {
         assert.equal(u.searchParams.get("channel"), "C01");
-        assert.equal(u.searchParams.get("ts"), thread);
+        if (u.searchParams.get("ts") !== thread)
+          return { status: 200, body: JSON.stringify({ ok: true, messages: [] }) };
         return {
           status: 200,
           body: JSON.stringify({
@@ -558,7 +559,7 @@ describe("slack", () => {
       if (u.pathname === "/api/auth.test") return ok({ user_id: ME, user: "khai" });
       if (u.pathname === "/api/search.messages") {
         if ((p.get("query") ?? "").startsWith("from:")) {
-          const sentTs = ts(90);
+          const sentTs = ts(130);
           return ok({
             messages: {
               matches: [
@@ -774,6 +775,92 @@ describe("slack", () => {
     assert.match(await hub("fetch", "slack"), /items: 1 new, 1 changed/);
     assert.doesNotMatch(await hub("items", "--needs-me", "--source", "slack"), /can you review\?/);
     assert.match(await hub("items", "--source", "slack"), /can you review\? \| replied/);
+  });
+
+  test("DMs and replies in threads I posted in need me without a mention, until my later reply", async () => {
+    await hub("config", "fetch", '{"github":false,"slack":true}');
+    answers.security = (args) =>
+      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+    const link = (channel: string, t: string, thread?: string) =>
+      `https://acme.slack.com/archives/${channel}/p${t.replace(".", "")}${thread ? `?thread_ts=${thread}&cid=${channel}` : ""}`;
+    const ops = { id: "C01", name: "ops" };
+    const web = { id: "C02", name: "web" };
+    const parent = ts(4 * 86_400);
+    const posted = ts(300);
+    const said = (t: string, user: string, text: string, channel: object, permalink: string) => ({
+      ts: t,
+      text,
+      user,
+      channel,
+      permalink,
+    });
+    const lgtm = ts(30);
+    let sent = [
+      said(ts(3 * 86_400), ME, "on it", ops, link("C01", ts(3 * 86_400), parent)),
+      said(posted, ME, "PR is up", web, link("C02", posted)),
+      said(ts(20), ME, "great", { id: "D02", is_im: true }, link("D02", ts(20))),
+    ];
+    let toMe = [
+      said(ts(100), "U2", "can we talk?", { id: "D01", is_im: true }, link("D01", ts(100))),
+      said(ts(50), "U3", "build is green", { id: "D02", is_im: true }, link("D02", ts(50))),
+      said(ts(60), "U4", "not a DM", web, link("C02", ts(60))),
+      said(ts(70), ME, "mine", { id: "D01", is_im: true }, link("D01", ts(70))),
+    ];
+    let mentions = [said(lgtm, "U6", `<@${ME}> looks good`, web, link("C02", lgtm, posted))];
+    let inOps = [
+      { ts: parent, text: "deploy?", user: "U5" },
+      { ts: ts(3 * 86_400), text: "on it", user: ME },
+      { ts: ts(40), text: "thanks, merged", user: "U5" },
+    ];
+    const queries: string[] = [];
+    const ok = (body: unknown) => ({ status: 200, body: JSON.stringify({ ok: true, ...(body as object) }) });
+    httpAnswer = (url) => {
+      const u = new URL(url);
+      const p = u.searchParams;
+      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, user: "khai" });
+      if (u.pathname === "/api/search.messages") {
+        const q = p.get("query") ?? "";
+        queries.push(q);
+        const matches = q.startsWith("from:") ? sent : q.startsWith("to:") ? toMe : mentions;
+        return ok({ messages: { matches } });
+      }
+      if (u.pathname === "/api/conversations.replies") {
+        if (p.get("channel") === "C01") return ok({ messages: inOps });
+        return ok({
+          messages: [
+            { ts: posted, text: "PR is up", user: ME },
+            { ts: lgtm, text: "lgtm", user: "U6" },
+          ],
+        });
+      }
+      if (u.pathname === "/api/users.info") {
+        const names: Record<string, string> = { U2: "Ana", U3: "Ken", U5: "Bo", U6: "Yui" };
+        return ok({ user: { id: p.get("user"), profile: { display_name: names[p.get("user") ?? ""] ?? "" } } });
+      }
+      if (u.pathname === "/api/conversations.info") return ok({ channel: { id: p.get("channel"), is_im: true } });
+      if (u.pathname === "/api/reactions.get") return ok({ message: { reactions: [] } });
+      return { status: 404, body: "" };
+    };
+    assert.match(await hub("fetch", "slack"), /items: 6 new/);
+    assert.ok(queries.some((q) => new RegExp(`^to:<@${ME}> after:\\d{4}-\\d{2}-\\d{2}$`).test(q)));
+    const needs = await hub("items", "--needs-me", "--source", "slack");
+    assert.match(needs, /slack\/message \| needs you \| DM · Ana: can we talk\? \| dm/);
+    assert.match(needs, /slack\/message \| needs you \| #ops · Bo: thanks, merged \| reply/);
+    assert.match(needs, /slack\/message \| needs you \| #web · Yui: @U0ME looks good \| mention/);
+    assert.doesNotMatch(needs, /not a DM|build is green|mine/);
+    const all = await hub("items", "--source", "slack");
+    assert.match(all, /DM · Ken: build is green \| replied/);
+    assert.equal(all.match(/looks good/g)?.length, 1);
+
+    sent = [said(ts(5), ME, "nice", ops, link("C01", ts(5), parent))];
+    toMe = [];
+    mentions = [];
+    inOps = [];
+    assert.match(await hub("fetch", "slack"), /items: 1 new, 1 changed/);
+    const later = await hub("items", "--needs-me", "--source", "slack");
+    assert.doesNotMatch(later, /thanks, merged/);
+    assert.match(later, /DM · Ana: can we talk\? \| dm/);
+    assert.match(await hub("items", "--source", "slack"), /#ops · Bo: thanks, merged \| replied/);
   });
 
   test("a scope Slack refuses leaves its details out and becomes a warning, not an error", async () => {
