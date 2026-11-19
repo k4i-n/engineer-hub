@@ -6,8 +6,8 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 
 | Read | Prints |
 |---|---|
-| `hub ticket <id>` | state, tracker fields, step progress and the next step, the last 3 events, open drafts, open items and waits, note titles (under 25 lines) |
-| `hub board [regex]` | open tickets grouped by dir, one line each |
+| `hub ticket <id>` | state with the state of each attached PR (`#140 approved`), tracker fields, step progress and the next step, the last 3 events, open drafts, open items and waits, note titles (under 25 lines) |
+| `hub board [regex]` | open tickets grouped by dir, one line each; `PR` shows the attached PRs with their state (`#140 approved, #141 checks failing`), else the `prs` text |
 | `hub next` | the next action of each ticket in progress, then to do, in your order, then by tracker priority |
 | `hub gates` | tickets waiting on a human decision |
 | `hub changed --since <date\|yesterday\|today>` | events and state changes since a day |
