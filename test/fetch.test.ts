@@ -492,7 +492,7 @@ describe("linear", () => {
         ? { code: 0, stdout: "linear  api.linear.app  POST /graphql\n", stderr: "" }
         : {
             code: 0,
-            stdout: JSON.stringify({ errors: [{ message: "Authentication required" }] }),
+            stdout: JSON.stringify({ data: null, errors: [{ message: "Authentication required" }] }),
             stderr: "HTTP 200\n",
           };
     assert.match(await hub("fetch", "linear"), /^linear: linear: Authentication required$/);

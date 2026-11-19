@@ -55,7 +55,7 @@ type Note = {
 };
 type Comment = { url: string; body: string; user?: { name: string } | null; issue?: Issue | null };
 type Answer = {
-  data?: { issues: { nodes: Issue[] }; notifications: { nodes: Note[] }; comments: { nodes: Comment[] } };
+  data?: { issues: { nodes: Issue[] }; notifications: { nodes: Note[] }; comments: { nodes: Comment[] } } | null;
   errors?: { message: string }[];
 };
 
@@ -73,7 +73,7 @@ async function fetchLinear(sys: System, ctx: Ctx, cursor: string | null): Promis
     variables: { since, tickets },
   });
   const answer = JSON.parse(text) as Answer;
-  if (answer.data === undefined) throw new HubError(`linear: ${answer.errors?.[0]?.message ?? "no data"}`);
+  if (answer.data == null) throw new HubError(`linear: ${answer.errors?.[0]?.message ?? "no data"}`);
   const out: unknown[] = answer.data.issues.nodes.map((i) => {
     const closed = CLOSED_STATES.includes(i.state?.type ?? "");
     return {
