@@ -396,6 +396,13 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
   }
   for (const d of matches) {
     const where = d.channel ? ` in ${d.channel}` : "";
+    const proposal = {
+      act: "match",
+      ticket: d.ticket_id,
+      label: d.label,
+      text: d.match_text ?? "",
+      ref: d.match_ref ?? "",
+    };
     list.push({
       key: `match-${d.ticket_id}-${d.label}`,
       rank: 3,
@@ -405,8 +412,8 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
       title: `<span class="need-title">“${line(ctx, d.match_text ?? "", 180)}”</span>`,
       sub: "",
       ask: askChips(`Your draft ${line(ctx, d.label)}${esc(where)}?`, [
-        answerChip("Yes", { act: "match", ticket: d.ticket_id, label: d.label, answer: "yes" }, "y"),
-        answerChip("No", { act: "match", ticket: d.ticket_id, label: d.label, answer: "no" }, "n"),
+        answerChip("Yes", { ...proposal, answer: "yes" }, "y"),
+        answerChip("No", { ...proposal, answer: "no" }, "n"),
       ]),
       ticket: d.ticket_id,
       href: d.match_ref,
@@ -491,7 +498,7 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
       href: e.ticket_id === null ? null : `/t/${encodeURIComponent(e.ticket_id)}`,
       dim: e.text.startsWith("Yes") ? "yes" : "no",
       ok: null,
-      undo: null,
+      undo: e.ticket_id === null ? null : { act: "gate-reopen", ticket: e.ticket_id },
       later: null,
     });
   }
@@ -1192,7 +1199,7 @@ export function ticketBody(ctx: Ctx, id: string, sync: SyncState): string {
           .join("")}${openRows(openSteps)}</ol>`;
   const itemRows = items.map((i) => {
     const v = itemVerb(i);
-    return `<li class="need tone-${v.tone}${i.closed_at ? " is-dim" : ""}" data-key="ti-${i.id}"${i.closed_at ? ' data-tab-panel="all" hidden' : ""}><span class="verb">${esc(v.verb)}</span><span class="need-main">${link(i.url ?? (/^https?:/.test(i.ref) ? i.ref : null), i.title ?? i.ref, "need-title")}<span class="need-sub">${sourceLine([githubRef(i.url) ?? i.source, i.state, i.ignored ? "ignored" : i.closed_at ? "closed" : null])}</span></span>${moreMenu(`menu-ti-${i.id}`, [menuItem("ignore", "Detach", { act: "item-detach", id: i.id })])}</li>`;
+    return `<li class="need tone-${v.tone}${i.closed_at ? " is-dim" : ""}" data-key="ti-${i.id}"${i.closed_at ? ' data-tab-panel="all" hidden' : ""}><span class="verb">${esc(v.verb)}</span><span class="need-main">${link(i.url ?? (/^https?:/.test(i.ref) ? i.ref : null), i.title ?? i.ref, "need-title")}<span class="need-sub">${sourceLine([githubRef(i.url) ?? i.source, i.state, i.ignored ? "ignored" : i.closed_at ? "closed" : null])}</span></span>${moreMenu(`menu-ti-${i.id}`, [menuItem("ignore", "Detach", { act: "item-detach", id: i.id, ticket: t.id })])}</li>`;
   });
   const pinned = pins(ctx.db);
   const waitRows = waits.map((w) => {

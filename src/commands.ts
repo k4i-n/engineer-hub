@@ -514,6 +514,27 @@ export function answerGate(ctx: Ctx, id: string, answer: string): Result {
   return { text: `${id} gate answered ${answer}`, json: { id, gate: t.gate, answer } };
 }
 
+export function reopenGate(ctx: Ctx, id: string): Result {
+  const t = getTicket(ctx.db, id);
+  if (has(t.gate)) throw new HubError(`${id} has an open gate`);
+  const answer = one<EventRow>(
+    ctx.db,
+    `SELECT * FROM event WHERE ticket_id = ? AND kind = 'decision' AND source = 'human'
+       AND (text LIKE 'Yes: %' OR text LIKE 'No: %') ORDER BY id DESC LIMIT 1`,
+    id,
+  );
+  if (answer === undefined) throw new HubError(`${id} has no answered gate`);
+  const gate = answer.text.replace(/^(Yes|No): /, "");
+  const at = nowIso(ctx.now);
+  transaction(ctx.db, () => {
+    ctx.db.prepare("DELETE FROM event WHERE id = ?").run(answer.id);
+    ctx.db
+      .prepare("UPDATE ticket SET gate = ?, updated = ?, updated_at = ? WHERE id = ?")
+      .run(gate, today(ctx.now, ctx.config.timezone), at, id);
+  });
+  return { text: `${id} gate open again`, json: { id, gate } };
+}
+
 export type LogOptions = { kind: string; source: string; ref: string | null };
 
 export function log(ctx: Ctx, id: string, text: string, options: LogOptions): Result {
@@ -658,8 +679,18 @@ export function draftLater(ctx: Ctx, id: string, label: string, duration: string
     .run(send, nowIso(ctx.now), id, label);
   return {
     text: `${id} draft "${label}" send at ${nowTs(new Date(send), ctx.config.timezone)}`,
-    json: { ticket_id: id, label, send_at: send },
+    json: { ticket_id: id, label, send_at: send, before: { send_at: d.send_at } },
   };
+}
+
+export function draftSendAt(ctx: Ctx, id: string, label: string, sendAt: string | null): Result {
+  const d = getDraft(ctx, id, label);
+  if (d.status !== "draft") throw new HubError(`draft "${label}" on ${id} is already ${d.status}`);
+  if (sendAt !== null && Number.isNaN(Date.parse(sendAt))) throw new HubError(`not a time: ${sendAt}`);
+  ctx.db
+    .prepare("UPDATE draft SET send_at = ?, updated_at = ? WHERE ticket_id = ? AND label = ?")
+    .run(sendAt, nowIso(ctx.now), id, label);
+  return { text: `${id} draft "${label}" send time set back`, json: { ticket_id: id, label, send_at: sendAt } };
 }
 
 export type PostedOptions = {

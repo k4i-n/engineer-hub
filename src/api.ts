@@ -184,6 +184,13 @@ export const ROUTES: Route[] = [
     run: (ctx, a) => commands.answerGate(ctx, str(a, "id"), str(a, "answer")),
   },
   {
+    name: "gate_reopen",
+    method: "POST",
+    path: "/tickets/{id}/gate/reopen",
+    about: "Take back the last gate answer: the gate is open again and the decision is dropped.",
+    run: (ctx, a) => commands.reopenGate(ctx, str(a, "id")),
+  },
+  {
     name: "events",
     method: "GET",
     path: "/tickets/{id}/events",
@@ -330,6 +337,14 @@ export const ROUTES: Route[] = [
     about: "Move a draft's send time later.",
     body: { for: { type: "string", about: "30m, 4h, tomorrow, 12:00 or tomorrow 12:00 (default tomorrow)" } },
     run: (ctx, a) => commands.draftLater(ctx, str(a, "id"), str(a, "label"), opt(a, "for") ?? "tomorrow"),
+  },
+  {
+    name: "draft_send_at",
+    method: "POST",
+    path: "/tickets/{id}/drafts/{label}/send-at",
+    about: "Set a draft's send time back to a given time, or none.",
+    body: { send_at: { type: "string", about: "ISO time; absent for none" } },
+    run: (ctx, a) => commands.draftSendAt(ctx, str(a, "id"), str(a, "label"), opt(a, "send_at")),
   },
   {
     name: "match",
@@ -553,6 +568,17 @@ export const ROUTES: Route[] = [
     run: (ctx, a) => items.unignore(ctx, str(a, "key"), a.repo === true),
   },
   {
+    name: "repo_ignore",
+    method: "POST",
+    path: "/ignores/ignore",
+    about: "Ignore review requests or PRs from a repo.",
+    body: {
+      kind: { type: "string", required: true, about: "review_request or pr" },
+      repo: { type: "string", required: true, about: "owner/repo" },
+    },
+    run: (ctx, a) => items.ignoreRepo(ctx, str(a, "kind"), str(a, "repo")),
+  },
+  {
     name: "repo_unignore",
     method: "POST",
     path: "/ignores/unignore",
@@ -613,6 +639,17 @@ export const ROUTES: Route[] = [
     about: "Pinged again; remind later.",
     body: { for: later },
     run: (ctx, a) => waits.pinged(ctx, str(a, "wait"), opt(a, "for") ?? "1d"),
+  },
+  {
+    name: "wait_unpinged",
+    method: "POST",
+    path: "/waits/{wait}/unpinged",
+    about: "Take back a ping: the ping times go back to the given ones and the ping log line is dropped.",
+    body: {
+      ping_after: { type: "string", about: "ISO time; absent for none" },
+      pinged_at: { type: "string", about: "ISO time; absent for none" },
+    },
+    run: (ctx, a) => waits.unpinged(ctx, str(a, "wait"), opt(a, "ping_after"), opt(a, "pinged_at")),
   },
   {
     name: "wait_edit",
@@ -947,6 +984,9 @@ const HUMAN_NOTES: Record<string, (ctx: Ctx, a: Args) => Note | null> = {
   wait_close: (ctx, a) => waitNote(ctx, str(a, "wait"), "answered"),
   wait_reopen: (ctx, a) => waitNote(ctx, str(a, "wait"), "waiting again"),
   posted: (_ctx, a) => ({ ticket: str(a, "id"), text: `sent draft "${str(a, "label")}"` }),
+  gate_reopen: (_ctx, a) => ({ ticket: str(a, "id"), text: "gate answer taken back" }),
+  wait_unpinged: (ctx, a) => waitNote(ctx, str(a, "wait"), "ping taken back"),
+  draft_send_at: (_ctx, a) => ({ ticket: str(a, "id"), text: `draft "${str(a, "label")}" send time set back` }),
   unposted: (_ctx, a) => ({ ticket: str(a, "id"), text: `draft "${str(a, "label")}" not sent` }),
   draft_later: (_ctx, a) => ({
     ticket: str(a, "id"),
