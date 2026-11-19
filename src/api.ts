@@ -564,6 +564,13 @@ export const ROUTES: Route[] = [
     run: (ctx, a) => items.attach(ctx, str(a, "key"), str(a, "ticket")),
   },
   {
+    name: "item_detach",
+    method: "POST",
+    path: "/items/{key}/detach",
+    about: "Take an item off its ticket; matching by id no longer puts it back (attach does).",
+    run: (ctx, a) => items.detach(ctx, str(a, "key")),
+  },
+  {
     name: "waits",
     method: "GET",
     path: "/waits",
@@ -598,6 +605,17 @@ export const ROUTES: Route[] = [
     about: "Pinged again; remind later.",
     body: { for: later },
     run: (ctx, a) => waits.pinged(ctx, str(a, "wait"), opt(a, "for") ?? "1d"),
+  },
+  {
+    name: "wait_edit",
+    method: "PATCH",
+    path: "/waits/{wait}",
+    about: "Change who an open wait is on, or when to ping.",
+    body: {
+      who: { type: "string", about: "who was asked" },
+      ping_after: { type: "string", about: "ping after 30m, 4h or 2d from now" },
+    },
+    run: (ctx, a) => waits.edit(ctx, str(a, "wait"), opt(a, "who"), opt(a, "ping_after")),
   },
   {
     name: "wait_reopen",

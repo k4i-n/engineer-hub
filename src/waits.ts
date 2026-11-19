@@ -53,6 +53,17 @@ export function wait(ctx: Ctx, id: string, who: string, url: string, ping: strin
   };
 }
 
+export function edit(ctx: Ctx, key: string, who: string | null, ping: string | null): Result {
+  if (who === null && ping === null) throw new HubError("give who or ping_after (--who, --ping-after)");
+  if (who !== null && (!who.trim() || who.length > MAX_WHO)) throw new HubError(`who must be 1 to ${MAX_WHO} chars`);
+  const w = openWait(ctx, key);
+  if (w.closed_at !== null) throw new HubError(`wait #${w.id} is closed`);
+  const after = ping === null ? w.ping_after : afterDuration(ctx.now, ping, "--ping-after");
+  ctx.db.prepare("UPDATE wait SET who = ?, ping_after = ? WHERE id = ?").run(who ?? w.who, after, w.id);
+  const changed = { ...w, who: who ?? w.who, ping_after: after };
+  return { text: `wait ${waitLine(ctx, changed)}`, json: changed };
+}
+
 function openWait(ctx: Ctx, key: string): WaitRow {
   const row = /^\d+$/.test(key)
     ? one<WaitRow>(ctx.db, "SELECT * FROM wait WHERE id = ?", Number(key))
