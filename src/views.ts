@@ -282,9 +282,13 @@ function priorityMark(priority: string | null): string {
   return `<span class="${cls}"${label}><svg viewBox="0 0 16 16">${bar(1, 1.5, 9)}${bar(2, 6.5, 5.5)}${bar(3, 11.5, 2)}</svg></span>`;
 }
 
+function heading(title: string): string {
+  return `<h2><button type="button" class="fold" data-fold="${esc(title)}" aria-expanded="true">${esc(title)}</button></h2>`;
+}
+
 function section(title: string, count: number | null, body: string, cls: string, extra = ""): string {
   const badge = count === null ? "" : `<span class="count">${count}</span>`;
-  return `<section class="${cls}"><div class="sec-head"><h2>${esc(title)}</h2>${badge}${extra}</div>${body}</section>`;
+  return `<section class="${cls}"><div class="sec-head">${heading(title)}${badge}${extra}</div>${body}</section>`;
 }
 
 function empty(): string {
@@ -756,7 +760,7 @@ function overviewSection(ctx: Ctx, tickets: Ticket[], list: Need[], extra: Group
   const days = series(first, todayDate, recent);
   const doneTile = `<div class="tile"><div class="tile-head"><span class="tile-title">Steps done</span>${delta(recent.length, before)}</div><div class="hero">${recent.length}</div>${area(days, recent.length === 1 ? "step" : "steps")}</div>`;
 
-  return `<section class="overview"><div class="sec-head"><h2>Overview</h2>${rangeControl(c)}</div><div class="tiles">${needsTile}${progressTile}${ticketsTile}${doneTile}</div></section>`;
+  return `<section class="overview"><div class="sec-head">${heading("Overview")}${rangeControl(c)}</div><div class="tiles">${needsTile}${progressTile}${ticketsTile}${doneTile}</div></section>`;
 }
 
 function prChip(ctx: Ctx, i: ItemRow): string {
@@ -872,7 +876,7 @@ function ticketsSection(ctx: Ctx, tickets: Ticket[], needing: Map<string, Need[]
     groups.map((g) => ({ name: g.name, label: g.label, count: g.tickets.length })),
   );
   const lists = groups.map((g, i) => ticketList(ctx, g, i === 0, needing)).join("");
-  return `<section class="tickets"><div class="sec-head"><h2>Tickets</h2>${tabs}</div>${lists}</section>`;
+  return `<section class="tickets"><div class="sec-head">${heading("Tickets")}${tabs}</div>${lists}</section>`;
 }
 
 function todaySection(ctx: Ctx): string {

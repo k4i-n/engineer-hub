@@ -344,6 +344,43 @@ h2 {
   margin: 0;
   font-weight: 650;
 }
+button.fold {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  user-select: none;
+}
+button.fold:hover:not(:disabled) {
+  color: var(--text);
+}
+button.fold::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: rotate(-45deg);
+  transition: transform 0.15s;
+}
+button.fold[aria-expanded="true"]::before {
+  transform: rotate(45deg);
+}
+.is-folded > :not(.sec-head),
+.is-folded > .sec-head > :not(h2, .count) {
+  display: none;
+}
+.is-folded > .sec-head {
+  margin-bottom: 0;
+}
 h1 {
   font-size: 20px;
   margin: 0;
