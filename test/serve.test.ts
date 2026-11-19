@@ -160,7 +160,7 @@ describe("serve", () => {
 
   test("My PRs lists every open PR with its status; ones waiting on others do not count as needing you", async () => {
     const before = Number(/data-needs-count="(\d+)"/.exec(await (await fetch(`${server.url}/?part=1`)).text())?.[1]);
-    const pr = (n: number, state: string, needs_me: boolean) =>
+    const pr = (n: number, state: string | null, needs_me: boolean) =>
       JSON.stringify({
         source: "github",
         kind: "pr",
@@ -178,6 +178,7 @@ describe("serve", () => {
         pr(304, "changes requested", true),
         pr(305, "approved", true),
         pr(306, "merged", false),
+        pr(307, null, false),
       ].join("\n"),
     );
     const html = await (await fetch(`${server.url}/?part=1`)).text();
@@ -194,9 +195,11 @@ describe("serve", () => {
     assert.deepEqual(row(304), ["orange", "Fix PR"]);
     assert.deepEqual(row(305), ["green", "Approved"]);
     assert.deepEqual(row(306), ["violet", "Merged"]);
+    assert.deepEqual(row(307), ["grey", "Linked"]);
     assert.match(html, new RegExp(`data-needs-count="${before + 3}"`));
-    assert.deepEqual(tabCounts(card, "needs-prs"), { open: 3, draft: 1, review: 2, all: 7 });
+    assert.deepEqual(tabCounts(card, "needs-prs"), { open: 3, draft: 1, review: 1, all: 8 });
     assert.match(card, /data-tab-panel="all" hidden>\s*<span class="need-main">[\s\S]*?>pr 306</);
+    assert.match(card, /data-tab-panel="all" hidden>\s*<span class="need-main">[\s\S]*?>pr 307</);
     assert.match(card, /data-tab-panel="draft all" hidden>\s*<span class="need-main">[\s\S]*?>pr 301</);
     assert.match(card, /data-tab-panel="review all" hidden>\s*<span class="need-main">[\s\S]*?>pr 302</);
     assert.match(card, /data-tab-panel="open all">\s*<span class="need-main">[\s\S]*?>pr 303</);

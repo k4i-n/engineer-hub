@@ -6,25 +6,28 @@ import { HubError } from "../util.ts";
 
 const FIRST_LOOK_MS = 2 * 86_400_000;
 const MAX_BODY = 4000;
+const LOOKUP_BATCH = 50;
 
 const PR_FIELDS = `url title headRefName body state merged isDraft reviewDecision viewerDidAuthor author { login }
         latestReviews(first: 20) { nodes { state } }
         commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }`;
 
-function query(stale: number): string {
-  const vars = Array.from({ length: stale }, (_, i) => `, $p${i}: URI!`).join("");
-  const lookups = Array.from(
-    { length: stale },
-    (_, i) => `\n  p${i}: resource(url: $p${i}) { ... on PullRequest { ${PR_FIELDS} } }`,
-  ).join("");
-  return `query($requested: String!, $mine: String!${vars}) {
+const SEARCH = `query($requested: String!, $mine: String!) {
   requested: search(query: $requested, type: ISSUE, first: 50) {
     nodes { ... on PullRequest { url title headRefName body author { login } } }
   }
   mine: search(query: $mine, type: ISSUE, first: 50) {
     nodes { ... on PullRequest { ${PR_FIELDS} } }
-  }${lookups}
+  }
 }`;
+
+function lookup(count: number): string {
+  const vars = Array.from({ length: count }, (_, i) => `$p${i}: URI!`).join(", ");
+  const fields = Array.from(
+    { length: count },
+    (_, i) => `  p${i}: resource(url: $p${i}) { ... on PullRequest { ${PR_FIELDS} } }`,
+  ).join("\n");
+  return `query(${vars}) {\n${fields}\n}`;
 }
 
 type Pr = {
@@ -41,10 +44,16 @@ type Pr = {
   latestReviews?: { nodes: { state: string }[] };
   commits?: { nodes: { commit: { statusCheckRollup: { state: string } | null } }[] };
 };
-type Answer = {
-  data?: { requested: { nodes: Pr[] }; mine: { nodes: Pr[] } } & Record<string, Pr | null | undefined>;
-  errors?: { message: string }[];
-};
+type Searched = { requested: { nodes: Pr[] }; mine: { nodes: Pr[] } };
+type Answer<T> = { data?: T; errors?: { message: string }[] };
+
+async function graphql<T>(sys: System, fields: string[]): Promise<T> {
+  const r = await sys.run("gh", ["api", "graphql", ...fields.flatMap((f) => ["-f", f])]);
+  if (r.code !== 0) throw new HubError(`gh api graphql: ${lastLine(r.stderr) || `exit ${r.code}`}`);
+  const answer = JSON.parse(r.stdout) as Answer<T>;
+  if (answer.data === undefined) throw new HubError(`github: ${answer.errors?.[0]?.message ?? "no data"}`);
+  return answer.data;
+}
 
 function context(pr: Pr): string {
   return [pr.headRefName ?? "", (pr.body ?? "").slice(0, MAX_BODY)].join("\n");
@@ -72,26 +81,12 @@ async function check(sys: System): Promise<Check> {
 async function fetchGithub(sys: System, ctx: Ctx, cursor: string | null): Promise<Fetched> {
   const started = ctx.now.toISOString().replace(/\.\d{3}Z$/, "Z");
   const since = cursor ?? new Date(ctx.now.getTime() - FIRST_LOOK_MS).toISOString().replace(/\.\d{3}Z$/, "Z");
-  const stale = all<ItemRow>(
-    ctx.db,
-    `SELECT * FROM item WHERE source = 'github' AND kind = 'pr' AND coalesce(state, '') NOT IN ('merged', 'closed')
-       AND ignored IS NULL ORDER BY id`,
-  );
-  const r = await sys.run("gh", [
-    "api",
-    "graphql",
-    "-f",
-    `query=${query(stale.length)}`,
-    "-f",
+  const searched = await graphql<Searched>(sys, [
+    `query=${SEARCH}`,
     `requested=${ctx.config.githubReviewQuery}`,
-    "-f",
     `mine=is:pr author:@me updated:>=${since}`,
-    ...stale.flatMap((i, n) => ["-f", `p${n}=${i.url ?? i.ref}`]),
   ]);
-  if (r.code !== 0) throw new HubError(`gh api graphql: ${lastLine(r.stderr) || `exit ${r.code}`}`);
-  const answer = JSON.parse(r.stdout) as Answer;
-  if (answer.data === undefined) throw new HubError(`github: ${answer.errors?.[0]?.message ?? "no data"}`);
-  const requested = answer.data.requested.nodes.filter((pr) => pr.url !== undefined);
+  const requested = searched.requested.nodes.filter((pr) => pr.url !== undefined);
   const out: unknown[] = requested.map((pr) => ({
     source: "github",
     kind: "review_request",
@@ -111,12 +106,24 @@ async function fetchGithub(sys: System, ctx: Ctx, cursor: string | null): Promis
     if (!open.has(i.ref))
       out.push({ source: "github", kind: "review_request", ref: i.ref, state: "done", needs_me: false });
   }
+  const stale = all<ItemRow>(
+    ctx.db,
+    `SELECT * FROM item WHERE source = 'github' AND kind = 'pr' AND coalesce(state, '') NOT IN ('merged', 'closed')
+       AND ignored IS NULL ORDER BY id`,
+  );
   const prs = new Map<string, Pr>();
-  for (const [n, i] of stale.entries()) {
-    const pr = answer.data[`p${n}`];
-    if (pr?.url !== undefined) prs.set(i.ref, pr);
+  for (let start = 0; start < stale.length; start += LOOKUP_BATCH) {
+    const batch = stale.slice(start, start + LOOKUP_BATCH);
+    const found = await graphql<Record<string, Pr | null>>(sys, [
+      `query=${lookup(batch.length)}`,
+      ...batch.map((i, n) => `p${n}=${i.url ?? i.ref}`),
+    ]);
+    for (const [n, i] of batch.entries()) {
+      const pr = found[`p${n}`];
+      if (pr?.url !== undefined) prs.set(i.ref, pr);
+    }
   }
-  for (const pr of answer.data.mine.nodes) {
+  for (const pr of searched.mine.nodes) {
     if (pr.url !== undefined) prs.set(pr.url, pr);
   }
   for (const [ref, pr] of prs) {

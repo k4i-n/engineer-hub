@@ -135,7 +135,7 @@ describe("github", () => {
     assert.match(await hub("items", "--all", "--source", "github"), /review_request \| title of 7 \| done/);
     const cursor = (await hub("sources")).match(/cursor (\S+)/)?.[1] ?? "";
     await hub("fetch", "github");
-    assert.ok((calls.filter((c) => c[1] === "api").at(-1) ?? []).includes(`mine=is:pr author:@me updated:>=${cursor}`));
+    assert.ok(calls.some((c) => c.includes(`mine=is:pr author:@me updated:>=${cursor}`)));
   });
 
   test("the user's open PRs get a status: draft, in review, commented, changes requested, checks failing, approved", async () => {
@@ -180,6 +180,21 @@ describe("github", () => {
 
     await hub("fetch", "github");
     assert.ok(!(calls.filter((c) => c[1] === "api").at(-1) ?? []).some((a) => a.startsWith("p0=")));
+  });
+
+  test("stored PRs are looked up 50 to a call, apart from the search", async () => {
+    const urls = Array.from({ length: 51 }, (_, n) => `https://github.com/acme/web/pull/${700 + n}`);
+    answers.gh = graphql(
+      [],
+      urls.map((url) => PR(url)),
+    );
+    await hub("fetch", "github");
+    calls = [];
+    answers.gh = graphql([], [], Object.fromEntries(urls.map((url) => [url, PR(url, { merged: true })])));
+    await hub("fetch", "github");
+    const sizes = calls.filter((c) => c[1] === "api").map((c) => c.filter((a) => /^p\d+=/.test(a)).length);
+    assert.deepEqual(sizes, [0, 50, 1]);
+    assert.doesNotMatch(await hub("items", "--all", "--source", "github"), /\| in review \|/);
   });
 
   test("a teammate's PR linked to a ticket gets its state but never needs you", async () => {
