@@ -71,6 +71,31 @@ test("an action with no hub write after it blocks, naming the last commands", ()
   );
 });
 
+test("an action whose printed PR hub already links passes", () => {
+  const path = join(dir, "linked.jsonl");
+  const pr = "https://github.com/acme/web/pull/140";
+  const lines = [
+    {
+      type: "assistant",
+      message: { content: [{ type: "tool_use", id: "t1", name: "Bash", input: { command: "gh pr create" } }] },
+    },
+    {
+      type: "user",
+      message: { content: [{ type: "tool_result", tool_use_id: "t1", content: [{ type: "text", text: pr }] }] },
+    },
+  ];
+  writeFileSync(path, lines.map((l) => JSON.stringify(l)).join("\n"));
+  const input = { hook_event_name: "Stop", transcript_path: path };
+  assert.equal(
+    gate(input, ACTIONS, (url) => url === pr),
+    "",
+  );
+  assert.match(
+    gate(input, ACTIONS, () => false),
+    /gh pr create/,
+  );
+});
+
 test("a read-only session passes", () => {
   assert.equal(stop(bash("git status"), bash("gh pr view 1"), tool("board"), { name: "Read", input: {} }), "");
 });
