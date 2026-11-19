@@ -12,6 +12,7 @@ const THREADS = 20;
 const DONE_REACTIONS = new Set(["white_check_mark", "heavy_check_mark", "ballot_box_with_check", "done"]);
 const RECHECK = 30;
 const NO_SCOPE = new Set(["missing_scope", "no_permission", "not_allowed_token_type"]);
+const SLACKBOT = "USLACKBOT";
 
 export const SLACK_KEY: KeySpec = {
   source: "slack",
@@ -37,10 +38,17 @@ type Match = {
   permalink: string;
   user?: string;
   username?: string;
+  bot_id?: string;
   channel?: Channel;
 };
 type Reaction = { name: string; users: string[] };
-type User = { id: string; name?: string; real_name?: string; profile?: { display_name?: string; real_name?: string } };
+type User = {
+  id: string;
+  name?: string;
+  real_name?: string;
+  is_bot?: boolean;
+  profile?: { display_name?: string; real_name?: string };
+};
 type Group = { id: string; handle: string };
 type Answer = { ok: boolean; error?: string; needed?: string };
 
@@ -90,6 +98,7 @@ function conversationScope(channel: Channel | string): string {
 class Directory {
   readonly missing = new Set<string>();
   private readonly users = new Map<string, string | null>();
+  private readonly bots = new Map<string, boolean>();
   private readonly channels = new Map<string, Channel | null>();
   private groups: Map<string, string> | null = null;
   private readonly sys: System;
@@ -112,14 +121,23 @@ class Directory {
     }
   }
 
+  private async lookup(id: string): Promise<void> {
+    const r = await this.soft<Answer & { user: User }>("users.info", { user: id }, "users:read");
+    const u = r?.user;
+    const name = u?.profile?.display_name || u?.profile?.real_name || u?.real_name || u?.name || null;
+    this.users.set(id, name ?? this.users.get(id) ?? null);
+    this.bots.set(id, u?.is_bot === true);
+  }
+
   async user(id: string): Promise<string> {
-    if (!this.users.has(id) || this.users.get(id) === null) {
-      const r = await this.soft<Answer & { user: User }>("users.info", { user: id }, "users:read");
-      const u = r?.user;
-      const name = u?.profile?.display_name || u?.profile?.real_name || u?.real_name || u?.name || null;
-      this.users.set(id, name ?? this.users.get(id) ?? null);
-    }
+    if (!this.users.has(id) || this.users.get(id) === null) await this.lookup(id);
     return this.users.get(id) ?? id;
+  }
+
+  async fromApp(m: Match): Promise<boolean> {
+    if (m.bot_id !== undefined || m.user === undefined || m.user === SLACKBOT) return true;
+    if (!this.bots.has(m.user)) await this.lookup(m.user);
+    return this.bots.get(m.user) === true;
   }
 
   async channel(id: string, hint: Channel = { id }): Promise<Channel> {
@@ -308,7 +326,12 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
       needs_me: true,
     });
   }
-  for (const [m, state] of [...dms.map((d) => [d, "dm"] as const), ...inThreads.map((r) => [r, "reply"] as const)]) {
+  const fromPeople: Match[] = [];
+  for (const m of dms) if (!(await dir.fromApp(m))) fromPeople.push(m);
+  for (const [m, state] of [
+    ...fromPeople.map((d) => [d, "dm"] as const),
+    ...inThreads.map((r) => [r, "reply"] as const),
+  ]) {
     if (seen.has(spot(m))) continue;
     seen.add(spot(m));
     out.push({
