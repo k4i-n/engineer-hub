@@ -6,7 +6,7 @@ export const SOURCE_NAME = /^[a-z][a-z0-9-]{0,39}$/;
 const MAX_CURSOR = 2048;
 const MAX_ERROR = 240;
 
-export type SyncOptions = { cursor: string | null; error: string | null };
+export type SyncOptions = { cursor: string | null; error: string | null; warning?: string | null };
 
 export function synced(ctx: Ctx, name: string, options: SyncOptions): Result {
   if (!SOURCE_NAME.test(name))
@@ -15,13 +15,14 @@ export function synced(ctx: Ctx, name: string, options: SyncOptions): Result {
     throw new HubError(`--cursor is ${options.cursor.length} chars (max ${MAX_CURSOR})`);
   }
   const error = options.error === null ? null : cut(options.error, MAX_ERROR);
+  const warning = options.warning == null ? null : cut(options.warning, MAX_ERROR);
   ctx.db
     .prepare(
-      `INSERT INTO source(name, cursor, last_sync, last_error) VALUES (?, ?, ?, ?)
+      `INSERT INTO source(name, cursor, last_sync, last_error, warning) VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(name) DO UPDATE SET cursor = coalesce(excluded.cursor, source.cursor),
-         last_sync = excluded.last_sync, last_error = excluded.last_error`,
+         last_sync = excluded.last_sync, last_error = excluded.last_error, warning = excluded.warning`,
     )
-    .run(name, options.cursor, nowIso(ctx.now), error);
+    .run(name, options.cursor, nowIso(ctx.now), error, warning);
   const row = one<SourceRow>(ctx.db, "SELECT * FROM source WHERE name = ?", name);
   return { text: `source ${name} synced${error === null ? "" : ", with error"}`, json: row };
 }
@@ -34,6 +35,7 @@ export function sources(ctx: Ctx): Result {
       `last sync ${nowTs(new Date(s.last_sync), ctx.config.timezone)}`,
       s.cursor === null ? null : `cursor ${cut(s.cursor, 60)}`,
       s.last_error === null ? null : `error: ${s.last_error}`,
+      s.warning === null ? null : `warning: ${s.warning}`,
     ]
       .filter((part) => part !== null)
       .join(" | "),

@@ -846,9 +846,10 @@ function activitySection(ctx: Ctx): string {
   return section("Activity", events.length, events.length === 0 ? empty() : first + rest, "activity");
 }
 
-function sourceState(ctx: Ctx, s: SourceRow): "ok" | "stale" | "bad" {
+function sourceState(ctx: Ctx, s: SourceRow): "ok" | "stale" | "bad" | "warn" {
   if (s.last_error !== null) return "bad";
-  return ctx.now.getTime() - new Date(s.last_sync).getTime() > STALE_MS ? "stale" : "ok";
+  if (ctx.now.getTime() - new Date(s.last_sync).getTime() > STALE_MS) return "stale";
+  return s.warning === null ? "ok" : "warn";
 }
 
 function sourceProblems(ctx: Ctx, sources: SourceRow[]): string {
@@ -890,7 +891,7 @@ function backupProblem(ctx: Ctx): string {
 
 function sourceChip(ctx: Ctx, s: SourceRow): string {
   const state = sourceState(ctx, s);
-  const title = [`last sync ${when(ctx, s.last_sync)}`, s.cursor ? `cursor ${s.cursor}` : null, s.last_error]
+  const title = [`last sync ${when(ctx, s.last_sync)}`, s.cursor ? `cursor ${s.cursor}` : null, s.last_error, s.warning]
     .filter(Boolean)
     .join("\n");
   return `<span class="src src-${state}" title="${esc(title)}"><i></i>${esc(s.name)}<small>${esc(when(ctx, s.last_sync))}</small></span>`;
@@ -1061,6 +1062,7 @@ export type Fetching = {
   fixes: string[];
   last: string | null;
   error: string | null;
+  warning: string | null;
 };
 
 const SOURCE_NAME: Record<string, string> = { github: "GitHub", linear: "Linear", slack: "Slack" };
@@ -1071,7 +1073,7 @@ function fetchStatus(ctx: Ctx, f: Fetching): string {
   if (f.error !== null) return status("red", f.error);
   if (f.last !== null) {
     const stale = ctx.now.getTime() - new Date(f.last).getTime() > STALE_MS;
-    return status(stale ? "amber" : "green", `Synced ${agoText(ctx, f.last)}`);
+    return status(stale || f.warning !== null ? "amber" : "green", `Synced ${agoText(ctx, f.last)}`);
   }
   return status("grey", f.on ? "Not synced yet" : "Off");
 }
@@ -1085,10 +1087,14 @@ function sourceRows(ctx: Ctx, list: Fetching[]): string {
           ? `<code class="src-script">${esc(f.script)}</code>`
           : `<button type="button" role="switch" aria-checked="${f.on}" class="switch${f.on ? " on" : ""}" data-config="fetch" data-value="${esc(next(f.name, !f.on))}"><span class="knob"></span></button>`;
       const how = f.how === null ? "" : `<span class="src-how">${esc(f.how)}</span>`;
-      const fixes = f.script === null && f.ok === true && f.error === null ? "" : f.fixes.map(codeBlock).join("");
+      const warning = f.warning === null ? "" : `<span class="src-how tone-text-amber">${esc(f.warning)}</span>`;
+      const fixes =
+        f.script === null && f.ok === true && f.error === null && f.warning === null
+          ? ""
+          : f.fixes.map(codeBlock).join("");
       return row(
         SOURCE_NAME[f.name] ?? f.name,
-        `${swtch}<div class="src-info">${fetchStatus(ctx, f)}${how}</div>${fixes}`,
+        `${swtch}<div class="src-info">${fetchStatus(ctx, f)}${how}${warning}</div>${fixes}`,
       );
     })
     .join("");

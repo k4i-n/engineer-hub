@@ -412,16 +412,155 @@ describe("slack", () => {
     assert.match(queries[0] ?? "", new RegExp(`^<@${ME}> after:\\d{4}-\\d{2}-\\d{2}$`));
     assert.match(queries[1] ?? "", new RegExp(`^from:<@${ME}> after:`));
     const needs = await hub("items", "--needs-me", "--source", "slack");
-    assert.match(needs, /slack\/message \| needs you \| #ops ana: <@U0ME> are you on call\? \| mention/);
+    assert.match(needs, /slack\/message \| needs you \| #ops · ana: @khai are you on call\? \| mention/);
     assert.match(needs, /slack\/thread \| needs you \| Ken answered: yes, ship it \| answered \| ENG-42/);
     assert.match(
       await hub("items", "--source", "slack"),
-      /slack\/message \| #web khai: Shipped the fix, can you look\? \| sent/,
+      /slack\/message \| #web · me: Shipped the fix, can you look\? \| sent/,
     );
     assert.match(await hub("waits"), /no open waits/);
     const auth = JSON.parse(calls.find((c) => c[0] === "http")?.[3] ?? "{}");
     assert.equal(auth.Authorization, "Bearer xoxp-1");
-    assert.match(await hub("sources"), /slack \| last sync .* \| cursor \d{10}\.\d{6}/);
+    assert.match(
+      await hub("sources"),
+      /slack \| last sync .* \| cursor \d{10}\.\d{6} \| warning: missing reactions:read: names, DMs or reactions are left out/,
+    );
+  });
+
+  test("with every scope, ids read as names, DMs are named, a ✅ from me closes a mention and a reaction answers a wait", async () => {
+    await hub("config", "fetch", '{"github":false,"slack":true}');
+    answers.security = (args) =>
+      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+    const asked = ts(600);
+    await hub("wait", "ENG-42", "Ken", `https://acme.slack.com/archives/C01/p${asked.replace(".", "")}`);
+    const dm = ts(100);
+    const group = ts(110);
+    const done = ts(120);
+    const ok = (body: unknown) => ({ status: 200, body: JSON.stringify({ ok: true, ...(body as object) }) });
+    httpAnswer = (url) => {
+      const u = new URL(url);
+      const p = u.searchParams;
+      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, user: "khai" });
+      if (u.pathname === "/api/search.messages") {
+        if ((p.get("query") ?? "").startsWith("from:")) {
+          const sentTs = ts(90);
+          return ok({
+            messages: {
+              matches: [
+                {
+                  ts: sentTs,
+                  text: "on it",
+                  permalink: `https://acme.slack.com/archives/D01/p${sentTs.replace(".", "")}`,
+                  user: ME,
+                  channel: { id: "D01", name: "U2", is_im: true },
+                },
+              ],
+            },
+          });
+        }
+        return ok({
+          messages: {
+            matches: [
+              {
+                ts: dm,
+                text: "<@U0ME> see <https://x.dev/a|the doc> &amp; <#C09> for <!subteam^S1>, <!here>",
+                permalink: `https://acme.slack.com/archives/D01/p${dm.replace(".", "")}`,
+                user: "U2",
+                channel: { id: "D01", name: "U2", is_im: true },
+              },
+              {
+                ts: group,
+                text: "lunch?",
+                permalink: `https://acme.slack.com/archives/G01/p${group.replace(".", "")}`,
+                user: "U3",
+                channel: { id: "G01", name: "mpdm-ana--khai--ken-1", is_mpim: true },
+              },
+              {
+                ts: done,
+                text: "<@U0ME> deploy?",
+                permalink: permalink(done),
+                user: "U3",
+                channel: { id: "C01", name: "ops" },
+              },
+            ],
+          },
+        });
+      }
+      if (u.pathname === "/api/users.info") {
+        const names: Record<string, string> = { U0ME: "Khai", U2: "Ana Sato", U3: "Ken" };
+        return ok({ user: { id: p.get("user"), profile: { display_name: names[p.get("user") ?? ""] ?? "" } } });
+      }
+      if (u.pathname === "/api/conversations.info") {
+        const id = p.get("channel");
+        if (id === "D01") return ok({ channel: { id, is_im: true, user: "U2" } });
+        if (id === "G01") return ok({ channel: { id, is_mpim: true, name: "mpdm-ana--khai--ken-1" } });
+        return ok({ channel: { id, name: "releases" } });
+      }
+      if (u.pathname === "/api/usergroups.list") return ok({ usergroups: [{ id: "S1", handle: "oncall" }] });
+      if (u.pathname === "/api/reactions.get") {
+        const at = p.get("timestamp");
+        if (at === done) return ok({ message: { user: "U3", reactions: [{ name: "white_check_mark", users: [ME] }] } });
+        if (at === dm) return ok({ message: { user: "U2", reactions: [{ name: "eyes", users: [ME, "U3"] }] } });
+        if (at === asked) return ok({ message: { user: ME, reactions: [{ name: "+1", users: ["U3"] }] } });
+        return ok({ message: { reactions: [] } });
+      }
+      if (u.pathname === "/api/conversations.replies") return ok({ messages: [{ ts: asked, text: "q", user: ME }] });
+      return { status: 404, body: "" };
+    };
+    assert.match(await hub("fetch", "slack"), /items: 5 new/);
+    const needs = await hub("items", "--needs-me", "--source", "slack");
+    assert.match(needs, /DM · Ana Sato: @Khai see the doc & #releases for @oncall, @here \| reacted :eyes:/);
+    assert.match(needs, /group DM @ana, @ken · Ken: lunch\? \| mention/);
+    assert.match(needs, /Ken reacted :\+1: \| answered \| ENG-42/);
+    assert.doesNotMatch(needs, /deploy\?/);
+    assert.match(await hub("items", "--source", "slack"), /#ops · Ken: @Khai deploy\? \| reacted :white_check_mark:/);
+    assert.match(await hub("items", "--source", "slack"), /DM @Ana Sato · me: on it \| sent/);
+    assert.match(await hub("waits"), /no open waits/);
+    assert.doesNotMatch(await hub("sources"), /warning/);
+  });
+
+  test("a scope Slack refuses leaves its details out and becomes a warning, not an error", async () => {
+    await hub("config", "fetch", '{"github":false,"slack":true}');
+    answers.security = (args) =>
+      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+    const at = ts(100);
+    const refused = (needed: string) => ({
+      status: 200,
+      body: JSON.stringify({ ok: false, error: "missing_scope", needed }),
+    });
+    httpAnswer = (url) => {
+      const u = new URL(url);
+      if (u.pathname === "/api/auth.test") return { status: 200, body: JSON.stringify({ ok: true, user_id: ME }) };
+      if (u.pathname === "/api/search.messages") {
+        const mine = (u.searchParams.get("query") ?? "").startsWith("from:");
+        const matches = mine
+          ? []
+          : [
+              {
+                ts: at,
+                text: "<@U9> ping",
+                permalink: `https://acme.slack.com/archives/D01/p${at.replace(".", "")}`,
+                user: "U2",
+                channel: { id: "D01", is_im: true },
+              },
+            ];
+        return { status: 200, body: JSON.stringify({ ok: true, messages: { matches } }) };
+      }
+      if (u.pathname === "/api/users.info") return refused("users:read");
+      if (u.pathname === "/api/conversations.info") return refused("im:read");
+      if (u.pathname === "/api/reactions.get") return refused("reactions:read");
+      return { status: 404, body: "" };
+    };
+    assert.match(await hub("fetch", "slack"), /items: 1 new/);
+    assert.match(await hub("items", "--needs-me", "--source", "slack"), /DM · U2: @U9 ping \| mention/);
+    assert.match(
+      await hub("sources"),
+      /warning: missing im:read, reactions:read, users:read: names, DMs or reactions are left out/,
+    );
+    const page = await (await fetch(`${server.url}/settings?part=1`)).text();
+    assert.match(page, /<span class="src src-warn" title="[^"]*missing im:read[^"]*"><i><\/i>slack/);
+    assert.match(page, /tone-text-amber">missing im:read, reactions:read, users:read/);
+    assert.match(page, /--allow &#39;GET \/api\/reactions\.get&#39;/);
   });
 
   test("a Slack error answer is the source error", async () => {

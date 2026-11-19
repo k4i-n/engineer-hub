@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { HubError } from "./util.ts";
 
-export const SCHEMA_VERSION = "6";
+export const SCHEMA_VERSION = "7";
 
 export type Ticket = {
   id: string;
@@ -85,7 +85,13 @@ export type WaitRow = {
   pinged_at: string | null;
   closed_at: string | null;
 };
-export type SourceRow = { name: string; cursor: string | null; last_sync: string; last_error: string | null };
+export type SourceRow = {
+  name: string;
+  cursor: string | null;
+  last_sync: string;
+  last_error: string | null;
+  warning: string | null;
+};
 export type StepRow = {
   id: number;
   ticket_id: string;
@@ -148,7 +154,7 @@ CREATE TABLE wait(id INTEGER PRIMARY KEY, ticket_id TEXT NOT NULL, who TEXT NOT 
   asked_at TEXT NOT NULL, ping_after TEXT, pinged_at TEXT, closed_at TEXT);
 CREATE TABLE step(id INTEGER PRIMARY KEY, ticket_id TEXT NOT NULL, n INTEGER NOT NULL, title TEXT NOT NULL,
   done_at TEXT, evidence TEXT, created_at TEXT NOT NULL, UNIQUE(ticket_id, n));
-CREATE TABLE source(name TEXT PRIMARY KEY, cursor TEXT, last_sync TEXT NOT NULL, last_error TEXT);
+CREATE TABLE source(name TEXT PRIMARY KEY, cursor TEXT, last_sync TEXT NOT NULL, last_error TEXT, warning TEXT);
 CREATE TABLE day(date TEXT PRIMARY KEY, resume TEXT, body TEXT, updated_at TEXT);
 CREATE TABLE pin(key TEXT PRIMARY KEY, pinned_at TEXT NOT NULL);
 CREATE TABLE script_source(name TEXT PRIMARY KEY, argv TEXT NOT NULL, every TEXT NOT NULL, created_at TEXT NOT NULL);
@@ -169,7 +175,14 @@ const UPGRADES: Record<string, { to: string; sql: string }> = {
   },
   "4": { to: "5", sql: "ALTER TABLE ticket ADD COLUMN position INTEGER;" },
   "5": { to: "6", sql: "ALTER TABLE item ADD COLUMN ignored TEXT;" },
+  "6": { to: "7", sql: "ALTER TABLE source ADD COLUMN warning TEXT;" },
 };
+
+export function opensAs(version: string | undefined): boolean {
+  let v = version;
+  while (v !== undefined && v !== SCHEMA_VERSION) v = UPGRADES[v]?.to;
+  return v === SCHEMA_VERSION;
+}
 
 export function openDb(path: string): DatabaseSync {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });

@@ -4,7 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { backup, backupDir, checkRestorable, listBackups } from "../src/backup.ts";
-import { openDb } from "../src/db.ts";
+import { openDb, opensAs, SCHEMA_VERSION } from "../src/db.ts";
 
 let dir = "";
 
@@ -35,7 +35,15 @@ test("a backup is a private copy named by time, and only the newest are kept", (
   assert.equal(checkRestorable(folder, "hub-20261119-090003.db"), join(folder, "hub-20261119-090003.db"));
 });
 
-test("only a backup by name with this hub's schema can be restored", () => {
+test("a backup from an older schema opens through the upgrades, a newer or unknown one does not", () => {
+  assert.equal(opensAs(SCHEMA_VERSION), true);
+  assert.equal(opensAs("2"), true);
+  assert.equal(opensAs("1"), false);
+  assert.equal(opensAs("99"), false);
+  assert.equal(opensAs(undefined), false);
+});
+
+test("only a backup by name with a schema this hub opens can be restored", () => {
   assert.throws(() => checkRestorable(dir, "../hub.db"), /not a backup name/);
   assert.throws(() => checkRestorable(dir, "hub-20261119-090000.db"), /no backup/);
   writeFileSync(join(dir, "hub-20261119-090000.db"), "");
