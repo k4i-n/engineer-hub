@@ -41,9 +41,10 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 | `hub note-mv <id> <title> <new title>`, `hub note-rm <id> <title>` | renames or removes a note |
 | `hub draft-mv <id> <label> <new label>`, `hub draft-rm <id> <label>` | renames a draft, or removes one never sent (a sent draft stays as the record) |
 | `hub item put --stdin` | stores items read from a source, one JSON object per line ([format](sources.md#items-from-connectors)) |
-| `hub item close <item>...`, `hub item snooze <item> [--for 1d|tomorrow]`, `hub item attach <item> <id>` | marks items handled, hides one for a while (a change brings it back), attaches one to a ticket; `<item>` is the `#` number or the ref |
+| `hub item close <item>...`, `hub item snooze <item> [--for 1d|tomorrow]`, `hub item attach <item> <id>`, `hub item detach <item>` | marks items handled, hides one for a while (a change brings it back), attaches one to a ticket, takes one off its ticket (a later fetch does not match it back by id; attach does); `<item>` is the `#` number or the ref |
 | `hub item ignore <item> [--repo]`, `hub item unignore <item> [--repo]` | never shows the item again, whatever changes (it stays in `hub items --all`); `--repo` ignores every review request, or every PR of yours, from its repo, now and later (config `ignoreRepos`) |
 | `hub wait <id> <who> <url> [--ping-after 1d]`, `hub wait close <wait \| url>` | records a question asked of someone, closes it when they answer |
+| `hub wait edit <wait> [--who <w>] [--ping-after 1d]` | changes who an open wait is on, or when to ping |
 | `hub source <name> [--cursor <c>] [--error <text>]` | records a sync of a source |
 | `hub day set <date> (--file \| --stdin) [--rev <rev>]` | stores a day plan; replacing one needs the rev `hub day` showed, and a stale rev is refused |
 | `hub ticket-new <id> <title> [--dir todo]`, `hub move <id> <dir>` | creates a ticket, moves it between dirs (a move drops its place in the order) |
