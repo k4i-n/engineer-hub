@@ -1559,6 +1559,30 @@ textarea.text {
   width: 100%;
   resize: vertical;
 }
+.src-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  margin-left: 4px;
+}
+.src-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 500;
+}
+.src-status.tone-red {
+  color: var(--red);
+}
+.src-how {
+  font-size: 12px;
+  color: var(--muted);
+  padding-left: 15px;
+}
+.src-script {
+  font-size: 12px;
+}
 .set-control > .code-block {
   flex-basis: 100%;
   min-width: 0;

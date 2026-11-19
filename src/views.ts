@@ -1063,6 +1063,19 @@ export type Fetching = {
   error: string | null;
 };
 
+const SOURCE_NAME: Record<string, string> = { github: "GitHub", linear: "Linear", slack: "Slack" };
+
+function fetchStatus(ctx: Ctx, f: Fetching): string {
+  const status = (tone: string, text: string) =>
+    `<span class="src-status tone-${tone}"><span class="dot"></span>${esc(text)}</span>`;
+  if (f.error !== null) return status("red", f.error);
+  if (f.last !== null) {
+    const stale = ctx.now.getTime() - new Date(f.last).getTime() > STALE_MS;
+    return status(stale ? "amber" : "green", `Synced ${agoText(ctx, f.last)}`);
+  }
+  return status("grey", f.on ? "Not synced yet" : "Off");
+}
+
 function sourceRows(ctx: Ctx, list: Fetching[]): string {
   const next = (name: string, on: boolean) => JSON.stringify({ ...ctx.config.fetch, [name]: on });
   return list
@@ -1071,14 +1084,12 @@ function sourceRows(ctx: Ctx, list: Fetching[]): string {
         f.script !== null
           ? `<code class="src-script">${esc(f.script)}</code>`
           : `<button type="button" role="switch" aria-checked="${f.on}" class="switch${f.on ? " on" : ""}" data-config="fetch" data-value="${esc(next(f.name, !f.on))}"><span class="knob"></span></button>`;
-      const state =
-        f.error !== null
-          ? `<span class="src-state tone-red">${esc(f.error)}</span>`
-          : f.last !== null
-            ? `<span class="src-state">${esc(f.how ?? "ok")} · ${esc(ago(ctx, f.last) === "now" ? "just now" : `${ago(ctx, f.last)} ago`)}</span>`
-            : `<span class="src-state">${f.on ? "not fetched yet" : "off"}</span>`;
+      const how = f.how === null ? "" : `<span class="src-how">${esc(f.how)}</span>`;
       const fixes = f.script === null && f.ok === true && f.error === null ? "" : f.fixes.map(codeBlock).join("");
-      return row(f.name, `${swtch}${state}${fixes}`);
+      return row(
+        SOURCE_NAME[f.name] ?? f.name,
+        `${swtch}<div class="src-info">${fetchStatus(ctx, f)}${how}</div>${fixes}`,
+      );
     })
     .join("");
 }
@@ -1107,7 +1118,7 @@ function lastBackup(ctx: Ctx, newest: Backup | undefined): string {
   const state = backupState(ctx);
   if (state?.error != null) return `<span class="src-state tone-red">${esc(state.error)}</span>`;
   if (newest === undefined) return `<span class="src-state">none yet</span>`;
-  return `<span class="src-state" title="${esc(newest.path)}">${esc(newest.name)} · ${esc(ago(ctx, newest.at) === "now" ? "just now" : `${ago(ctx, newest.at)} ago`)}</span>`;
+  return `<span class="src-state" title="${esc(newest.path)}">${esc(newest.name)} · ${esc(agoText(ctx, newest.at))}</span>`;
 }
 
 export function settingsBody(ctx: Ctx, sync: SyncState, db: DbInfo, fetching: Fetching[] = []): string {
