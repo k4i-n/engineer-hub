@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -348,6 +348,33 @@ describe("serve", () => {
     const port = new URL(server.url).port;
     assert.equal(await rawGet("/", `localhost:${port}`), 200);
     assert.equal((await post("/api/item-done", { id: "1" }, "wrong")).status, 403);
+  });
+
+  test("the token is kept in a file only the user can read and survives a restart", async () => {
+    const file = join(dir, "token");
+    assert.equal(statSync(file).mode & 0o777, 0o600);
+    assert.equal(readFileSync(file, "utf8").trim(), server.token);
+    const first = server.token;
+    await server.close();
+    server = await serve({ dbPath: dbFile, port: 0, now: () => new Date(), env: process.env });
+    assert.equal(server.token, first);
+    assert.equal((await post("/api/item-done", { id: "1" }, first)).status, 200);
+
+    await server.close();
+    chmodSync(file, 0o644);
+    await assert.rejects(
+      async () => serve({ dbPath: dbFile, port: 0, now: () => new Date(), env: process.env }),
+      /token is readable by others: chmod 600/,
+    );
+    chmodSync(file, 0o600);
+    writeFileSync(file, "not a token\n");
+    await assert.rejects(
+      async () => serve({ dbPath: dbFile, port: 0, now: () => new Date(), env: process.env }),
+      /does not hold a hub token/,
+    );
+    rmSync(file);
+    server = await serve({ dbPath: dbFile, port: 0, now: () => new Date(), env: process.env });
+    assert.notEqual(server.token, first);
   });
 
   test("actions write through the same functions as the CLI", async () => {

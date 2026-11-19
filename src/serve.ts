@@ -1,5 +1,4 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -9,6 +8,7 @@ import { loadConfig, setConfig } from "./config.ts";
 import { one, openDb, SCHEMA_VERSION } from "./db.ts";
 import * as items from "./items.ts";
 import * as pins from "./pins.ts";
+import { loadToken, tokenPath } from "./token.ts";
 import { afterDuration, HubError, nowIso } from "./util.ts";
 import { indexBody, page, type SyncState, settingsBody, ticketBody } from "./views.ts";
 import * as waits from "./waits.ts";
@@ -104,9 +104,9 @@ function readBody(req: IncomingMessage): Promise<Body> {
 }
 
 export function serve(options: ServeOptions): Promise<Server> {
+  const token = loadToken(tokenPath(options.dbPath));
   const db = openDb(options.dbPath);
   const watch = openDb(options.dbPath);
-  const token = randomBytes(24).toString("hex");
   const clients = new Set<ServerResponse>();
   let sync: SyncState = { status: "idle", at: null, detail: null };
   let child: ChildProcess | null = null;

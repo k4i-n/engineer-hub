@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { brief } from "./brief.ts";
 import type { Ctx, Result } from "./commands.ts";
@@ -10,6 +11,7 @@ import { openDb } from "./db.ts";
 import { applyImport, collectImport, countPlan, formatSummary } from "./importer.ts";
 import * as items from "./items.ts";
 import { serve } from "./serve.ts";
+import * as service from "./service.ts";
 import * as sources from "./sources.ts";
 import * as steps from "./steps.ts";
 import { HubError } from "./util.ts";
@@ -21,6 +23,7 @@ export type Io = {
   readStdin: () => string;
   env: NodeJS.ProcessEnv;
   now: () => Date;
+  system?: service.System;
 };
 
 const USAGE = `usage: hub <command> [args] [--json] [--db <path>]
@@ -42,7 +45,7 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         day set <date> (--file <path> | --stdin) | ticket-new <id> <title> [--dir todo]
         move <id> <dir> | gate <id> (yes | no) | config <key> <json>
 import: import --root <dir> [--apply]
-serve:  serve [--port 7420]`;
+serve:  serve [--port 7420] | service install [--port 7420] | service status | service uninstall`;
 
 const OPTIONS = {
   json: { type: "boolean" },
@@ -253,20 +256,58 @@ function open(command: string, values: Values, io: Io): DatabaseSync {
   return openDb(dryRun && !existsSync(path) ? ":memory:" : path);
 }
 
+function port(values: Values): number {
+  const value = values.port === undefined ? 7420 : Number(values.port);
+  if (!Number.isInteger(value) || value < 0 || value > 65535) {
+    throw new HubError(`--port takes a port number, not ${values.port}`);
+  }
+  return value;
+}
+
+function report(io: Io, error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  io.stderr(error instanceof HubError ? message : `error: ${message.split("\n")[0]}`);
+}
+
 function startServer(values: Values, io: Io): number {
-  const port = values.port === undefined ? 7420 : Number(values.port);
-  if (!Number.isInteger(port) || port < 0 || port > 65535) {
-    io.stderr(`--port takes a port number, not ${values.port}`);
+  const fail = (error: unknown) => {
+    report(io, error);
+    process.exitCode = 1;
+  };
+  try {
+    serve({ dbPath: dbPath(values.db, io.env), port: port(values), now: io.now, env: io.env }).then(
+      (server) => io.stdout(`hub on ${server.url}`),
+      fail,
+    );
+  } catch (error) {
+    report(io, error);
     return 1;
   }
-  serve({ dbPath: dbPath(values.db, io.env), port, now: io.now, env: io.env }).then(
-    (server) => io.stdout(`hub on ${server.url}`),
-    (error: unknown) => {
-      io.stderr(`error: ${error instanceof Error ? error.message : String(error)}`);
-      process.exitCode = 1;
-    },
-  );
   return 0;
+}
+
+function runService(args: string[], values: Values, io: Io): number {
+  const sys = io.system ?? service.system(io.env);
+  const sub = args[0];
+  try {
+    let result: Result;
+    if (sub === "install") {
+      result = service.install(sys, {
+        node: process.execPath,
+        cli: fileURLToPath(import.meta.url),
+        dbFile: dbPath(values.db, io.env),
+        port: port(values),
+        path: io.env.PATH ?? "",
+      });
+    } else if (sub === "status") result = service.status(sys);
+    else if (sub === "uninstall") result = service.uninstall(sys);
+    else throw new HubError("usage: hub service install [--port 7420] | service status | service uninstall");
+    io.stdout(values.json ? JSON.stringify(result.json) : result.text);
+    return result.exitCode ?? 0;
+  } catch (error) {
+    report(io, error);
+    return 1;
+  }
 }
 
 export function run(argv: string[], io: Io): number {
@@ -279,6 +320,7 @@ export function run(argv: string[], io: Io): number {
   }
   const [command, ...args] = parsed.positionals;
   if (command === "serve") return startServer(parsed.values, io);
+  if (command === "service") return runService(args, parsed.values, io);
   const handler = command === undefined ? undefined : COMMANDS[command];
   if (command === undefined || handler === undefined) {
     io.stderr(USAGE);
@@ -291,8 +333,7 @@ export function run(argv: string[], io: Io): number {
     io.stdout(parsed.values.json ? JSON.stringify(result.json) : result.text);
     return result.exitCode ?? 0;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    io.stderr(error instanceof HubError ? message : `error: ${message.split("\n")[0]}`);
+    report(io, error);
     return 1;
   } finally {
     db?.close();
