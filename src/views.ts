@@ -1118,6 +1118,7 @@ ${section(
         ["30m", "30 min"],
         ["1h", "1 hour"],
         ["2h", "2 hours"],
+        ["4h", "4 hours"],
       ]),
     ) +
     row("Command", `<pre class="text code">${esc(JSON.stringify(c.syncCommand))}</pre>`),

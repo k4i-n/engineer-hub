@@ -3,7 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { type Args, checkFields, findRoute, openapi, queryArgs, runRoute } from "./api.ts";
 import type { Ctx } from "./commands.ts";
 import { loadConfig } from "./config.ts";
@@ -165,6 +165,7 @@ export function serve(options: ServeOptions): Promise<Server> {
       broadcast();
     };
     const proc = spawn(program, args, {
+      cwd: dirname(options.dbPath),
       env: { ...options.env, HUB_DB: options.dbPath, HUB_URL: `http://127.0.0.1:${port}` },
       stdio: ["ignore", "pipe", "pipe"],
     });
