@@ -425,6 +425,7 @@ export function lint(ctx: Ctx): Result {
 
 export function set(ctx: Ctx, id: string, field: string, value: string): Result {
   oneOf("field", field, SETTABLE_FIELDS);
+  if (field === "title" && !value.trim()) throw new HubError("title is empty");
   checkLimit(field, value, ctx.config.limits);
   getTicket(ctx.db, id);
   const updated = today(ctx.now, ctx.config.timezone);
@@ -627,8 +628,7 @@ function checkDir(ctx: Ctx, dir: string): void {
   oneOf("dir", dir, [...ctx.config.taskDirs, "unfiled"]);
 }
 
-export function ticketNew(ctx: Ctx, id: string, title: string, dir: string): Result {
-  checkDir(ctx, dir);
+function checkNewId(ctx: Ctx, id: string): void {
   const tracker = new RegExp(`^(?:${ctx.config.ticketIdPattern})$`);
   if (!tracker.test(id) && !ctx.config.localIdPrefixes.some((p) => id.startsWith(p) && id.length > p.length)) {
     throw new HubError(
@@ -636,11 +636,51 @@ export function ticketNew(ctx: Ctx, id: string, title: string, dir: string): Res
     );
   }
   if (one(ctx.db, "SELECT 1 FROM ticket WHERE id = ?", id)) throw new HubError(`ticket ${id} already exists`);
+}
+
+export function ticketNew(ctx: Ctx, id: string, title: string, dir: string): Result {
+  checkDir(ctx, dir);
+  checkNewId(ctx, id);
   const at = nowIso(ctx.now);
   ctx.db
     .prepare("INSERT INTO ticket(id, title, dir, updated, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
     .run(id, title, dir, today(ctx.now, ctx.config.timezone), at, at);
   return { text: `${id} created in ${dir}`, json: { id, title, dir } };
+}
+
+const TICKET_ROWS = ["event", "note", "draft", "item", "wait", "step"];
+
+export function rename(ctx: Ctx, id: string, to: string): Result {
+  getTicket(ctx.db, id);
+  checkNewId(ctx, to);
+  const run = (sql: string, ...params: (string | number)[]) => ctx.db.prepare(sql).run(...params);
+  const at = nowIso(ctx.now);
+  run("UPDATE ticket SET id = ?, updated_at = ? WHERE id = ?", to, at, id);
+  for (const table of TICKET_ROWS) run(`UPDATE ${table} SET ticket_id = ? WHERE ticket_id = ?`, to, id);
+  for (const kind of ["gate", "decide"]) run("UPDATE pin SET key = ? WHERE key = ?", `${kind}-${to}`, `${kind}-${id}`);
+  const match = `match-${id}-`;
+  run(
+    "UPDATE pin SET key = ? || substr(key, ?) WHERE substr(key, 1, ?) = ?",
+    `match-${to}-`,
+    match.length + 1,
+    match.length,
+    match,
+  );
+  run("UPDATE meta SET value = ? WHERE key LIKE 'moved-id:%' AND value = ?", to, id);
+  run("DELETE FROM meta WHERE key = ?", `moved-id:${to}`);
+  run(
+    "INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    `moved-id:${id}`,
+    to,
+  );
+  run(
+    "INSERT INTO event(ticket_id, ts, kind, text, source, created_at) VALUES (?, ?, 'log', ?, 'agent', ?)",
+    to,
+    nowTs(ctx.now, ctx.config.timezone),
+    `renamed from ${id}`,
+    at,
+  );
+  return { text: `${id} is now ${to}`, json: { id: to, from: id } };
 }
 
 export function move(ctx: Ctx, id: string, dir: string): Result {

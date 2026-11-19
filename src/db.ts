@@ -104,6 +104,7 @@ export type DayRow = { date: string; resume: string | null; body: string; update
 
 export const LIMITED_FIELDS = ["status", "repo", "prs", "gate", "decide", "next", "owner"] as const;
 export const SETTABLE_FIELDS = [
+  "title",
   "status",
   "repo",
   "worktree",
@@ -231,8 +232,10 @@ export function all<T>(db: DatabaseSync, sql: string, ...params: SQLInputValue[]
 
 export function getTicket(db: DatabaseSync, id: string): Ticket {
   const ticket = one<Ticket>(db, "SELECT * FROM ticket WHERE id = ?", id);
-  if (!ticket) throw new HubError(`no ticket ${id} (hub board lists them; hub ticket-new creates one)`);
-  return ticket;
+  if (ticket) return ticket;
+  const renamed = one<{ value: string }>(db, "SELECT value FROM meta WHERE key = ?", `moved-id:${id}`)?.value;
+  if (renamed !== undefined) throw new HubError(`${id} is now ${renamed}: use ${renamed}`);
+  throw new HubError(`no ticket ${id} (hub board lists them; hub ticket-new creates one)`);
 }
 
 export function checkLimit(field: string, value: string, limits: Record<string, number>): void {

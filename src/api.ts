@@ -124,6 +124,15 @@ export const ROUTES: Route[] = [
     },
   },
   {
+    name: "ticket_rename",
+    method: "POST",
+    path: "/tickets/{id}/rename",
+    about:
+      "Change the ticket's id, e.g. a NEW- ticket to its tracker id once filed; its timeline, notes, drafts, steps, items and waits follow.",
+    body: { to: { type: "string", required: true, about: "the new id" } },
+    run: (ctx, a) => transaction(ctx.db, () => commands.rename(ctx, str(a, "id"), str(a, "to"))),
+  },
+  {
     name: "ticket_order",
     method: "PUT",
     path: "/tickets/{id}/order",

@@ -275,7 +275,7 @@ describe("writes", () => {
 
   test("set refuses an unknown field and an unknown ticket", async () => {
     await imported();
-    assert.match((await hub("set", "ENG-7", "title", "x")).err, /unknown body field title \(status, repo/);
+    assert.match((await hub("set", "ENG-7", "colour", "x")).err, /unknown body field colour \(title, status, repo/);
     assert.match((await hub("set", "ENG-1", "next", "x")).err, /no ticket ENG-1/);
   });
 
@@ -339,6 +339,54 @@ describe("writes", () => {
     assert.match((await hub("ticket-new", "ENG-8", "x", "--dir", "later")).err, /dir must be one of/);
     await ok("move", "NEW-export-audit", "inprogress");
     assert.equal(sql<{ dir: string }>("SELECT dir FROM ticket WHERE id = 'NEW-export-audit'")[0]?.dir, "inprogress");
+  });
+});
+
+describe("title and rename", () => {
+  test("set changes the title, and refuses an empty one", async () => {
+    await imported();
+    await ok("set", "ENG-7", "title", "Export audit, all regions");
+    assert.equal(
+      sql<{ title: string }>("SELECT title FROM ticket WHERE id = 'ENG-7'")[0]?.title,
+      "Export audit, all regions",
+    );
+    assert.match((await hub("set", "ENG-7", "title", " ")).err, /title is empty/);
+  });
+
+  test("rename moves every row and pin to the new id, keeps search, and the old id names the new one", async () => {
+    await ok("ticket-new", "NEW-sessions", "Sync sessions");
+    await ok("log", "NEW-sessions", "read the session middleware");
+    stdin = "keyed by device id";
+    await ok("note", "NEW-sessions", "Findings", "--stdin");
+    stdin = "Can we drop the old table?";
+    await ok("draft", "NEW-sessions", "M1", "--stdin");
+    await ok("step", "add", "NEW-sessions", "write the migration");
+    await ok("link", "NEW-sessions", "https://github.com/acme/web/pull/101");
+    await ok("wait", "NEW-sessions", "Ana", "https://acme.slack.com/archives/C1/p1");
+    await ok("set", "NEW-sessions", "gate", "approve the migration?");
+    sql("INSERT INTO pin(key, pinned_at) VALUES ('gate-NEW-sessions', 'x'), ('match-NEW-sessions-M1', 'x')");
+
+    assert.match(await ok("rename", "NEW-sessions", "ENG-42"), /^NEW-sessions is now ENG-42$/m);
+    for (const table of ["event", "note", "draft", "item", "wait", "step"]) {
+      assert.deepEqual(
+        sql<{ id: string }>(`SELECT DISTINCT ticket_id AS id FROM ${table}`).map((r) => r.id),
+        ["ENG-42"],
+        table,
+      );
+    }
+    assert.deepEqual(
+      sql<{ key: string }>("SELECT key FROM pin ORDER BY key").map((r) => r.key),
+      ["gate-ENG-42", "match-ENG-42-M1"],
+    );
+    assert.match(await ok("events", "ENG-42", "-n", "1"), /renamed from NEW-sessions$/);
+    assert.match(await ok("search", "middleware"), /ENG-42/);
+    assert.match((await hub("log", "NEW-sessions", "late write")).err, /NEW-sessions is now ENG-42: use ENG-42/);
+
+    assert.match((await hub("rename", "ENG-42", "bad id")).err, /matches neither/);
+    await ok("ticket-new", "ENG-43", "Other");
+    assert.match((await hub("rename", "ENG-42", "ENG-43")).err, /ticket ENG-43 already exists/);
+    await ok("rename", "ENG-42", "ENG-44");
+    assert.match((await hub("ticket", "NEW-sessions")).err, /NEW-sessions is now ENG-44/);
   });
 });
 
