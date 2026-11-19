@@ -15,11 +15,12 @@ import {
   type Ticket,
   type WaitRow,
 } from "./db.ts";
+import { series, span } from "./horizon.ts";
 import { KIND_NAME, repoOf } from "./items.ts";
 import { esc, renderLine, renderMarkdown } from "./markdown.ts";
 import { pins } from "./pins.ts";
 import { progress } from "./steps.ts";
-import { cut, nowIso, nowTs, shiftDate, sinceDate, startOfDayIso, today } from "./util.ts";
+import { cut, nowIso, nowTs, sinceDate, startOfDayIso, today } from "./util.ts";
 
 export type SyncState = {
   status: "idle" | "running" | "finished" | "failed";
@@ -638,9 +639,17 @@ function delta(now: number, before: number): string {
 
 function rangeControl(c: Config): string {
   return segmented(
-    "chartDays",
-    c.chartDays,
-    [7, 14, 30].map((d) => [d, `${d}d`]),
+    "horizon",
+    c.horizon,
+    [
+      ["7d", "7d"],
+      ["14d", "14d"],
+      ["30d", "30d"],
+      ["week", "Week"],
+      ["month", "Month"],
+      ["all", "All"],
+    ],
+    "compact",
   );
 }
 
@@ -668,18 +677,15 @@ function overviewSection(ctx: Ctx, tickets: Ticket[], list: Need[]): string {
     value: tickets.filter((t) => t.dir === d).length,
     tone: DIR_SLICE_TONE[d] ?? "grey",
   }));
+  const period = span(c.horizon, ctx.now, c.timezone);
   const finished = recentlyDone(ctx).length;
-  const ticketsTile = `<div class="tile"><div class="tile-head"><span class="tile-title">Tickets</span>${finished > 0 ? `<span class="delta up" title="done in the last ${c.doneDays} days">${finished} done</span>` : ""}</div><div class="donut-row"><span class="donut-wrap">${donut(dirSlices, 92, 12)}<b>${tickets.length}</b></span>${legend(dirSlices)}</div></div>`;
+  const ticketsTile = `<div class="tile"><div class="tile-head"><span class="tile-title">Tickets</span>${finished > 0 ? `<span class="delta up" title="done ${esc(period.label)}">${finished} done</span>` : ""}</div><div class="donut-row"><span class="donut-wrap">${donut(dirSlices, 92, 12)}<b>${tickets.length}</b></span>${legend(dirSlices)}</div></div>`;
 
   const todayDate = today(ctx.now, c.timezone);
-  const first = shiftDate(todayDate, 1 - c.chartDays);
-  const from = startOfDayIso(first, c.timezone);
-  const recent = stepsDone(ctx, from, null);
-  const before = stepsDone(ctx, startOfDayIso(shiftDate(first, -c.chartDays), c.timezone), from).length;
-  const days = Array.from({ length: c.chartDays }, (_, i) => {
-    const day = shiftDate(first, i);
-    return { day, n: recent.filter((d) => d === day).length };
-  });
+  const recent = stepsDone(ctx, period.from, null);
+  const before = period.previous === null ? 0 : stepsDone(ctx, period.previous.from, period.previous.to).length;
+  const first = period.first ?? recent.toSorted()[0] ?? todayDate;
+  const days = series(first, todayDate, recent);
   const doneTile = `<div class="tile"><div class="tile-head"><span class="tile-title">Steps done</span>${delta(recent.length, before)}</div><div class="hero">${recent.length}</div>${area(days, recent.length === 1 ? "step" : "steps")}</div>`;
 
   return `<section class="overview"><div class="sec-head"><h2>Overview</h2>${rangeControl(c)}</div><div class="tiles">${needsTile}${progressTile}${ticketsTile}${doneTile}</div></section>`;
@@ -813,7 +819,7 @@ function eventRow(ctx: Ctx, e: EventRow, showTicket: boolean): string {
 }
 
 function activitySection(ctx: Ctx): string {
-  const from = startOfDayIso(sinceDate("yesterday", ctx.now, ctx.config.timezone), ctx.config.timezone);
+  const { from } = span(ctx.config.horizon, ctx.now, ctx.config.timezone);
   const events = all<EventRow>(
     ctx.db,
     "SELECT * FROM event WHERE created_at >= ? AND source != 'import' ORDER BY created_at DESC, id DESC LIMIT ?",
@@ -984,8 +990,8 @@ ${head}
 
 type Option = [string | number, string, string?];
 
-function segmented(key: string, value: string | number, options: Option[]): string {
-  return `<div class="seg" role="radiogroup">${options
+function segmented(key: string, value: string | number, options: Option[], cls = ""): string {
+  return `<div class="seg${cls ? ` ${cls}` : ""}" role="radiogroup">${options
     .map(
       ([v, label, icon]) =>
         `<button type="button" role="radio" aria-checked="${v === value}" class="${v === value ? "on" : ""}${icon ? " has-icon" : ""}" data-config="${esc(key)}" data-value="${esc(JSON.stringify(v))}">${icon ?? ""}${esc(label)}</button>`,
@@ -1098,22 +1104,7 @@ ${section(
       ["bar", "Bar", bar(65)],
     ]),
   ) +
-    row(
-      "Charts",
-      segmented(
-        "chartDays",
-        c.chartDays,
-        [7, 14, 30].map((d) => [d, `${d} days`]),
-      ),
-    ) +
-    row(
-      "Done tab",
-      segmented(
-        "doneDays",
-        c.doneDays,
-        [7, 14, 30].map((d) => [d, `${d} days`]),
-      ),
-    ) +
+    row("Period", rangeControl(c)) +
     row(
       "Later until",
       segmented(

@@ -220,6 +220,11 @@ describe("serve", () => {
     assert.match(panel("done"), /class="ticket is-closed" data-key="t-ENG-7"[\s\S]*?<span class="t-next">done /);
     assert.doesNotMatch(panel("ongoing"), /data-key="t-ENG-7"/);
     assert.match(html, /data-tab="done" aria-selected="false">Done <b>1<\/b>/);
+    assert.match(html, /title="done in the last 14 days">1 done</);
+    assert.equal((await setConfigKey("horizon", '"month"')).status, 200);
+    const month = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.match(month, /title="done this month">1 done</);
+    assert.match(month, /data-tab="done" aria-selected="false">Done <b>1<\/b>/);
   });
 
   test("a ticket row shows three PR chips and folds the rest behind +N", async () => {
@@ -333,14 +338,14 @@ describe("serve", () => {
       /data-key="t-ENG-42"[\s\S]*?<span class="t-progress style-ring"><svg class="ring"[\s\S]*?<span class="pct">50%<\/span>/,
     );
 
-    assert.equal((await setConfigKey("chartDays", "7")).status, 200);
+    assert.equal((await setConfigKey("horizon", '"7d"')).status, 200);
     assert.equal((await setConfigKey("progressStyle", '"half"')).status, 200);
     const after = await (await fetch(`${server.url}/?part=1`)).text();
     assert.equal([...after.matchAll(/data-tip="/g)].length, 7);
     assert.match(after, /<span class="t-progress style-half"><svg class="half"/);
     const ticket = await (await fetch(`${server.url}/t/ENG-42?part=1`)).text();
     assert.match(ticket, /<span class="t-progress style-half big">/);
-    assert.equal((await setConfigKey("chartDays", "9")).status, 400);
+    assert.equal((await setConfigKey("horizon", '"9d"')).status, 400);
     assert.equal((await setConfigKey("progressStyle", '"pie"')).status, 400);
   });
 
