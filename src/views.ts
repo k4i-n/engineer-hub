@@ -785,17 +785,39 @@ function ticketRow(ctx: Ctx, t: Ticket, done = false, needing: Need[] = []): str
 </li>`;
 }
 
-function ticketList(ctx: Ctx, tab: string, tickets: Ticket[], done: boolean, needing: Map<string, Need[]>): string {
-  const rows = tickets.map((t) => ticketRow(ctx, t, done, needing.get(t.id) ?? [])).join("");
-  return `<ul class="rows ticket-list" data-tab-panel="${tab}"${done ? " hidden" : ""}>${rows === "" ? `<li class="empty">—</li>` : rows}</ul>`;
+type Tab = { name: string; label: string; count: number };
+
+function tabBar(group: string, tabs: Tab[]): string {
+  const buttons = tabs.map((t, i) => {
+    const on = i === 0;
+    return `<button type="button" role="tab" class="tab${on ? " on" : ""}" data-tab="${esc(t.name)}" aria-selected="${on}">${esc(t.label)} <b>${t.count}</b></button>`;
+  });
+  return `<span class="tabs" role="tablist" data-tabs="${group}">${buttons.join("")}</span>`;
+}
+
+type TicketGroup = { name: string; label: string; tickets: Ticket[] };
+
+function ticketList(ctx: Ctx, group: TicketGroup, on: boolean, needing: Map<string, Need[]>): string {
+  const done = group.name === "done";
+  const rows = group.tickets.map((t) => ticketRow(ctx, t, done, needing.get(t.id) ?? [])).join("");
+  return `<ul class="rows ticket-list" data-tab-panel="${esc(group.name)}"${on ? "" : " hidden"}>${rows === "" ? `<li class="empty">—</li>` : rows}</ul>`;
 }
 
 function ticketsSection(ctx: Ctx, tickets: Ticket[], needing: Map<string, Need[]>): string {
-  const done = recentlyDone(ctx);
-  const tab = (name: string, label: string, n: number, on: boolean) =>
-    `<button type="button" role="tab" class="tab${on ? " on" : ""}" data-tab="${name}" aria-selected="${on}">${label} <b>${n}</b></button>`;
-  const tabs = `<span class="tabs" role="tablist">${tab("ongoing", "Ongoing", tickets.length, true)}${tab("done", "Done", done.length, false)}</span>`;
-  return `<section class="tickets"><div class="sec-head"><h2>Tickets</h2>${tabs}</div>${ticketList(ctx, "ongoing", tickets, false, needing)}${ticketList(ctx, "done", done, true, needing)}</section>`;
+  const groups: TicketGroup[] = [
+    ...ctx.config.openDirs.map((dir) => ({
+      name: dir,
+      label: DIR_LABEL[dir] ?? dir,
+      tickets: tickets.filter((t) => t.dir === dir),
+    })),
+    { name: "done", label: "Done", tickets: recentlyDone(ctx) },
+  ];
+  const tabs = tabBar(
+    "tickets",
+    groups.map((g) => ({ name: g.name, label: g.label, count: g.tickets.length })),
+  );
+  const lists = groups.map((g, i) => ticketList(ctx, g, i === 0, needing)).join("");
+  return `<section class="tickets"><div class="sec-head"><h2>Tickets</h2>${tabs}</div>${lists}</section>`;
 }
 
 function todaySection(ctx: Ctx): string {
@@ -815,13 +837,14 @@ function todaySection(ctx: Ctx): string {
 }
 
 function draftsSection(ctx: Ctx): string {
-  const rows = all<DraftRow>(
+  const drafts = all<DraftRow>(
     ctx.db,
     `SELECT * FROM draft WHERE (status = 'draft' OR sent_text IS NULL) AND match_ref IS NULL
        AND NOT (status = 'draft' AND send_at IS NOT NULL AND send_at <= ?)
      ORDER BY status != 'draft', send_at IS NOT NULL, send_at, ticket_id, label`,
     nowIso(ctx.now),
-  ).map((d) => {
+  );
+  const rows = drafts.map((d) => {
     const later = d.status === "draft" && d.send_at !== null;
     const sent = d.status !== "draft";
     const state =

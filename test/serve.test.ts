@@ -212,13 +212,30 @@ describe("serve", () => {
     assert.equal((await call("PUT", "/tickets/ENG-7/order", { place: -1 })).status, 400);
   });
 
-  test("tickets split into ongoing and recently done tabs", async () => {
-    await hub(["move", "ENG-7", "done"]);
-    const html = await (await fetch(`${server.url}/?part=1`)).text();
+  test("tickets split into a tab per open folder, in openDirs order, and a recently done tab", async () => {
+    await hub(["ticket-new", "ENG-9", "Look at flaky test", "--dir", "triage"]);
+    let html = await (await fetch(`${server.url}/?part=1`)).text();
     const panel = (tab: string) =>
-      new RegExp(`<ul class="rows ticket-list" data-tab-panel="${tab}"[^>]*>([\\s\\S]*?)</ul>`).exec(html)?.[1] ?? "";
-    assert.match(panel("done"), /class="ticket is-closed" data-key="t-ENG-7"[\s\S]*?<span class="t-next">done /);
-    assert.doesNotMatch(panel("ongoing"), /data-key="t-ENG-7"/);
+      new RegExp(`<ul class="rows ticket-list" data-tab-panel="${tab}"([^>]*)>([\\s\\S]*?)</ul>`).exec(html) ?? [];
+    assert.match(
+      html,
+      /<span class="tabs" role="tablist" data-tabs="tickets"><button[^>]*data-tab="inprogress" aria-selected="true">In progress <b>1<\/b><\/button><button[^>]*data-tab="todo" aria-selected="false">To do <b>1<\/b><\/button><button[^>]*data-tab="triage" aria-selected="false">Triage <b>1<\/b><\/button><button[^>]*data-tab="backlog" aria-selected="false">Backlog <b>0<\/b><\/button><button[^>]*data-tab="unfiled" aria-selected="false">Unfiled <b>0<\/b><\/button><button[^>]*data-tab="done" aria-selected="false">Done <b>0<\/b><\/button><\/span>/,
+    );
+    assert.equal(panel("inprogress")[1], "");
+    assert.match(panel("inprogress")[2] ?? "", /data-key="t-ENG-42"/);
+    assert.doesNotMatch(panel("inprogress")[2] ?? "", /data-key="t-ENG-7"/);
+    assert.equal(panel("todo")[1], " hidden");
+    assert.match(panel("todo")[2] ?? "", /data-key="t-ENG-7"/);
+    assert.match(panel("triage")[2] ?? "", /data-key="t-ENG-9"/);
+    assert.match(panel("backlog")[2] ?? "", /<li class="empty">/);
+
+    await hub(["move", "ENG-7", "done"]);
+    html = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.match(
+      panel("done")[2] ?? "",
+      /class="ticket is-closed" data-key="t-ENG-7"[\s\S]*?<span class="t-next">done /,
+    );
+    assert.doesNotMatch(panel("todo")[2] ?? "", /data-key="t-ENG-7"/);
     assert.match(html, /data-tab="done" aria-selected="false">Done <b>1<\/b>/);
     assert.match(html, /title="done in the last 14 days">1 done</);
     assert.equal((await setConfigKey("horizon", '"month"')).status, 200);
