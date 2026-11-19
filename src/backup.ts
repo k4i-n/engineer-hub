@@ -8,7 +8,7 @@ import { HubError } from "./util.ts";
 export type Backup = { name: string; path: string; size: number; at: string };
 export type BackupState = { at: string; name: string | null; error: string | null };
 
-const NAME = /^hub-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})(-before-restore)?\.db$/;
+const NAME = /^hub-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})(-before-(?:restore|delete|merge))?(-\d+)?\.db$/;
 
 export function backupDir(setting: string, dbPath: string): string {
   if (setting === "") return join(dirname(resolve(dbPath)), "backups");
@@ -35,9 +35,9 @@ export function listBackups(dir: string): Backup[] {
 
 export function backup(db: DatabaseSync, dir: string, now: Date, keep: number, suffix = ""): Backup {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const name = `hub-${stamp(now)}${suffix}.db`;
+  let name = `hub-${stamp(now)}${suffix}.db`;
+  for (let n = 2; existsSync(join(dir, name)); n++) name = `hub-${stamp(now)}${suffix}-${n}.db`;
   const path = join(dir, name);
-  if (existsSync(path)) throw new HubError(`${name} already exists: a backup was made this second`);
   db.prepare("VACUUM INTO ?").run(path);
   chmodSync(path, 0o600);
   for (const old of listBackups(dir).slice(keep)) rmSync(old.path);

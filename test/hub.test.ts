@@ -390,6 +390,74 @@ describe("title and rename", () => {
   });
 });
 
+describe("delete and merge", () => {
+  async function filled(id: string, step: string): Promise<void> {
+    await ok("ticket-new", id, `Ticket ${id}`);
+    await ok("log", id, `worked on ${id}`);
+    stdin = `notes of ${id}`;
+    await ok("note", id, "Findings", "--stdin");
+    stdin = `ask from ${id}`;
+    await ok("draft", id, "M1", "--stdin");
+    await ok("step", "add", id, step);
+    await ok("link", id, `https://github.com/acme/web/pull/${id.slice(4)}`);
+    await ok("wait", id, "Ana", `https://acme.slack.com/archives/C1/p${id.slice(4)}`);
+    sql(`INSERT INTO pin(key, pinned_at) VALUES ('gate-${id}', 'x'), ('match-${id}-M1', 'x')`);
+  }
+  const count = (table: string, id: string) =>
+    sql<{ n: number }>(`SELECT count(*) AS n FROM ${table} WHERE ticket_id = ?`, id)[0]?.n;
+
+  test("delete backs up, removes the ticket's own rows and pins, and leaves its items unattached", async () => {
+    await filled("ENG-42", "write the migration");
+    await ok("rename", "ENG-42", "ENG-43");
+    assert.match(await ok("ticket-delete", "ENG-43"), /^ENG-43 deleted \(backup hub-\d{8}-\d{6}-before-delete\.db\)$/m);
+    for (const table of ["event", "note", "draft", "wait", "step", "item"])
+      assert.equal(count(table, "ENG-43"), 0, table);
+    assert.equal(sql<{ n: number }>("SELECT count(*) AS n FROM item WHERE ticket_id IS NULL")[0]?.n, 1);
+    assert.deepEqual(sql("SELECT key FROM pin"), []);
+    assert.match((await hub("ticket", "ENG-43")).err, /no ticket ENG-43/);
+    assert.match((await hub("ticket", "ENG-42")).err, /no ticket ENG-42/);
+    assert.match(await ok("backups"), /hub-\d{8}-\d{6}-before-delete\.db/);
+    await ok("ticket-new", "ENG-44", "Again");
+    assert.match(await ok("ticket-delete", "ENG-44"), /before-delete-2\.db\)$/m);
+    assert.match((await hub("ticket-delete", "ENG-45")).err, /no ticket ENG-45/);
+  });
+
+  test("merge moves every row into the other ticket, renames clashes, appends steps, and the old id names the new one", async () => {
+    await filled("ENG-41", "read the code");
+    await filled("ENG-42", "write the migration");
+    await ok("step", "add", "ENG-41", "ship it");
+    assert.match((await hub("merge", "ENG-42", "ENG-42")).err, /cannot merge into itself/);
+    assert.match(await ok("merge", "ENG-41", "ENG-42"), /^ENG-41 merged into ENG-42 \(backup /m);
+    assert.deepEqual(
+      sql<{ title: string }>("SELECT title FROM note WHERE ticket_id = 'ENG-42' ORDER BY position").map((n) => n.title),
+      ["Findings", "Findings (from ENG-41)"],
+    );
+    assert.deepEqual(
+      sql<{ label: string }>("SELECT label FROM draft WHERE ticket_id = 'ENG-42' ORDER BY label").map((d) => d.label),
+      ["M1", "M1 (from ENG-41)"],
+    );
+    assert.deepEqual(
+      sql<{ n: number; title: string }>("SELECT n, title FROM step WHERE ticket_id = 'ENG-42' ORDER BY n").map(
+        (s) => `${s.n} ${s.title}`,
+      ),
+      ["1 write the migration", "2 read the code", "3 ship it"],
+    );
+    for (const [table, n] of [
+      ["item", 2],
+      ["wait", 2],
+    ] as const)
+      assert.equal(count(table, "ENG-42"), n, table);
+    assert.match(await ok("events", "ENG-42", "-n", "1"), /merged ENG-41: Ticket ENG-41$/);
+    assert.match(await ok("search", "notes of ENG-41"), /ENG-42/);
+    assert.deepEqual(
+      sql<{ key: string }>("SELECT key FROM pin ORDER BY key").map((p) => p.key),
+      ["gate-ENG-42", "match-ENG-42-M1"],
+    );
+    assert.equal(sql<{ n: number }>("SELECT count(*) AS n FROM ticket WHERE id = 'ENG-41'")[0]?.n, 0);
+    assert.match((await hub("log", "ENG-41", "late")).err, /ENG-41 is now ENG-42/);
+  });
+});
+
 describe("items", () => {
   test("link stores an item on the ticket, a second link changes nothing, a later link moves it", async () => {
     await imported();

@@ -1,7 +1,7 @@
 import { brief } from "./brief.ts";
 import type { Ctx, Result } from "./commands.ts";
 import * as commands from "./commands.ts";
-import { one, SETTABLE_FIELDS, transaction, type WaitRow } from "./db.ts";
+import { getTicket, one, SETTABLE_FIELDS, transaction, type WaitRow } from "./db.ts";
 import { applyImport, collectImport, countPlan, formatSummary } from "./importer.ts";
 import * as items from "./items.ts";
 import { moved } from "./moved.ts";
@@ -22,6 +22,7 @@ export type Hooks = {
   startSync: () => { started: boolean; status: unknown };
   fetchNow: (source: string | null) => Promise<Result>;
   backupNow: () => Result;
+  backupBefore: (what: "delete" | "merge") => string;
   backups: () => Result;
   restore: (name: string) => Result;
 };
@@ -131,6 +132,39 @@ export const ROUTES: Route[] = [
       "Change the ticket's id, e.g. a NEW- ticket to its tracker id once filed; its timeline, notes, drafts, steps, items and waits follow.",
     body: { to: { type: "string", required: true, about: "the new id" } },
     run: (ctx, a) => transaction(ctx.db, () => commands.rename(ctx, str(a, "id"), str(a, "to"))),
+  },
+  {
+    name: "ticket_delete",
+    method: "POST",
+    path: "/tickets/{id}/delete",
+    about:
+      "Delete the ticket with its timeline, notes, drafts, steps and waits; its items stay, unattached. Backs up first.",
+    run: (ctx, a, hooks) => {
+      getTicket(ctx.db, str(a, "id"));
+      const saved = hooks.backupBefore("delete");
+      const done = transaction(ctx.db, () => commands.deleteTicket(ctx, str(a, "id")));
+      return {
+        text: `${done.text} (backup ${saved})`,
+        json: { ...(done.json as object), backup: saved },
+      };
+    },
+  },
+  {
+    name: "ticket_merge",
+    method: "POST",
+    path: "/tickets/{id}/merge",
+    about:
+      "Move everything on the ticket into another one, then delete it; a clashing note title or draft label gets (from <id>). Backs up first.",
+    body: { into: { type: "string", required: true, about: "the ticket that keeps everything" } },
+    run: (ctx, a, hooks) => {
+      commands.checkMerge(ctx, str(a, "id"), str(a, "into"));
+      const saved = hooks.backupBefore("merge");
+      const done = transaction(ctx.db, () => commands.mergeTicket(ctx, str(a, "id"), str(a, "into")));
+      return {
+        text: `${done.text} (backup ${saved})`,
+        json: { ...(done.json as object), backup: saved },
+      };
+    },
   },
   {
     name: "ticket_order",

@@ -345,6 +345,8 @@ export function serve(options: ServeOptions): Promise<Server> {
     syncStatus: () => sync,
     startSync: () => ({ started: startSync(), status: sync }),
     fetchNow: (source: string | null) => runner.now(source),
+    backupBefore: (what: "delete" | "merge") =>
+      backup(db, folder(), options.now(), Number.POSITIVE_INFINITY, `-before-${what}`).name,
     backupNow: (): Result => {
       const made = backupNow();
       return { text: `backed up to ${made.path}`, json: made };
