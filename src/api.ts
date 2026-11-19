@@ -15,7 +15,11 @@ export type Field = { type: FieldType; required?: boolean; about: string };
 export type Fields = Record<string, Field>;
 export type Args = Record<string, unknown>;
 export type Method = "GET" | "POST" | "PUT" | "PATCH";
-export type Hooks = { syncStatus: () => unknown; startSync: () => { started: boolean; status: unknown } };
+export type Hooks = {
+  version: string;
+  syncStatus: () => unknown;
+  startSync: () => { started: boolean; status: unknown };
+};
 
 export type Route = {
   name: string;
@@ -203,7 +207,7 @@ export const ROUTES: Route[] = [
     name: "posted",
     method: "POST",
     path: "/tickets/{id}/drafts/{label}/posted",
-    about: "Mark a draft sent, with the wording actually sent when known.",
+    about: "Mark a draft sent, with the wording actually sent (the user often rewrites it) and its permalink.",
     body: {
       at: { type: "string", about: "when (default now)" },
       channel: { type: "string", about: "where" },
@@ -224,7 +228,8 @@ export const ROUTES: Route[] = [
     name: "match",
     method: "POST",
     path: "/tickets/{id}/drafts/{label}/match",
-    about: "Propose a sent message as this draft (sent_text and sent_ref), or answer a proposal (answer).",
+    about:
+      "Propose a sent message as this draft (sent_text and sent_ref) when unsure, or answer a proposal (answer). Match by meaning: same channel or thread, same person, same ask; never by exact text.",
     body: {
       sent_text: { type: "string", about: "the sent message" },
       sent_ref: { type: "string", about: "its permalink" },
@@ -581,7 +586,7 @@ export function queryArgs(fields: Fields, search: URLSearchParams): Args {
   return checkFields(fields, out, "query");
 }
 
-function schema(fields: Fields): unknown {
+export function schema(fields: Fields): unknown {
   const properties = Object.fromEntries(
     Object.entries(fields).map(([name, f]) => [
       name,

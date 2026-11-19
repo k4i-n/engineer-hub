@@ -7,6 +7,7 @@ import { type Args, checkFields, findRoute, openapi, queryArgs } from "./api.ts"
 import type { Ctx } from "./commands.ts";
 import { loadConfig } from "./config.ts";
 import { one, openDb, SCHEMA_VERSION } from "./db.ts";
+import { handleRpc } from "./mcp.ts";
 import { loadToken, tokenPath } from "./token.ts";
 import { afterDuration, HubError, nowIso } from "./util.ts";
 import { indexBody, page, type SyncState, settingsBody, ticketBody } from "./views.ts";
@@ -56,7 +57,7 @@ function send(
   res.end(body);
 }
 
-function readBody(req: IncomingMessage): Promise<Args> {
+function readText(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let raw = "";
     req.setEncoding("utf8");
@@ -64,17 +65,22 @@ function readBody(req: IncomingMessage): Promise<Args> {
       raw += chunk;
       if (raw.length > MAX_BODY) reject(new HubError("request too large"));
     });
-    req.on("end", () => {
-      try {
-        const value: unknown = raw === "" ? {} : JSON.parse(raw);
-        if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error();
-        resolve(value as Args);
-      } catch {
-        reject(new HubError("body must be a JSON object"));
-      }
-    });
+    req.on("end", () => resolve(raw));
     req.on("error", reject);
   });
+}
+
+async function readBody(req: IncomingMessage): Promise<Args> {
+  const raw = await readText(req);
+  let value: unknown;
+  try {
+    value = raw === "" ? {} : JSON.parse(raw);
+  } catch {
+    throw new HubError("body must be a JSON object");
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    throw new HubError("body must be a JSON object");
+  return value as Args;
 }
 
 export function serve(options: ServeOptions): Promise<Server> {
@@ -187,7 +193,36 @@ export function serve(options: ServeOptions): Promise<Server> {
     }
   }
 
+  async function mcp(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const json = (status: number, value: unknown) => send(res, status, "application/json", JSON.stringify(value));
+    const origin = req.headers.origin;
+    if (origin !== undefined && origin !== `http://127.0.0.1:${port}` && origin !== `http://localhost:${port}`) {
+      json(403, { error: "forbidden origin" });
+      return;
+    }
+    if (!authorized(req)) {
+      json(401, { error: "missing or wrong token: send Authorization: Bearer <the token file next to the database>" });
+      return;
+    }
+    if (req.method !== "POST") {
+      res.writeHead(405, { allow: "POST" }).end();
+      return;
+    }
+    let message: unknown;
+    try {
+      message = JSON.parse(await readText(req));
+    } catch (error) {
+      const text = error instanceof HubError ? error.message : "parse error";
+      json(400, { jsonrpc: "2.0", id: null, error: { code: -32700, message: text } });
+      return;
+    }
+    const reply = handleRpc(message, ctx, hooks);
+    if (reply === null) res.writeHead(202).end();
+    else json(200, reply);
+  }
+
   const hooks = {
+    version: VERSION,
     syncStatus: () => sync,
     startSync: () => ({ started: startSync(), status: sync }),
   };
@@ -249,6 +284,10 @@ export function serve(options: ServeOptions): Promise<Server> {
     }
     if (url.pathname === `${API}/openapi.json` && req.method === "GET") {
       send(res, 200, "application/json", OPENAPI);
+      return;
+    }
+    if (url.pathname === "/mcp") {
+      await mcp(req, res);
       return;
     }
     if (url.pathname.startsWith(`${API}/`)) {

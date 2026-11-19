@@ -173,6 +173,16 @@ curl -X PATCH -H "Authorization: Bearer $(cat ~/.hub/token)" -H "Content-Type: a
 
 Responses are the CLI's `--json` output, or its text with `Accept: text/plain` (the CLI's exit code is in `x-hub-exit`). Writes take a JSON body; an unknown, missing or mistyped field is refused with `400 {"error": ...}`. A ticket `PATCH` applies all its fields or none. Config keys that run commands (`syncCommand`) are set from the terminal only.
 
+## MCP
+
+`hub serve` is also an MCP server (streamable HTTP) at `http://127.0.0.1:7420/mcp`, with the same bearer token. Its tools are the API's routes for agents (`brief`, `board`, `ticket`, `ticket_set`, `log`, `item_put`, `wait_add`, `draft_save`, `posted`, `match`, `step_done`, ...), each read-only or marked when it replaces data. Tools never answer for the human: there is no gate answer, no match answer, no pin, config or Sync. Add it to any agent that speaks MCP; for Claude Code:
+
+```json
+{ "mcpServers": { "hub": { "type": "http", "url": "http://127.0.0.1:7420/mcp", "headers": { "Authorization": "Bearer ${HUB_TOKEN}" } } } }
+```
+
+with `HUB_TOKEN=$(cat ~/.hub/token)` in the environment.
+
 ## Import from a markdown ticket folder
 
 ```sh
