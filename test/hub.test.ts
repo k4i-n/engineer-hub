@@ -171,6 +171,10 @@ describe("import", () => {
       { title: "State notes (migrated 2026-11-13)", kind: "state_notes" },
     ]);
     const [t] = sql<Record<string, string>>("SELECT * FROM ticket WHERE id = 'ENG-42'");
+    assert.deepEqual(sql<{ id: string; position: number | null }>("SELECT id, position FROM ticket ORDER BY id"), [
+      { id: "ENG-42", position: 2 },
+      { id: "ENG-7", position: null },
+    ]);
     assert.equal(t?.repo, "acme/web");
     assert.equal(t?.worktree, "~/wt/eng-42");
     assert.equal(t?.branch, "feat/session-sync");
@@ -514,7 +518,7 @@ describe("reads", () => {
   test("board prints the exact line for the rich ticket", async () => {
     await imported();
     const status = sql<{ status: string }>("SELECT status FROM ticket WHERE id = 'ENG-42'")[0]?.status ?? "";
-    const expected = `  [High] [TRACKER: In Review] ENG-42 | ${status.slice(0, 87)}... | PR #101 | GATE: waiting on design review | DECIDE: keep refresh tokens in cookie or header | next: write the migration for the sessions table`;
+    const expected = `  [High] [TRACKER: In Review] #2 ENG-42 | ${status.slice(0, 87)}... | PR #101 | GATE: waiting on design review | DECIDE: keep refresh tokens in cookie or header | next: write the migration for the sessions table`;
     const lines = (await ok("board")).split("\n");
     assert.deepEqual(
       lines.filter((l) => l.startsWith("==")),
