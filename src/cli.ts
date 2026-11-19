@@ -45,7 +45,8 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         record-gate --hook (Stop hook: blocks a session that ran a recordActions command and wrote nothing to hub after)
         step add <id> <title> | step done <id> <n> [--evidence <url>]
         day set <date> (--file <path> | --stdin) [--rev <rev>] | ticket-new <id> <title> [--dir todo]
-        move <id> <dir> | order <id> <place | -> | gate <id> (yes | no) | config <key> <json>
+        move <id> <dir> | rename <id> <new id> | order <id> <place | -> | gate <id> (yes | no)
+        config <key> <json>
 backup: backup | backups | restore <name>
 import: import --root <dir> [--apply]
 serve:  serve [--port 7420] | service install [--port 7420] | service status | service uninstall
@@ -333,6 +334,7 @@ const COMMANDS: Record<string, Handler> = {
   },
   gate: (a) => c("gate", { id: arg(a, 0, "gate <id> (yes | no)"), answer: arg(a, 1, "gate <id> (yes | no)") }),
   move: (a) => c("ticket_set", { id: arg(a, 0, "move <id> <dir>"), dir: arg(a, 1, "move <id> <dir>") }),
+  rename: (a) => c("ticket_rename", { id: arg(a, 0, "rename <id> <new id>"), to: arg(a, 1, "rename <id> <new id>") }),
   order: (a) => {
     const usage = "order <id> <place | -> (1 is the top of its folder, - takes it out)";
     const value = arg(a, 1, usage);
