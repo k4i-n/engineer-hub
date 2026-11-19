@@ -89,7 +89,7 @@ export const DEFAULTS: Config = {
   layout: DEFAULT_LAYOUT,
   autoSync: true,
   syncEvery: "15m",
-  fetch: { github: true },
+  fetch: { github: true, linear: false },
   fetchEvery: "1m",
   hiddenBlocks: [],
   progressStyle: "ring",

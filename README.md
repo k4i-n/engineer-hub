@@ -115,8 +115,15 @@ Config lives in the database. `hub config` lists every key with its value:
 | Source | Fetches | Credential |
 |---|---|---|
 | `github` (on by default) | review requests (closed when no longer requested), your PRs updated since the last fetch with review decision and checks: approved, changes requested and checks failing need you | none in hub: it runs your signed-in `gh` |
+| `linear` | issues assigned to you updated since the last fetch (a new one with no hub ticket needs you; done and canceled do not), and mentions of you in issues and comments | a personal API key with read access |
 
-A source that fails shows its reason in Settings and in the header, with the command that fixes it. Sources with an API key (next: Linear, Slack) call through sealcall when `sealcall routes` lists a route named after the source, so hub never sees the key; otherwise hub reads its own Keychain item `engineer-hub/<source>` (`HUB_<SOURCE>_KEY` off macOS), which any process running as you can read.
+A source that fails shows its reason in Settings and in the header, with the command that fixes it. Sources with an API key call through sealcall when `sealcall routes` lists a route named after the source, so hub never sees the key; otherwise hub reads its own Keychain item `engineer-hub/<source>` (`HUB_<SOURCE>_KEY` off macOS), which any process running as you can read. For Linear:
+
+```sh
+security add-generic-password -s engineer-hub -a linear -w     # hub's own item; paste the key at the prompt
+sealcall add linear --host api.linear.app --header 'Authorization: {key}' --allow 'POST /graphql'   # or sealcall
+hub config fetch '{"github":true,"linear":true}'
+```
 
 ## Items from connectors
 
