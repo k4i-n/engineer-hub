@@ -1197,6 +1197,7 @@ export type Fetching = {
   name: string;
   on: boolean;
   script: string | null;
+  every: string | null;
   how: string | null;
   ok: boolean | null;
   fixes: string[];
@@ -1218,26 +1219,40 @@ function fetchStatus(ctx: Ctx, f: Fetching): string {
   return status("grey", f.on ? "Not synced yet" : "Off");
 }
 
+function scriptControls(f: Fetching): string {
+  return `<input class="text src-every" data-source-every="${esc(f.name)}" value="${esc(f.every ?? "")}" aria-label="Every" spellcheck="false">${button("Fetch now", { act: "source-fetch", name: f.name })}${button("Remove", { act: "source-remove", name: f.name, confirm: `Remove ${f.name}?` })}`;
+}
+
 function sourceRows(ctx: Ctx, list: Fetching[]): string {
   const next = (name: string, on: boolean) => JSON.stringify({ ...ctx.config.fetch, [name]: on });
   return list
     .map((f) => {
       const swtch =
         f.script !== null
-          ? `<code class="src-script">${esc(f.script)}</code>`
+          ? `<button type="button" role="switch" aria-checked="${f.on}" class="switch${f.on ? " on" : ""}" data-act="source-set" data-name="${esc(f.name)}" data-on="${f.on ? "0" : "1"}"><span class="knob"></span></button>`
           : `<button type="button" role="switch" aria-checked="${f.on}" class="switch${f.on ? " on" : ""}" data-config="fetch" data-value="${esc(next(f.name, !f.on))}"><span class="knob"></span></button>`;
-      const how = f.how === null ? "" : `<span class="src-how">${esc(f.how)}</span>`;
+      const script = f.script === null ? "" : `<code class="src-script">${esc(f.script)}</code>`;
+      const how = f.how === null || f.script !== null ? "" : `<span class="src-how">${esc(f.how)}</span>`;
       const warning = f.warning === null ? "" : `<span class="src-how tone-text-amber">${esc(f.warning)}</span>`;
       const fixes =
         f.script === null && f.ok === true && f.error === null && f.warning === null
           ? ""
           : f.fixes.map(codeBlock).join("");
+      const controls = f.script === null ? "" : scriptControls(f);
       return row(
         SOURCE_NAME[f.name] ?? f.name,
-        `${swtch}<div class="src-info">${fetchStatus(ctx, f)}${how}${warning}</div>${fixes}`,
+        `${swtch}<div class="src-info">${fetchStatus(ctx, f)}${script}${how}${warning}</div>${controls}${fixes}`,
       );
     })
     .join("");
+}
+
+function addSourceRow(): string {
+  const line = "hub source add <name> --every 5m -- <program>";
+  return row(
+    "Add",
+    `<div class="src-add" data-source-form><input class="text" data-keep="src-name" name="name" placeholder="name" aria-label="Name" spellcheck="false"><input class="text src-every" data-keep="src-every" name="every" placeholder="5m" aria-label="Every" spellcheck="false"><input class="text src-cmd" data-keep="src-cmd" name="command" placeholder="program args" aria-label="Command" spellcheck="false"></div><div class="md code-block"><pre><code data-source-line>${esc(line)}</code></pre></div>${button("Copy", { copy: line }, { disabled: true })}`,
+  );
 }
 
 const IGNORED_KIND: Record<string, string> = { review_request: "Review requests", pr: "My PRs" };
@@ -1377,6 +1392,7 @@ ${section(
   "Sources",
   null,
   sourceRows(ctx, fetching) +
+    addSourceRow() +
     row(
       "Review requests",
       `<input class="text" data-config-input="githubReviewQuery" value="${esc(c.githubReviewQuery)}" spellcheck="false">`,

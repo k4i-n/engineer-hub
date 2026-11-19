@@ -9,7 +9,7 @@ import { type Backup, backup, backupDir, checkRestorable, listBackups, replaceDb
 import type { Ctx, Result } from "./commands.ts";
 import { loadConfig } from "./config.ts";
 import { one, openDb, SCHEMA_VERSION, type SourceRow } from "./db.ts";
-import { type Fetcher, Runner } from "./fetch.ts";
+import { type Fetcher, isOn, Runner } from "./fetch.ts";
 import { FETCHERS } from "./fetchers/index.ts";
 import { type System, system } from "./keys.ts";
 import { handleRpc } from "./mcp.ts";
@@ -101,8 +101,9 @@ function fetching(c: Ctx, runner: Runner): Fetching[] {
     const state = runner.status.get(f.name);
     return {
       name: f.name,
-      on: f.argv !== undefined || c.config.fetch[f.name] === true,
-      script: f.argv === undefined ? null : `${f.argv.join(" ")} · every ${f.every ?? ""}`,
+      on: isOn(c, f),
+      script: f.argv === undefined ? null : f.argv.join(" "),
+      every: f.every ?? null,
       how: state?.check?.how ?? null,
       ok: state?.check?.ok ?? null,
       fixes: runner.fixes(f),
