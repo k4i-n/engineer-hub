@@ -44,6 +44,12 @@ function since(ctx: Ctx, mark: Mark): string[] {
     mark.at,
     now,
   );
+  const replied = all<ItemRow>(
+    ctx.db,
+    `SELECT * FROM item WHERE state = 'replied' AND needs_me = 0 AND closed_at IS NULL AND changed_at >= ?
+       ORDER BY changed_at`,
+    mark.at,
+  );
   const answered = all<WaitRow>(ctx.db, "SELECT * FROM wait WHERE closed_at >= ? ORDER BY closed_at", mark.at);
   const due = all<WaitRow>(
     ctx.db,
@@ -57,6 +63,7 @@ function since(ctx: Ctx, mark: Mark): string[] {
       (i) =>
         `${KIND_NAME[i.kind] ?? i.kind}: ${cut(i.title ?? i.ref, 120)}${i.state ? ` (${i.state})` : ""}${i.ticket_id ? ` ${i.ticket_id}` : ""}`,
     ),
+    ...replied.map((i) => `replied: ${cut(i.title ?? i.ref, 120)}`),
     ...answered.map((w) => `answered: ${w.who} on ${w.ticket_id}`),
     ...due.map((w) => `ping due: ${w.who} on ${w.ticket_id}`),
     ...human.map((e) => `you: ${e.text}${e.ticket_id ? ` ${e.ticket_id}` : ""}`),

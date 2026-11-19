@@ -271,6 +271,21 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
     item.state = reacted.state;
     item.needs_me = !reacted.done;
   }
+  const replies = sent.flatMap((m) => {
+    const thread = threadOf(m.permalink);
+    return thread === null ? [] : [{ ...thread, at: Number(m.ts) }];
+  });
+  for (const [url, item] of toCheck) {
+    if (item.needs_me === false) continue;
+    const thread = threadOf(url);
+    const at = messageOf(url);
+    if (thread === null || at === null) continue;
+    const replied = replies.some((r) => r.channel === thread.channel && r.ts === thread.ts && r.at > Number(at.ts));
+    if (!replied) continue;
+    if (!out.includes(item)) out.push(item);
+    item.state = "replied";
+    item.needs_me = false;
+  }
 
   const answered: string[] = [];
   const waits = all<WaitRow>(ctx.db, "SELECT * FROM wait WHERE closed_at IS NULL");
