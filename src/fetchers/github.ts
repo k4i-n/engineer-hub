@@ -13,7 +13,8 @@ const QUERY = `query($requested: String!, $mine: String!) {
   mine: search(query: $mine, type: ISSUE, first: 50) {
     nodes {
       ... on PullRequest {
-        url title state merged reviewDecision author { login }
+        url title state merged isDraft reviewDecision author { login }
+        latestReviews(first: 20) { nodes { state } }
         commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
       }
     }
@@ -26,7 +27,9 @@ type Pr = {
   author?: { login: string } | null;
   state?: string;
   merged?: boolean;
+  isDraft?: boolean;
   reviewDecision?: string | null;
+  latestReviews?: { nodes: { state: string }[] };
   commits?: { nodes: { commit: { statusCheckRollup: { state: string } | null } }[] };
 };
 type Answer = { data?: { requested: { nodes: Pr[] }; mine: { nodes: Pr[] } }; errors?: { message: string }[] };
@@ -38,7 +41,9 @@ export function prState(pr: Pr): { state: string; needsMe: boolean } {
   const checks = pr.commits?.nodes[0]?.commit.statusCheckRollup?.state;
   if (checks === "FAILURE" || checks === "ERROR") return { state: "checks failing", needsMe: true };
   if (pr.reviewDecision === "APPROVED") return { state: "approved", needsMe: true };
-  return { state: "open", needsMe: false };
+  if (pr.isDraft) return { state: "draft", needsMe: false };
+  if (pr.latestReviews?.nodes.some((r) => r.state === "COMMENTED")) return { state: "commented", needsMe: true };
+  return { state: "in review", needsMe: false };
 }
 
 async function check(sys: System): Promise<Check> {
