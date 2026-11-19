@@ -57,7 +57,7 @@ async function fetchGithub(sys: System, ctx: Ctx, cursor: string | null): Promis
     "-f",
     `query=${QUERY}`,
     "-f",
-    "requested=is:pr is:open review-requested:@me archived:false",
+    `requested=${ctx.config.githubReviewQuery}`,
     "-f",
     `mine=is:pr author:@me updated:>=${since}`,
   ]);

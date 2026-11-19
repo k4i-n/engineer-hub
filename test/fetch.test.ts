@@ -130,6 +130,27 @@ describe("github", () => {
     assert.ok((calls.filter((c) => c[1] === "api").at(-1) ?? []).includes(`mine=is:pr author:@me updated:>=${cursor}`));
   });
 
+  test("the review request search comes from config, shows in Settings, and a narrower one drops what it leaves out", async () => {
+    answers.gh = graphql([PR("https://github.com/acme/noisy/pull/1"), PR("https://github.com/acme/web/pull/7")], []);
+    await hub("fetch", "github");
+    const narrow = "is:pr is:open review-requested:@me archived:false -repo:acme/noisy";
+    await hub("config", "githubReviewQuery", JSON.stringify(narrow));
+    answers.gh = graphql([PR("https://github.com/acme/web/pull/7")], []);
+    await hub("fetch", "github");
+    assert.ok((calls.filter((c) => c[1] === "api").at(-1) ?? []).includes(`requested=${narrow}`));
+    const needs = await hub("items", "--needs-me");
+    assert.match(needs, /pull\/7/);
+    assert.doesNotMatch(needs, /noisy/);
+    const settings = await (await fetch(`${server.url}/settings`)).text();
+    assert.ok(settings.includes(`data-config-input="githubReviewQuery" value="${narrow}"`));
+    const empty = await fetch(`${server.url}/api/v1/config/githubReviewQuery`, {
+      method: "PUT",
+      headers: { authorization: `Bearer ${server.token}` },
+      body: JSON.stringify({ value: " " }),
+    });
+    assert.equal(empty.status, 400);
+  });
+
   test("without gh the source shows the error and Settings says how to fix it", async () => {
     assert.match(await hub("fetch"), /^github: gh is not installed$/);
     assert.match(await hub("sources"), /github \| last sync .* \| error: gh is not installed/);

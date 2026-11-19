@@ -1130,6 +1130,10 @@ ${section(
   null,
   sourceRows(ctx, fetching) +
     row(
+      "Review requests",
+      `<input class="text" data-config-input="githubReviewQuery" value="${esc(c.githubReviewQuery)}" spellcheck="false">`,
+    ) +
+    row(
       "Every",
       segmented("fetchEvery", c.fetchEvery, [
         ["1m", "1 min"],
