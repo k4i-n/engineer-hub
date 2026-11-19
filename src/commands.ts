@@ -827,6 +827,26 @@ export function mergeTicket(ctx: Ctx, id: string, into: string): Result {
   return { text: `${id} merged into ${into}`, json: { id: into, from: id } };
 }
 
+export type TrackerFields = {
+  id: string;
+  state: string | null;
+  priority: string | null;
+  assignee: string | null;
+  url: string | null;
+  updated: string | null;
+};
+
+export function setTracker(ctx: Ctx, t: TrackerFields): boolean {
+  const result = ctx.db
+    .prepare(
+      `UPDATE ticket SET tracker_state = ?1, tracker_priority = ?2, tracker_assignee = ?3, tracker_url = ?4, tracker_updated = ?5
+       WHERE id = ?6 AND (tracker_state, tracker_priority, tracker_assignee, tracker_url, tracker_updated)
+         IS NOT (?1, ?2, ?3, ?4, ?5)`,
+    )
+    .run(t.state, t.priority, t.assignee, t.url, t.updated, t.id);
+  return result.changes > 0;
+}
+
 export function move(ctx: Ctx, id: string, dir: string): Result {
   checkDir(ctx, dir);
   getTicket(ctx.db, id);

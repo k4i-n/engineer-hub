@@ -286,6 +286,9 @@ describe("linear", () => {
             identifier: "ENG-42",
             title: "Sync sessions",
             url: "https://linear.app/acme/issue/ENG-42",
+            updatedAt: "2026-11-19T02:00:00.000Z",
+            priorityLabel: "High",
+            assignee: { name: "Khai" },
             state: { name: "In Progress", type: "started" },
           },
           {
@@ -340,6 +343,20 @@ describe("linear", () => {
       needs,
       /linear\/message \| needs you \| ENG-42 Yui mentioned you: can you check the cookie path\? \| mention \| ENG-42/,
     );
+  });
+
+  test("an issue that is a ticket fills the ticket's tracker fields, once per change", async () => {
+    await hub("config", "fetch", '{"github":false,"linear":true}');
+    answers.security = () => ({ code: 0, stdout: "lin_api_x\n", stderr: "" });
+    httpAnswer = () => ({ status: 200, body: JSON.stringify(LINEAR) });
+    assert.match(await hub("fetch"), /; tickets: 1 updated$/m);
+    const t = JSON.parse(await hub("ticket", "ENG-42", "--json")) as { ticket: Record<string, string> };
+    assert.deepEqual(
+      [t.ticket.tracker_state, t.ticket.tracker_priority, t.ticket.tracker_assignee, t.ticket.tracker_updated],
+      ["In Progress", "High", "Khai", "2026-11-19T02:00:00.000Z"],
+    );
+    assert.match(await hub("board"), /\[High\] \[TRACKER: In Progress\] ENG-42/);
+    assert.doesNotMatch(await hub("fetch"), /tickets:/);
   });
 
   test("with no key the source says how to store one, either way", async () => {
