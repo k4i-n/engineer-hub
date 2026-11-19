@@ -163,6 +163,11 @@ describe("github", () => {
     await hub("fetch", "github");
     assert.doesNotMatch(await hub("items", "--needs-me"), /pull\/101/);
     assert.match(await hub("items", "--all"), /pull\/101 \| ignored$/m);
+    assert.doesNotMatch(await (await fetch(`${server.url}/?part=1`)).text(), /pull\/101/);
+    assert.match(
+      await (await fetch(`${server.url}/settings`)).text(),
+      /title of 101<\/span>[^<]*<button[^>]*data-act="item-unignore"/,
+    );
     await hub("item", "unignore", mine);
     assert.match(await hub("items", "--needs-me"), /pull\/101/);
   });
@@ -174,6 +179,12 @@ describe("github", () => {
       [PR("https://github.com/acme/noisy/pull/5", { reviewDecision: "APPROVED" })],
     );
     await hub("fetch", "github");
+    const page = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.match(
+      page,
+      /data-act="item-ignore" data-id="\d+" data-repo="1"><svg[^]*?<span>Ignore review requests from acme\/web<\/span>/,
+    );
+    assert.match(page, /<span>Ignore my PRs from acme\/noisy<\/span>/);
     assert.equal(await hub("item", "ignore", noisy, "--repo"), "Review requests from acme/noisy ignored");
     assert.match(await hub("config", "ignoreRepos"), /"review_request":\["acme\/noisy"\],"pr":\[\]/);
     answers.gh = graphql(
@@ -185,6 +196,11 @@ describe("github", () => {
     assert.doesNotMatch(needs, /noisy\/pull\/[12]/);
     assert.match(needs, /noisy\/pull\/5/);
     assert.match(needs, /web\/pull\/7/);
+    const settings = await (await fetch(`${server.url}/settings`)).text();
+    assert.match(
+      settings,
+      /Review requests · acme\/noisy<\/span><button[^>]*data-act="repo-unignore" data-kind="review_request" data-repo="acme\/noisy"/,
+    );
     await hub("item", "unignore", noisy, "--repo");
     assert.equal((await hub("items", "--needs-me")).match(/acme\/noisy\/pull\/[12]/g)?.length, 2);
     assert.match(await hub("config", "ignoreRepos"), /"review_request":\[\]/);
@@ -287,6 +303,10 @@ describe("linear", () => {
     assert.match(await hub("fetch", "linear"), /^linear: no linear key$/);
     const settings = await (await fetch(`${server.url}/settings?part=1`)).text();
     assert.match(settings, /security add-generic-password -s engineer-hub -a linear -w/);
+    assert.match(
+      settings,
+      /sealcall add linear --host api.linear.app --header &#39;Authorization: \{key\}&#39; --allow &#39;POST \/graphql&#39;/,
+    );
   });
 
   test("a sealcall route is used when present, and a GraphQL error is the source error", async () => {

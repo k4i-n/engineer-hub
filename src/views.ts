@@ -15,7 +15,7 @@ import {
   type Ticket,
   type WaitRow,
 } from "./db.ts";
-import { KIND_NAME } from "./items.ts";
+import { KIND_NAME, repoOf } from "./items.ts";
 import { esc, renderMarkdown } from "./markdown.ts";
 import { pins } from "./pins.ts";
 import { progress } from "./steps.ts";
@@ -46,6 +46,7 @@ type Need = {
   ok: { label: string; data: Data } | null;
   undo: Data | null;
   later: Later | null;
+  ignore?: { id: number; kind: string; repo: string | null };
 };
 
 const MAX_ACTIVITY = 40;
@@ -147,6 +148,8 @@ const ICON: Record<string, string> = {
   open: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
   sync: '<path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 21v-5h5"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/>',
   grip: '<circle cx="9" cy="6" r="1.2"/><circle cx="15" cy="6" r="1.2"/><circle cx="9" cy="12" r="1.2"/><circle cx="15" cy="12" r="1.2"/><circle cx="9" cy="18" r="1.2"/><circle cx="15" cy="18" r="1.2"/>',
+  ignore:
+    '<path d="m3 3 18 18"/><path d="M10.6 5.1A10 10 0 0 1 12 5c5 0 9 4.5 10 7a13 13 0 0 1-3 4.2"/><path d="M6.6 6.6A13 13 0 0 0 2 12c1 2.5 5 7 10 7a9.6 9.6 0 0 0 5.4-1.6"/>',
   link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
 };
 
@@ -206,8 +209,22 @@ function rail(n: Need, pinned: boolean): string {
         )),
     ...(n.href === null ? [] : [menuItem("open", "Open", { open: n.href }, "↵")]),
     ...(n.href !== null && /^https?:/.test(n.href) ? [menuItem("link", "Copy link", { copy: n.href })] : []),
+    ...ignoreItems(n.ignore),
   ];
   return `<span class="rail">${first}${clock}<details class="menu" data-key="menu-${esc(n.key)}"><summary class="ic ic-more" title="More" aria-label="More">${svg("more")}</summary><div class="menu-pop">${items.join("")}</div></details></span>`;
+}
+
+const IGNORE_REPO_TEXT: Record<string, string> = {
+  review_request: "Ignore review requests from",
+  pr: "Ignore my PRs from",
+};
+
+function ignoreItems(ignore: Need["ignore"]): string[] {
+  if (ignore === undefined) return [];
+  const one = menuItem("ignore", "Ignore this PR", { act: "item-ignore", id: ignore.id });
+  if (ignore.repo === null) return [one];
+  const label = `${IGNORE_REPO_TEXT[ignore.kind] ?? "Ignore"} ${ignore.repo}`;
+  return [one, menuItem("ignore", label, { act: "item-ignore", id: ignore.id, repo: "1" })];
 }
 
 function askChips(prompt: string, chips: string[]): string {
@@ -315,6 +332,9 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
       ok: { label: "Done", data: { act: "item-done", id: i.id } },
       undo: dim === null ? null : { act: "item-reopen", id: i.id },
       later: dim === null ? { act: "item-snooze", data: { id: i.id } } : null,
+      ...(i.kind === "review_request" || i.kind === "pr"
+        ? { ignore: { id: i.id, kind: i.kind, repo: repoOf(i) } }
+        : {}),
     });
   }
   for (const d of matches) {
@@ -1007,6 +1027,26 @@ function sourceRows(ctx: Ctx, list: Fetching[]): string {
     .join("");
 }
 
+const IGNORED_KIND: Record<string, string> = { review_request: "Review requests", pr: "My PRs" };
+
+function ignoredRows(ctx: Ctx): string {
+  const repos = Object.entries(ctx.config.ignoreRepos).flatMap(([kind, list]) =>
+    list.map(
+      (repo) =>
+        `<li><span class="ign-name">${esc(IGNORED_KIND[kind] ?? kind)} · ${esc(repo)}</span>${button("Undo", { act: "repo-unignore", kind, repo })}</li>`,
+    ),
+  );
+  const items = all<ItemRow>(ctx.db, "SELECT * FROM item WHERE ignored = 'item' ORDER BY id").map(
+    (i) =>
+      `<li><span class="ign-name">${esc(githubRef(i.url) ?? i.source)} · ${esc(cut(i.title ?? i.ref, 80))}</span>${button("Undo", { act: "item-unignore", id: i.id })}</li>`,
+  );
+  const list = [...repos, ...items];
+  return row(
+    "Ignored",
+    list.length === 0 ? `<span class="muted">–</span>` : `<ul class="ignored">${list.join("")}</ul>`,
+  );
+}
+
 export function settingsBody(ctx: Ctx, sync: SyncState, db: DbInfo, fetching: Fetching[] = []): string {
   const c = ctx.config;
   const shortcuts: [string, string][] = [
@@ -1133,6 +1173,7 @@ ${section(
       "Review requests",
       `<input class="text" data-config-input="githubReviewQuery" value="${esc(c.githubReviewQuery)}" spellcheck="false">`,
     ) +
+    ignoredRows(ctx) +
     row(
       "Every",
       segmented("fetchEvery", c.fetchEvery, [
