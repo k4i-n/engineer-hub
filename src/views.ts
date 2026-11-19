@@ -169,6 +169,7 @@ const ICON: Record<string, string> = {
   ignore:
     '<path d="m3 3 18 18"/><path d="M10.6 5.1A10 10 0 0 1 12 5c5 0 9 4.5 10 7a13 13 0 0 1-3 4.2"/><path d="M6.6 6.6A13 13 0 0 0 2 12c1 2.5 5 7 10 7a9.6 9.6 0 0 0 5.4-1.6"/>',
   link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
+  gear: '<path d="M12.2 2h-.4a2 2 0 0 0-2 2v.2a2 2 0 0 1-1 1.7l-.4.3a2 2 0 0 1-2 0l-.2-.1a2 2 0 0 0-2.7.7l-.2.4a2 2 0 0 0 .7 2.7l.2.1a2 2 0 0 1 1 1.7v.5a2 2 0 0 1-1 1.8l-.2.1a2 2 0 0 0-.7 2.7l.2.4a2 2 0 0 0 2.7.7l.2-.1a2 2 0 0 1 2 0l.4.3a2 2 0 0 1 1 1.7v.2a2 2 0 0 0 2 2h.4a2 2 0 0 0 2-2v-.2a2 2 0 0 1 1-1.7l.4-.3a2 2 0 0 1 2 0l.2.1a2 2 0 0 0 2.7-.7l.2-.4a2 2 0 0 0-.7-2.7l-.2-.1a2 2 0 0 1-1-1.7v-.5a2 2 0 0 1 1-1.8l.2-.1a2 2 0 0 0 .7-2.7l-.2-.4a2 2 0 0 0-2.7-.7l-.2.1a2 2 0 0 1-2 0l-.4-.3a2 2 0 0 1-1-1.7V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
 };
 
 const LATER_TEXT: Record<Later["act"], Record<string, string>> = {
@@ -922,7 +923,7 @@ function header(ctx: Ctx, sync: SyncState, active: "home" | "settings" | "ticket
 <div class="sources">${sourceProblems(ctx, sources)}${backupProblem(ctx)}</div>
 <div class="search" role="search"><input type="search" data-search-box placeholder="Search" aria-label="Search everything" autocomplete="off" spellcheck="false"><div class="search-pop" role="listbox" hidden></div></div>
 <div class="sync"${started}><button type="button" class="ic ic-sync sync-btn${failed ? " bad" : ""}" data-act="sync" title="${esc(title)}" aria-label="${running ? "Syncing" : "Sync"}"${running ? " disabled" : ""}>${svg("sync")}</button></div>
-<a class="gear${active === "settings" ? " on" : ""}" href="${active === "settings" ? "/" : "/settings"}" title="Settings" aria-label="Settings">⚙</a>
+<a class="gear${active === "settings" ? " on" : ""}" href="${active === "settings" ? "/" : "/settings"}" title="Settings" aria-label="Settings">${svg("gear")}</a>
 <div class="strip"></div>
 </header>`;
 }
