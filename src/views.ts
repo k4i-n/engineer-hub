@@ -1324,8 +1324,6 @@ ${section(
   "set-sec",
 )}
 ${section("Notifications", null, row("New items", toggle("notifyNew", c.notifyNew)) + row("Sound", toggle("notifySound", c.notifySound)), "set-sec")}
-</div>
-<div class="col">
 ${section(
   "Appearance",
   null,
@@ -1340,6 +1338,9 @@ ${section(
     row("Time zone", `<input class="text" data-config-input="timezone" value="${esc(c.timezone)}" spellcheck="false">`),
   "set-sec",
 )}
+${section("Keyboard", null, `<dl class="keys">${shortcuts.map(([k, v]) => `<dt><kbd>${esc(k)}</kbd></dt><dd>${esc(v)}</dd>`).join("")}</dl>`, "set-sec")}
+</div>
+<div class="col">
 ${section(
   "Sync",
   null,
@@ -1411,7 +1412,6 @@ ${section(
     row("Last", `${lastBackup(ctx, db.backups[0])}${button("Back up now", { act: "backup" })}`),
   "set-sec",
 )}
-${section("Keyboard", null, `<dl class="keys">${shortcuts.map(([k, v]) => `<dt><kbd>${esc(k)}</kbd></dt><dd>${esc(v)}</dd>`).join("")}</dl>`, "set-sec")}
 </div>
 </main>`;
 }
