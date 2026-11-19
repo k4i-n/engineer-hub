@@ -108,9 +108,19 @@ Config lives in the database. `hub config` lists every key with its value:
 | `laterHour` | `9` | the hour "later until tomorrow" means |
 | `stateFields`, `sections`, `trackerSyncMarkers`, `planDir`, `resumeHeading` | | markdown conventions the importer reads |
 
+## Sources hub fetches itself
+
+`hub serve` fetches its built-in sources on a timer (every minute; Settings → Sources, config `fetch` and `fetchEvery`), with no Claude session and no plan quota. `hub fetch [source]` runs them now.
+
+| Source | Fetches | Credential |
+|---|---|---|
+| `github` (on by default) | review requests (closed when no longer requested), your PRs updated since the last fetch with review decision and checks: approved, changes requested and checks failing need you | none in hub: it runs your signed-in `gh` |
+
+A source that fails shows its reason in Settings and in the header, with the command that fixes it. Sources with an API key (next: Linear, Slack) call through sealcall when `sealcall routes` lists a route named after the source, so hub never sees the key; otherwise hub reads its own Keychain item `engineer-hub/<source>` (`HUB_<SOURCE>_KEY` off macOS), which any process running as you can read.
+
 ## Items from connectors
 
-hub has no source code, API client or token. An agent reads each source (GitHub, Slack, the tracker, mail, alerts) through the connector it already has, and writes what it found with `hub item put --stdin`, one object per line:
+For everything else an agent reads each source (Slack, the tracker, mail, alerts) through the connector it already has, and writes what it found with `hub item put --stdin` (or the `item_put` tool), one object per line:
 
 ```json
 {"source":"github","kind":"review_request","url":"https://github.com/acme/web/pull/130","title":"ENG-7: cap exports","state":"open","needs_me":true}
