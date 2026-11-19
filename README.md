@@ -180,6 +180,8 @@ The repository is a Claude Code plugin: the hub MCP server and two skills.
 
 Tools show as `mcp__plugin_engineer-hub_hub__<tool>`; allow the whole server with `mcp__plugin_engineer-hub_hub`.
 
+The plugin's hooks tell every Claude Code session what moved, without a tool call: at session start a one-line count (`hub: 3 need you: 2 review requests, 1 alert; 1 ping due.`), and before each prompt the new or changed items that need you, answered waits, pings that came due and your dashboard clicks since that session's last look (nothing when nothing moved, or when hub is not running). Each session keeps its own mark. The same from a shell: `hub moved --as <session id> [--start]`.
+
 ## Dashboard
 
 ```sh
