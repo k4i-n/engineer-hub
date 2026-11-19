@@ -73,7 +73,7 @@ async function syncState(): Promise<SyncState> {
 beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), "hub-serve-"));
   dbFile = join(dir, "hub.db");
-  server = await serve({ dbPath: dbFile, port: 0, now: () => new Date(), env: process.env });
+  server = await serve({ dbPath: dbFile, port: 0, now: () => new Date(), env: process.env, fetchers: [] });
   await hub(["config", "trackerHosts", '["tracker.example.com"]']);
   await hub(["import", "--root", ROOT, "--apply"]);
 });
@@ -359,24 +359,24 @@ describe("serve", () => {
     assert.equal(readFileSync(file, "utf8").trim(), server.token);
     const first = server.token;
     await server.close();
-    server = await serve({ dbPath: dbFile, port: 0, now: () => new Date(), env: process.env });
+    server = await serve({ dbPath: dbFile, port: 0, now: () => new Date(), env: process.env, fetchers: [] });
     assert.equal(server.token, first);
     assert.equal((await call("POST", "/items/1/close", {}, first)).status, 200);
 
     await server.close();
     chmodSync(file, 0o644);
     await assert.rejects(
-      async () => serve({ dbPath: dbFile, port: 0, now: () => new Date(), env: process.env }),
+      async () => serve({ dbPath: dbFile, port: 0, now: () => new Date(), env: process.env, fetchers: [] }),
       /token is readable by others: chmod 600/,
     );
     chmodSync(file, 0o600);
     writeFileSync(file, "not a token\n");
     await assert.rejects(
-      async () => serve({ dbPath: dbFile, port: 0, now: () => new Date(), env: process.env }),
+      async () => serve({ dbPath: dbFile, port: 0, now: () => new Date(), env: process.env, fetchers: [] }),
       /does not hold a hub token/,
     );
     rmSync(file);
-    server = await serve({ dbPath: dbFile, port: 0, now: () => new Date(), env: process.env });
+    server = await serve({ dbPath: dbFile, port: 0, now: () => new Date(), env: process.env, fetchers: [] });
     assert.notEqual(server.token, first);
   });
 
@@ -476,7 +476,14 @@ describe("serve", () => {
       JSON.stringify(["node", "-e", "process.stdout.write('auto')"]),
     );
     db.close();
-    server = await serve({ dbPath: dbFile, port: 0, now: () => clock, env: process.env, autoSyncCheckMs: 20 });
+    server = await serve({
+      dbPath: dbFile,
+      port: 0,
+      now: () => clock,
+      env: process.env,
+      autoSyncCheckMs: 20,
+      fetchers: [],
+    });
     await new Promise((r) => setTimeout(r, 80));
     assert.equal((await syncState()).status, "idle");
     clock = new Date("2026-11-18T09:16:00Z");

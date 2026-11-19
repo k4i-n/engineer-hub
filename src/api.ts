@@ -19,6 +19,7 @@ export type Hooks = {
   version: string;
   syncStatus: () => unknown;
   startSync: () => { started: boolean; status: unknown };
+  fetchNow: (source: string | null) => Promise<Result>;
 };
 
 export type Route = {
@@ -28,7 +29,7 @@ export type Route = {
   about: string;
   query?: Fields;
   body?: Fields;
-  run: (ctx: Ctx, a: Args, hooks: Hooks) => Result;
+  run: (ctx: Ctx, a: Args, hooks: Hooks) => Result | Promise<Result>;
   status?: (result: Result) => number;
 };
 
@@ -531,6 +532,14 @@ export const ROUTES: Route[] = [
     },
   },
   {
+    name: "fetch",
+    method: "POST",
+    path: "/fetch",
+    about: "Fetch the built-in sources that are on (or one) now, without waiting for the timer.",
+    body: { source: { type: "string", about: "github, linear or slack" } },
+    run: (_ctx, a, hooks) => hooks.fetchNow(opt(a, "source")),
+  },
+  {
     name: "sync_status",
     method: "GET",
     path: "/sync",
@@ -716,10 +725,10 @@ const HUMAN_NOTES: Record<string, (ctx: Ctx, a: Args) => Note | null> = {
       : { ticket: str(a, "id"), text: `draft "${str(a, "label")}" match: ${str(a, "answer")}` },
 };
 
-export function runRoute(ctx: Ctx, route: Route, args: Args, hooks: Hooks, human: boolean): Result {
+export async function runRoute(ctx: Ctx, route: Route, args: Args, hooks: Hooks, human: boolean): Promise<Result> {
   const describe = human ? HUMAN_NOTES[route.name] : undefined;
   const note = describe === undefined ? null : describe(ctx, args);
-  const result = route.run(ctx, args, hooks);
+  const result = await route.run(ctx, args, hooks);
   if (note !== null) {
     ctx.db
       .prepare(

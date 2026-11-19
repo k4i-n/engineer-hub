@@ -102,7 +102,7 @@ beforeEach(async () => {
   dbFile = join(dir, "hub.db");
   now = NOW;
   stdin = "";
-  server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {} });
+  server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] });
 });
 
 afterEach(async () => {
@@ -638,10 +638,10 @@ describe("db", () => {
     db.exec("UPDATE meta SET value = '1' WHERE key = 'schema_version'");
     db.close();
     assert.throws(
-      () => serve({ dbPath: dbFile, port: 0, now: () => now, env: {} }),
+      () => serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] }),
       /has schema v1, this hub needs v3: move the file aside and re-import/,
     );
-    server = await serve({ dbPath: join(dir, "other.db"), port: 0, now: () => now, env: {} });
+    server = await serve({ dbPath: join(dir, "other.db"), port: 0, now: () => now, env: {}, fetchers: [] });
   });
 });
 
@@ -652,7 +652,7 @@ describe("schema upgrade", () => {
     const db = new DatabaseSync(dbFile);
     db.exec("ALTER TABLE draft DROP COLUMN send_at; UPDATE meta SET value = '2' WHERE key = 'schema_version'");
     db.close();
-    server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {} });
+    server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] });
     assert.equal(sql<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'")[0]?.value, "3");
     assert.equal(sql<{ n: number }>("SELECT count(*) AS n FROM draft")[0]?.n, EXPECTED.drafts);
     await ok("draft", "ENG-7", "later", "--stdin", "--send-at", "tomorrow 12:00");
@@ -686,7 +686,7 @@ describe("client", () => {
   test("with no hub running the CLI says how to start one", async () => {
     const url = server.url;
     await server.close();
-    server = await serve({ dbPath: join(dir, "other.db"), port: 0, now: () => now, env: {} });
+    server = await serve({ dbPath: join(dir, "other.db"), port: 0, now: () => now, env: {}, fetchers: [] });
     const errors: string[] = [];
     const io: Io = {
       stdout: () => {},

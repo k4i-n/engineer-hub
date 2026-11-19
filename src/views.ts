@@ -238,7 +238,7 @@ function githubRef(url: string | null): string | null {
 
 function prTone(state: string | null): { verb: string; tone: Tone } {
   const s = (state ?? "").toLowerCase();
-  if (s.includes("change")) return { verb: "Fix PR", tone: "orange" };
+  if (s.includes("change") || s.includes("fail")) return { verb: "Fix PR", tone: "orange" };
   if (s.includes("approved")) return { verb: "Merge?", tone: "green" };
   if (s.includes("merged")) return { verb: "Merged", tone: "violet" };
   if (s.includes("closed")) return { verb: "Closed", tone: "grey" };
@@ -972,7 +972,37 @@ function size(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-export function settingsBody(ctx: Ctx, sync: SyncState, db: DbInfo): string {
+export type Fetching = {
+  name: string;
+  on: boolean;
+  how: string | null;
+  ok: boolean | null;
+  fixes: string[];
+  last: string | null;
+  error: string | null;
+};
+
+function sourceRows(ctx: Ctx, list: Fetching[]): string {
+  const next = (name: string, on: boolean) => JSON.stringify({ ...ctx.config.fetch, [name]: on });
+  return list
+    .map((f) => {
+      const swtch = `<button type="button" role="switch" aria-checked="${f.on}" class="switch${f.on ? " on" : ""}" data-config="fetch" data-value="${esc(next(f.name, !f.on))}"><span class="knob"></span></button>`;
+      const state =
+        f.error !== null
+          ? `<span class="src-state tone-red">${esc(f.error)}</span>`
+          : f.last !== null
+            ? `<span class="src-state">${esc(f.how ?? "ok")} · ${esc(ago(ctx, f.last) === "now" ? "just now" : `${ago(ctx, f.last)} ago`)}</span>`
+            : `<span class="src-state">${f.on ? "not fetched yet" : "off"}</span>`;
+      const fixes =
+        f.ok === true && f.error === null
+          ? ""
+          : f.fixes.map((cmd) => `<pre class="text code">${esc(cmd)}</pre>`).join("");
+      return row(f.name, `${swtch}${state}${fixes}`);
+    })
+    .join("");
+}
+
+export function settingsBody(ctx: Ctx, sync: SyncState, db: DbInfo, fetching: Fetching[] = []): string {
   const c = ctx.config;
   const shortcuts: [string, string][] = [
     ["j / k", "next / previous row"],
@@ -1087,6 +1117,21 @@ ${section(
       ]),
     ) +
     row("Command", `<pre class="text code">${esc(JSON.stringify(c.syncCommand))}</pre>`),
+  "set-sec",
+)}
+${section(
+  "Sources",
+  null,
+  sourceRows(ctx, fetching) +
+    row(
+      "Every",
+      segmented("fetchEvery", c.fetchEvery, [
+        ["1m", "1 min"],
+        ["5m", "5 min"],
+        ["15m", "15 min"],
+        ["30m", "30 min"],
+      ]),
+    ),
   "set-sec",
 )}
 ${section(

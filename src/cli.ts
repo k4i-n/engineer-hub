@@ -36,7 +36,7 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         link <id> <url> [--kind <k>] [--title <t>]
         item put --stdin | item close <item>... | item snooze <item> [--for 1d|tomorrow] | item reopen <item> | item attach <item> <id>
         wait <id> <who> <url> [--ping-after 1d] | wait close <wait | url> | wait pinged <wait> [--for 1d|tomorrow] | wait reopen <wait>
-        source <name> [--cursor <c>] [--error <text>]
+        source <name> [--cursor <c>] [--error <text>] | fetch [github|linear|slack]
         step add <id> <title> | step done <id> <n> [--evidence <url>]
         day set <date> (--file <path> | --stdin) | ticket-new <id> <title> [--dir todo]
         move <id> <dir> | gate <id> (yes | no) | config <key> <json>
@@ -274,6 +274,7 @@ const COMMANDS: Record<string, Handler> = {
       error: v.error,
     }),
   sources: () => c("sources"),
+  fetch: (a) => c("fetch", a[0] === undefined ? {} : { source: a[0] }),
   brief: () => c("brief"),
   steps: (a) => c("steps", { id: arg(a, 0, "steps <id>") }),
   step: (a, v) => {
