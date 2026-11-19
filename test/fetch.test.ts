@@ -182,7 +182,7 @@ describe("github", () => {
     const page = await (await fetch(`${server.url}/?part=1`)).text();
     assert.match(
       page,
-      /data-act="item-ignore" data-id="\d+" data-repo="1"><svg[^]*?<span>Ignore review requests from acme\/web<\/span>/,
+      /data-act="item-ignore" data-id="\d+" data-repo="1"><svg[\s\S]*?<span>Ignore review requests from acme\/web<\/span>/,
     );
     assert.match(page, /<span>Ignore my PRs from acme\/noisy<\/span>/);
     assert.equal(await hub("item", "ignore", noisy, "--repo"), "Review requests from acme/noisy ignored");
