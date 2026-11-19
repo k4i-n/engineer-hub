@@ -52,6 +52,7 @@ type Need = {
 const MAX_ACTIVITY = 40;
 const ACTIVITY_SHOWN = 5;
 const MAX_TIMELINE = 200;
+const MAX_PR_CHIPS = 3;
 const STALE_MS = 6 * 3_600_000;
 const DIR_LABEL: Record<string, string> = {
   inprogress: "In progress",
@@ -685,6 +686,16 @@ function prChip(ctx: Ctx, i: ItemRow): string {
   return linker(ctx)(i.url, label, `chip tone-${prTone(i.state).tone}`);
 }
 
+function prChips(ctx: Ctx, ticketId: string, prs: ItemRow[]): string {
+  const shown = prs
+    .slice(0, MAX_PR_CHIPS)
+    .map((i) => prChip(ctx, i))
+    .join("");
+  const rest = prs.slice(MAX_PR_CHIPS);
+  if (rest.length === 0) return shown;
+  return `${shown}<details class="menu chip-more" data-key="prs-${esc(ticketId)}"><summary class="chip" title="${rest.length} more PRs">+${rest.length}</summary><div class="menu-pop chip-pop">${rest.map((i) => prChip(ctx, i)).join("")}</div></details>`;
+}
+
 function doneDay(ctx: Ctx, iso: string): string {
   const day = today(new Date(iso), ctx.config.timezone);
   const now = today(ctx.now, ctx.config.timezone);
@@ -707,7 +718,11 @@ function ticketRow(ctx: Ctx, t: Ticket, done = false, needing: Need[] = []): str
     0;
   const threads = items.filter((i) => i.kind === "thread").length;
   const chips = [
-    ...items.filter((i) => i.kind === "pr").map((i) => prChip(ctx, i)),
+    prChips(
+      ctx,
+      t.id,
+      items.filter((i) => i.kind === "pr"),
+    ),
     threads > 0 ? `<span class="chip tone-teal">Slack ${threads}</span>` : "",
     waiting > 0 ? `<span class="chip tone-orange">waiting ${waiting}</span>` : "",
     has(t.gate) ? `<span class="chip tone-amber">approve?</span>` : "",

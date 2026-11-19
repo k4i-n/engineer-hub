@@ -222,6 +222,28 @@ describe("serve", () => {
     assert.match(html, /data-tab="done" aria-selected="false">Done <b>1<\/b>/);
   });
 
+  test("a ticket row shows three PR chips and folds the rest behind +N", async () => {
+    const prs = [1, 2, 3, 4, 5].map((n) =>
+      JSON.stringify({
+        source: "github",
+        kind: "pr",
+        url: `https://github.com/acme/web/pull/${n}`,
+        title: `pr ${n}`,
+        ticket: "ENG-7",
+      }),
+    );
+    await hub(["item", "put", "--stdin"], prs.join("\n"));
+    const html = await (await fetch(`${server.url}/?part=1`)).text();
+    const row = /data-key="t-ENG-7"[\s\S]*?<\/li>/.exec(html)?.[0] ?? "";
+    const chips = /<span class="chips">([\s\S]*?)<details/.exec(row)?.[1] ?? "";
+    assert.equal(chips.match(/class="chip /g)?.length, 3);
+    assert.match(
+      row,
+      /<details class="menu chip-more" data-key="prs-ENG-7"><summary class="chip" title="2 more PRs">\+2<\/summary>/,
+    );
+    assert.match(row, /chip-pop">.*pull\/4.*pull\/5/);
+  });
+
   test("the page shows each thing once: no ticket id twice, no Sent? draft in Drafts, only unhealthy sources", async () => {
     await hub(
       ["item", "put", "--stdin"],
