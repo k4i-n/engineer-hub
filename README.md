@@ -137,7 +137,12 @@ The skills call `hub`, so it must be on `PATH`.
 
 ```sh
 hub serve                # http://127.0.0.1:7420, --port to change
+hub service install      # macOS: run hub serve at login and restart it if it stops
+hub service status       # running (pid) or not installed; exit 1 when not running
+hub service uninstall
 ```
+
+The service runs `hub serve` with the `--db` and `--port` given at install and the `PATH` of the shell that installed it (so Sync finds `claude`), and logs to `serve.log` next to the database. On Linux, run `hub serve` under a systemd user unit or another supervisor. The write token lives in `token` next to the database (mode 600, made on first start) and stays the same across restarts; delete the file for a new one.
 
 A live page on this machine only: what needs you (review requests, mentions, alerts, pings that are due, proposed draft matches, gates), every open ticket with step progress, next step, PR and Slack chips, today's plan, drafts with Copy and Sent, and what changed since yesterday; one page per ticket with state, steps, timeline, items, waits, drafts and notes. Any write, from the CLI, an agent or the page, shows within a second.
 
