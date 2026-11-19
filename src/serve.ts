@@ -9,11 +9,17 @@ import { loadConfig, setConfig } from "./config.ts";
 import { one, openDb, SCHEMA_VERSION } from "./db.ts";
 import * as items from "./items.ts";
 import * as pins from "./pins.ts";
-import { HubError, nowIso } from "./util.ts";
+import { afterDuration, HubError, nowIso } from "./util.ts";
 import { indexBody, page, type SyncState, settingsBody, ticketBody } from "./views.ts";
 import * as waits from "./waits.ts";
 
-export type ServeOptions = { dbPath: string; port: number; now: () => Date; env: NodeJS.ProcessEnv };
+export type ServeOptions = {
+  dbPath: string;
+  port: number;
+  now: () => Date;
+  env: NodeJS.ProcessEnv;
+  autoSyncCheckMs?: number;
+};
 export type Server = { url: string; token: string; close: () => Promise<void> };
 
 const WATCH_MS = 250;
@@ -34,6 +40,9 @@ function field(body: Body, key: string): string {
   if (typeof value !== "string" || value === "") throw new HubError(`missing ${key}`);
   return value;
 }
+
+const SEARCH_LIMIT = 30;
+const AUTO_SYNC_CHECK_MS = 60_000;
 
 const ACTIONS: Record<string, (ctx: Ctx, body: Body) => Result> = {
   sent: (ctx, b) =>
@@ -115,6 +124,15 @@ export function serve(options: ServeOptions): Promise<Server> {
     lastVersion = version;
     broadcast();
   }, WATCH_MS);
+  const startedAt = options.now().getTime();
+  const autoSync = setInterval(() => {
+    const c = ctx();
+    if (!c.config.autoSync || sync.status === "running") return;
+    const every = Date.parse(afterDuration(new Date(0), c.config.syncEvery, "syncEvery"));
+    const last = sync.at === null ? startedAt : Date.parse(sync.at);
+    if (options.now().getTime() - last >= every) startSync();
+  }, options.autoSyncCheckMs ?? AUTO_SYNC_CHECK_MS);
+  autoSync.unref();
   const keepalive = setInterval(() => {
     for (const client of clients) client.write(": keepalive\n\n");
   }, KEEPALIVE_MS);
@@ -172,6 +190,11 @@ export function serve(options: ServeOptions): Promise<Server> {
       res.write(": connected\n\n");
       clients.add(res);
       req.on("close", () => clients.delete(res));
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/api/search") {
+      const found = commands.searchAll(ctx(), url.searchParams.get("q") ?? "", SEARCH_LIMIT);
+      send(res, 200, "application/json", JSON.stringify(found));
       return;
     }
     if (req.method === "GET" && url.pathname === "/api/status") {
@@ -250,6 +273,7 @@ export function serve(options: ServeOptions): Promise<Server> {
   const close = async () => {
     clearInterval(watcher);
     clearInterval(keepalive);
+    clearInterval(autoSync);
     child?.kill("SIGTERM");
     for (const client of clients) client.end();
     server.closeAllConnections();
@@ -262,6 +286,7 @@ export function serve(options: ServeOptions): Promise<Server> {
     server.once("error", (error) => {
       clearInterval(watcher);
       clearInterval(keepalive);
+      clearInterval(autoSync);
       db.close();
       watch.close();
       reject(error);

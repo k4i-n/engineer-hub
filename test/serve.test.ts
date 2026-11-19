@@ -61,8 +61,10 @@ async function waitFor<T>(check: () => Promise<T | undefined>, ms = 3000): Promi
   throw new Error("timed out");
 }
 
-async function syncState(): Promise<{ status: string; detail: string | null }> {
-  return (await (await fetch(`${server.url}/api/status`)).json()) as { status: string; detail: string | null };
+type SyncState = { status: string; at: string | null; detail: string | null };
+
+async function syncState(): Promise<SyncState> {
+  return (await (await fetch(`${server.url}/api/status`)).json()) as SyncState;
 }
 
 beforeEach(async () => {
@@ -86,7 +88,7 @@ describe("serve", () => {
     assert.match(html, /^<!doctype html>/);
     assert.match(
       html,
-      /<div class="col" data-col="left"><div class="block" data-block="today">[\s\S]*?<div class="block" data-block="tickets">/,
+      /<div class="col" data-col="left"><div class="block" data-block="today">[\s\S]*?<div class="block" data-block="tickets">[\s\S]*?<div class="block" data-block="activity">[\s\S]*?<div class="col" data-col="right">/,
     );
     assert.match(html, /href="\/t\/ENG-42">ENG-42<\/a><span class="t-title">Sync login sessions across devices/);
     assert.match(html, /waiting on design review/);
@@ -250,6 +252,42 @@ describe("serve", () => {
     assert.equal((await post("/api/config", { key: "layout", value: '{"left":["nope"],"right":[]}' })).status, 400);
   });
 
+  test("search finds tickets, items, steps and notes from one box", async () => {
+    hub(
+      ["item", "put", "--stdin"],
+      JSON.stringify({
+        source: "github",
+        kind: "pr",
+        url: "https://github.com/acme/web/pull/77",
+        title: "Webhook retry jitter",
+        ticket: "ENG-42",
+        needs_me: true,
+      }),
+    );
+    hub(["step", "add", "ENG-7", "measure webhook latency"]);
+    const find = async (q: string) =>
+      (await (await fetch(`${server.url}/api/search?q=${encodeURIComponent(q)}`)).json()) as {
+        kind: string;
+        title: string;
+        sub: string;
+        href: string | null;
+      }[];
+    const sync = await find("sync login");
+    assert.equal(sync[0]?.kind, "Ticket");
+    assert.equal(sync[0]?.href, "/t/ENG-42");
+    const migration = await find("migration");
+    assert.ok(migration.some((h) => h.kind === "Ticket" && /\uE000migration\uE001/i.test(h.sub)));
+    const hook = await find("webhook");
+    assert.ok(hook.some((h) => h.kind === "Item" && h.href === "https://github.com/acme/web/pull/77"));
+    assert.ok(hook.some((h) => h.kind === "Step" && h.href === "/t/ENG-7"));
+    assert.deepEqual(await find("   "), []);
+    assert.ok(Array.isArray(await find('"%_\\')));
+    const page = await (await fetch(`${server.url}/`)).text();
+    assert.match(page, /data-search-box/);
+    assert.doesNotMatch(page, /data-filter/);
+    assert.match(await (await fetch(`${server.url}/settings`)).text(), /<a class="gear on" href="\/"/);
+  });
+
   test("text from the DB is escaped", async () => {
     hub(["ticket-new", "NEW-xss", "<script>alert(1)</script>"]);
     const html = await (await fetch(`${server.url}/`)).text();
@@ -325,7 +363,10 @@ describe("serve", () => {
     setCommand(["node", "-e", "setTimeout(() => process.stdout.write(process.env.HUB_DB), 300)"]);
     assert.equal((await post("/api/sync", {})).status, 202);
     assert.equal((await post("/api/sync", {})).status, 409);
-    assert.match(await (await fetch(`${server.url}/?part=1`)).text(), /class="top syncing"[\s\S]*disabled>Syncing</);
+    assert.match(
+      await (await fetch(`${server.url}/?part=1`)).text(),
+      /class="top syncing"[\s\S]*class="ic ic-sync sync-btn" data-act="sync" title="Syncing" aria-label="Syncing" disabled>/,
+    );
     const finished = await waitFor(async () => {
       const s = await syncState();
       return s.status === "running" ? undefined : s;
@@ -340,5 +381,30 @@ describe("serve", () => {
     });
     db.close();
     assert.deepEqual([failed.status, failed.detail], ["failed", "exit 3: no connector"]);
+  });
+
+  test("auto sync runs once the interval passes, and not when it is off", async () => {
+    await server.close();
+    let clock = new Date("2026-11-18T09:00:00Z");
+    const db = new DatabaseSync(dbFile);
+    db.prepare("INSERT OR REPLACE INTO config(key, value) VALUES ('syncCommand', ?)").run(
+      JSON.stringify(["node", "-e", "process.stdout.write('auto')"]),
+    );
+    db.close();
+    server = await serve({ dbPath: dbFile, port: 0, now: () => clock, env: process.env, autoSyncCheckMs: 20 });
+    await new Promise((r) => setTimeout(r, 80));
+    assert.equal((await syncState()).status, "idle");
+    clock = new Date("2026-11-18T09:16:00Z");
+    const ran = await waitFor(async () => {
+      const s = await syncState();
+      return s.status === "finished" ? s : undefined;
+    });
+    assert.equal(ran.detail, "auto");
+
+    hub(["config", "autoSync", "false"]);
+    clock = new Date("2026-11-18T10:00:00Z");
+    await new Promise((r) => setTimeout(r, 80));
+    assert.equal((await syncState()).at, ran.at);
+    assert.equal((await post("/api/config", { key: "syncEvery", value: '"5m"' })).status, 400);
   });
 });

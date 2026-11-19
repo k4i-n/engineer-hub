@@ -8,10 +8,12 @@ import {
   type EventRow,
   ftsQuery,
   getTicket,
+  type ItemRow,
   LIMITED_FIELDS,
   type NoteRow,
   one,
   SETTABLE_FIELDS,
+  type StepRow,
   type Ticket,
 } from "./db.ts";
 import { splitResume } from "./parse.ts";
@@ -233,6 +235,83 @@ export function search(ctx: Ctx, query: string | undefined, limit: number): Resu
   );
   const lines = hits.map((h) => `${h.tbl} ${h.ticket_id} ${h.label ?? ""}: ${cut(h.snip, 160)}`);
   return { text: lines.join("\n") || "no matches", json: hits };
+}
+
+export type Found = { kind: string; title: string; sub: string; href: string | null; ticket: string | null };
+
+const FOUND_KIND: Record<string, string> = { ticket: "Ticket", note: "Note", event: "Log", draft: "Draft" };
+
+export function searchAll(ctx: Ctx, query: string, limit: number): Found[] {
+  if (query.trim() === "") return [];
+  const snip = (fts: string) => `snippet(${fts}, -1, char(57344), char(57345), '…', 12)`;
+  const words = query.match(/[\p{L}\p{N}_-]+/gu) ?? [];
+  const hits =
+    words.length === 0
+      ? []
+      : all<Hit>(
+          ctx.db,
+          `SELECT 'ticket' AS tbl, id AS ticket_id, title AS label, ${snip("ticket_fts")} AS snip, bm25(ticket_fts) AS score
+       FROM ticket_fts WHERE ticket_fts MATCH ?1
+     UNION ALL
+     SELECT 'note', ticket_id, title, ${snip("note_fts")}, bm25(note_fts) FROM note_fts WHERE note_fts MATCH ?1
+     UNION ALL
+     SELECT 'event', e.ticket_id, e.ts, ${snip("event_fts")}, bm25(event_fts)
+       FROM event_fts JOIN event e ON e.id = event_fts.rowid WHERE event_fts MATCH ?1
+     UNION ALL
+     SELECT 'draft', ticket_id, label, ${snip("draft_fts")}, bm25(draft_fts) FROM draft_fts WHERE draft_fts MATCH ?1
+     ORDER BY score LIMIT ?2`,
+          ftsQuery(words.join(" ")),
+          limit,
+        );
+  const like = `%${query.trim().replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+  const items = all<ItemRow>(
+    ctx.db,
+    "SELECT * FROM item WHERE title LIKE ?1 ESCAPE '\\' OR ref LIKE ?1 ESCAPE '\\' OR author LIKE ?1 ESCAPE '\\' ORDER BY closed_at IS NOT NULL, changed_at DESC LIMIT ?2",
+    like,
+    limit,
+  );
+  const steps = all<StepRow>(
+    ctx.db,
+    "SELECT * FROM step WHERE title LIKE ?1 ESCAPE '\\' ORDER BY done_at IS NOT NULL, ticket_id, n LIMIT ?2",
+    like,
+    limit,
+  );
+  const page = (id: string | null) => (id === null ? null : `/t/${encodeURIComponent(id)}`);
+  const found: Found[] = [
+    ...hits
+      .filter((h) => h.tbl === "ticket")
+      .map((h) => ({
+        kind: "Ticket",
+        title: `${h.ticket_id} ${h.label ?? ""}`,
+        sub: h.snip.replace(/[\uE000\uE001]/g, "") === h.label ? "" : h.snip,
+        href: page(h.ticket_id),
+        ticket: h.ticket_id,
+      })),
+    ...items.map((i) => ({
+      kind: i.closed_at === null ? "Item" : "Closed item",
+      title: i.title ?? i.ref,
+      sub: [i.source, i.author, i.state].filter(Boolean).join(" · "),
+      href: i.url ?? (/^https?:/.test(i.ref) ? i.ref : page(i.ticket_id)),
+      ticket: i.ticket_id,
+    })),
+    ...steps.map((s) => ({
+      kind: s.done_at === null ? "Step" : "Step done",
+      title: `${s.n}. ${s.title}`,
+      sub: "",
+      href: page(s.ticket_id),
+      ticket: s.ticket_id,
+    })),
+    ...hits
+      .filter((h) => h.tbl !== "ticket")
+      .map((h) => ({
+        kind: FOUND_KIND[h.tbl] ?? h.tbl,
+        title: h.label ?? "",
+        sub: h.snip,
+        href: page(h.ticket_id),
+        ticket: h.ticket_id,
+      })),
+  ];
+  return found.slice(0, limit);
 }
 
 export function events(ctx: Ctx, id: string, limit: number, full: boolean): Result {
