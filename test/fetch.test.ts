@@ -554,6 +554,61 @@ describe("slack", () => {
     assert.doesNotMatch(await hub("sources"), /warning/);
   });
 
+  test("my later reply in a mention's thread takes it off my list, in this fetch or a later one", async () => {
+    await hub("config", "fetch", '{"github":false,"slack":true}');
+    answers.security = (args) =>
+      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+    const top = ts(600);
+    const parent = ts(900);
+    const inThread = ts(500);
+    const other = ts(400);
+    const reply = (at: string, thread: string, text: string) => ({
+      ts: at,
+      text,
+      permalink: `${permalink(at)}?thread_ts=${thread}&cid=C01`,
+      user: ME,
+      channel: { id: "C01", name: "ops" },
+    });
+    const mention = (at: string, link: string, text: string) => ({
+      ts: at,
+      text: `<@${ME}> ${text}`,
+      permalink: link,
+      user: "U2",
+      username: "ana",
+      channel: { id: "C01", name: "ops" },
+    });
+    let sent = [
+      reply(ts(300), top, "yes, I am on call"),
+      reply(ts(290), parent, "elsewhere"),
+      { ...reply(ts(280), other, "top level"), permalink: permalink(ts(280)) },
+    ];
+    let mentions = [
+      mention(top, permalink(top), "are you on call?"),
+      mention(inThread, `${permalink(inThread)}?thread_ts=${other}&cid=C01`, "can you review?"),
+    ];
+    httpAnswer = (url) => {
+      const u = new URL(url);
+      if (u.pathname === "/api/auth.test") return { status: 200, body: JSON.stringify({ ok: true, user_id: ME }) };
+      if (u.pathname === "/api/search.messages") {
+        const matches = (u.searchParams.get("query") ?? "").startsWith("from:") ? sent : mentions;
+        return { status: 200, body: JSON.stringify({ ok: true, messages: { matches } }) };
+      }
+      if (u.pathname === "/api/reactions.get") return { status: 200, body: JSON.stringify({ ok: true, message: {} }) };
+      return { status: 404, body: "" };
+    };
+    await hub("fetch", "slack");
+    const needs = await hub("items", "--needs-me", "--source", "slack");
+    assert.doesNotMatch(needs, /on call\?/);
+    assert.match(needs, /#ops · ana: @U0ME can you review\? \| mention/);
+    assert.match(await hub("items", "--source", "slack"), /#ops · ana: @U0ME are you on call\? \| replied/);
+
+    sent = [reply(ts(5), other, "approved")];
+    mentions = [];
+    assert.match(await hub("fetch", "slack"), /items: 1 new, 1 changed/);
+    assert.doesNotMatch(await hub("items", "--needs-me", "--source", "slack"), /can you review\?/);
+    assert.match(await hub("items", "--source", "slack"), /can you review\? \| replied/);
+  });
+
   test("a scope Slack refuses leaves its details out and becomes a warning, not an error", async () => {
     await hub("config", "fetch", '{"github":false,"slack":true}');
     answers.security = (args) =>
