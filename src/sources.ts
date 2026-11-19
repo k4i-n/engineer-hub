@@ -1,5 +1,5 @@
 import type { Ctx, Result } from "./commands.ts";
-import { all, one, type SourceRow } from "./db.ts";
+import { all, one, type ScriptRow, type SourceRow } from "./db.ts";
 import { cut, HubError, nowIso, nowTs } from "./util.ts";
 
 export const SOURCE_NAME = /^[a-z][a-z0-9-]{0,39}$/;
@@ -40,11 +40,15 @@ export function sources(ctx: Ctx): Result {
       .filter((part) => part !== null)
       .join(" | "),
   );
-  const scripts = all<{ name: string; argv: string; every: string }>(
-    ctx.db,
-    "SELECT * FROM script_source ORDER BY name",
-  );
-  for (const sc of scripts)
-    lines.push(`script ${sc.name}: ${(JSON.parse(sc.argv) as string[]).join(" ")} | every ${sc.every}`);
+  const scripts = all<ScriptRow>(ctx.db, "SELECT * FROM script_source ORDER BY name");
+  for (const sc of scripts) {
+    const parts = [
+      `script ${sc.name}: ${(JSON.parse(sc.argv) as string[]).join(" ")}`,
+      `every ${sc.every}`,
+      sc.enabled === 1 ? null : "off",
+      sc.section === null ? null : `section ${sc.section}`,
+    ];
+    lines.push(parts.filter((part) => part !== null).join(" | "));
+  }
   return { text: lines.join("\n") || "no sources synced yet", json: { sources: rows, scripts } };
 }

@@ -46,7 +46,7 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         wait edit <wait> [--who <w>] [--ping-after 1d]
         source <name> [--cursor <c>] [--error <text>] | fetch [source]
         source add <name> --every 5m -- <program> [args] | source remove <name>
-        source set <name> [--on | --off] [--every 5m]
+        source set <name> [--on | --off] [--every 5m] [--section <title>]
         moved --as <session id> [--start] | moved --hook (reads a Claude Code hook's JSON on stdin)
         record-gate --hook (Stop hook: blocks a session that ran a recordActions command and wrote nothing to hub after)
         record --hook (PostToolUse hook: links the PR a recordActions command printed to the one ticket on the current branch)
@@ -86,6 +86,7 @@ const OPTIONS = {
   every: { type: "string" },
   on: { type: "boolean" },
   off: { type: "boolean" },
+  section: { type: "string" },
   as: { type: "string" },
   start: { type: "boolean" },
   hook: { type: "boolean" },
@@ -126,6 +127,7 @@ type Values = {
   every?: string;
   on?: boolean;
   off?: boolean;
+  section?: string;
   as?: string;
   start?: boolean;
   hook?: boolean;
@@ -483,14 +485,15 @@ function localWrite(command: string, args: string[], values: Values, io: Io): Re
     return local(values, io, (ctx) => addScript(ctx, second, values.every as string, args.slice(2)));
   }
   if (command === "source" && first === "set") {
-    const usage = "usage: hub source set <name> [--on | --off] [--every 5m]";
+    const usage = "usage: hub source set <name> [--on | --off] [--every 5m] [--section <title>]";
     if (second === undefined || third !== undefined || (values.on === true && values.off === true)) {
       throw new HubError(usage);
     }
     const on = values.on === true ? true : values.off === true ? false : null;
     const every = values.every ?? null;
-    if (on === null && every === null) throw new HubError(usage);
-    return local(values, io, (ctx) => setScript(ctx, second, { on, every }));
+    const section = values.section ?? null;
+    if (on === null && every === null && section === null) throw new HubError(usage);
+    return local(values, io, (ctx) => setScript(ctx, second, { on, every, section }));
   }
   if (command === "source" && first === "remove") {
     if (second === undefined || third !== undefined) throw new HubError("usage: hub source remove <name>");

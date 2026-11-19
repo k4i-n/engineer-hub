@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import { type Io, run } from "../src/cli.ts";
+import { DEFAULT_LAYOUT } from "../src/config.ts";
 import { github } from "../src/fetchers/github.ts";
 import { linear } from "../src/fetchers/linear.ts";
 import { slack, threadOf } from "../src/fetchers/slack.ts";
@@ -864,7 +865,7 @@ describe("script sources", () => {
     assert.match(await hub("sources"), /script pagerduty: pd-items --team web \| every 5m/);
     const settings = await (await fetch(`${server.url}/settings?part=1`)).text();
     assert.match(settings, /data-act="source-set" data-name="pagerduty" data-on="0"[\s\S]*?pd-items --team web/);
-    assert.match(settings, /data-source-every="pagerduty" value="5m"/);
+    assert.match(settings, /data-source="pagerduty" data-field="every" value="5m"/);
     assert.doesNotMatch(settings, /hub source remove pagerduty/);
     assert.match(await hub("source", "remove", "pagerduty"), /removed/);
     assert.match(await fails("fetch", "pagerduty"), /no source pagerduty to fetch/);
@@ -898,6 +899,52 @@ describe("script sources", () => {
     assert.match(await fails("source", "set", "inc"), /usage: hub source set/);
     assert.equal((await api("POST", "/sources/inc/remove", {})).status, 200);
     assert.match(await fails("fetch", "inc"), /no source inc to fetch/);
+  });
+
+  test("a script source with a section puts its items in a card of that name, which moves and hides like the others", async () => {
+    await hub("source", "add", "oncall", "--every", "5m", "--", "oncall-items");
+    answers["oncall-items"] = () => ({
+      code: 0,
+      stdout: '{"kind":"alert","ref":"OC-1","title":"pager fired","needs_me":true}\n',
+      stderr: "",
+    });
+    await hub("fetch", "oncall");
+    const page = async () => (await fetch(`${server.url}/?part=1`)).text();
+    const card = (html: string, id: string) =>
+      html.match(new RegExp(`data-block="${id}" id="b-${id}">([\\s\\S]*?)</section></div>`))?.[1] ?? "";
+    assert.match(card(await page(), "fix"), /pager fired/);
+
+    assert.match(
+      await hub("source", "set", "oncall", "--section", "On call"),
+      /^script source oncall: on, every 5m, section On call$/,
+    );
+    const html = await page();
+    assert.match(card(html, "section-on-call"), /g-label">On call<[\s\S]*pager fired/);
+    assert.doesNotMatch(card(html, "fix"), /pager fired/);
+    assert.match(html, /href="#b-section-on-call"/);
+    assert.match(await hub("sources"), /script oncall: oncall-items \| every 5m \| section On call/);
+    const settings = await (await fetch(`${server.url}/settings?part=1`)).text();
+    assert.match(settings, /data-source="oncall" data-field="section" value="On call"/);
+    assert.match(settings, /data-config="hiddenBlocks" data-value="\[&quot;section-on-call&quot;\]">On call</);
+
+    await hub("config", "layout", '{"top":["section-on-call","overview"],"left":[],"right":[]}');
+    assert.match(await page(), /data-col="top"><div class="block" data-block="section-on-call"/);
+    await hub("config", "hiddenBlocks", '["section-on-call"]');
+    assert.match(await page(), /data-block="section-on-call" id="b-section-on-call" hidden>/);
+    await hub("config", "hiddenBlocks", "[]");
+    await hub("config", "layout", JSON.stringify(DEFAULT_LAYOUT));
+
+    assert.match(await fails("source", "set", "oncall", "--section", "!!!"), /a section is a card title/);
+    const r = await fetch(`${server.url}/api/v1/sources/oncall`, {
+      method: "PATCH",
+      headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ section: "当番" }),
+    });
+    assert.equal(r.status, 200);
+    assert.match(card(await page(), "section-当番"), /pager fired/);
+    await hub("source", "set", "oncall", "--section", "");
+    assert.match(card(await page(), "fix"), /pager fired/);
+    await hub("source", "remove", "oncall");
   });
 
   test("Settings builds the add command for the terminal", async () => {

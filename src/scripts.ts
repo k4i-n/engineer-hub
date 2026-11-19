@@ -1,4 +1,5 @@
 import type { Ctx, Result } from "./commands.ts";
+import { sectionId } from "./config.ts";
 import { all, one, type ScriptRow } from "./db.ts";
 import type { Fetcher } from "./fetch.ts";
 import { lastLine } from "./keys.ts";
@@ -32,14 +33,41 @@ export function removeScript(ctx: Ctx, name: string): Result {
   return { text: `script source ${name} removed`, json: { name } };
 }
 
-export function setScript(ctx: Ctx, name: string, change: { on: boolean | null; every: string | null }): Result {
+const MAX_SECTION = 40;
+
+export type ScriptChange = { on: boolean | null; every: string | null; section: string | null };
+
+function sectionTitle(raw: string): string | null {
+  const title = raw.trim();
+  if (title === "") return null;
+  if (title.length > MAX_SECTION || /[\r\n]/.test(title) || sectionId(title) === "section-") {
+    throw new HubError(
+      `a section is a card title of 1 to ${MAX_SECTION} characters with a letter or digit, not ${raw}`,
+    );
+  }
+  return title;
+}
+
+export function setScript(ctx: Ctx, name: string, change: ScriptChange): Result {
   const row = one<ScriptRow>(ctx.db, "SELECT * FROM script_source WHERE name = ?", name);
   if (row === undefined) throw new HubError(`no script source ${name} (hub sources lists them)`);
   if (change.every !== null) afterDuration(new Date(0), change.every, "every");
   const on = change.on ?? row.enabled === 1;
   const every = change.every ?? row.every;
-  ctx.db.prepare("UPDATE script_source SET enabled = ?, every = ? WHERE name = ?").run(on ? 1 : 0, every, name);
-  return { text: `script source ${name}: ${on ? "on" : "off"}, every ${every}`, json: { name, on, every } };
+  const section = change.section === null ? row.section : sectionTitle(change.section);
+  ctx.db
+    .prepare("UPDATE script_source SET enabled = ?, every = ?, section = ? WHERE name = ?")
+    .run(on ? 1 : 0, every, section, name);
+  const shown = section === null ? "" : `, section ${section}`;
+  return {
+    text: `script source ${name}: ${on ? "on" : "off"}, every ${every}${shown}`,
+    json: { name, on, every, section },
+  };
+}
+
+export function sections(ctx: Ctx): Map<string, string> {
+  const rows = all<ScriptRow>(ctx.db, "SELECT * FROM script_source WHERE section IS NOT NULL ORDER BY name");
+  return new Map(rows.map((r) => [r.name, r.section ?? ""]));
 }
 
 export function scripts(ctx: Ctx): ScriptRow[] {
@@ -55,6 +83,7 @@ export function scriptFetcher(row: ScriptRow): Fetcher {
     every: row.every,
     argv,
     on: row.enabled === 1,
+    section: row.section,
     check: async () => ({ ok: true, how: `runs ${argv.join(" ")}`, fix: [] }),
     fetch: async (sys, ctx, cursor) => {
       const started = ctx.now.toISOString();

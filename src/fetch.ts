@@ -21,6 +21,7 @@ export type Fetcher = {
   every?: string;
   argv?: string[];
   on?: boolean;
+  section?: string | null;
   check: (sys: System) => Promise<Check>;
   fetch: (sys: System, ctx: Ctx, cursor: string | null) => Promise<Fetched>;
 };

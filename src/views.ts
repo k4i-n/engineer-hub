@@ -1,7 +1,7 @@
 import type { Backup, BackupState } from "./backup.ts";
 import { area, bar, donut, half, legend, percent, ring, type Slice, stack } from "./charts.ts";
 import { byOrder, type Ctx, has, openTickets, recentlyDone } from "./commands.ts";
-import { BLOCKS, type Config, DEFAULT_LAYOUT, type Layout } from "./config.ts";
+import { BLOCKS, type Config, DEFAULT_LAYOUT, type Layout, sectionId } from "./config.ts";
 import {
   all,
   type DayRow,
@@ -20,6 +20,7 @@ import { series, span } from "./horizon.ts";
 import { KIND_NAME, repoOf } from "./items.ts";
 import { esc, renderLine, renderMarkdown } from "./markdown.ts";
 import { pins } from "./pins.ts";
+import { sections } from "./scripts.ts";
 import { progress } from "./steps.ts";
 import { cut, nowIso, nowTs, sinceDate, startOfDayIso, today } from "./util.ts";
 
@@ -50,6 +51,7 @@ type Need = {
   later: Later | null;
   ignore?: { id: number; kind: string; repo: string | null };
   fyi?: boolean;
+  section?: string;
 };
 
 const MAX_ACTIVITY = 40;
@@ -354,9 +356,11 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
     "SELECT * FROM event WHERE kind = 'decision' AND source = 'human' AND created_at >= ?",
     dayStart,
   );
+  const cards = sections(ctx);
   const list: Need[] = [];
   for (const i of items) {
     const v = itemVerb(i);
+    const section = cards.get(i.source);
     const snoozed = i.snoozed_until !== null && i.snoozed_until > now;
     const dim = i.closed_at !== null ? "done" : snoozed ? `until ${when(ctx, i.snoozed_until ?? now)}` : null;
     const url = i.url ?? (/^https?:/.test(i.ref) ? i.ref : null);
@@ -379,6 +383,7 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
         ? { ignore: { id: i.id, kind: i.kind, repo: repoOf(i) } }
         : {}),
       ...(i.needs_me === 0 ? { fyi: true } : {}),
+      ...(section === undefined ? {} : { section: sectionId(section) }),
     });
   }
   for (const d of matches) {
@@ -563,15 +568,28 @@ function needsYou(n: Need): boolean {
   return n.dim === null && n.fyi !== true;
 }
 
-function groupFor(n: Need): Group {
+function sectionGroups(ctx: Ctx): Group[] {
+  const byId = new Map<string, Group>();
+  for (const title of sections(ctx).values()) {
+    const key = sectionId(title);
+    if (!byId.has(key)) byId.set(key, { key, label: title, tone: "grey", verbs: [] });
+  }
+  return [...byId.values()];
+}
+
+function groupFor(n: Need, extra: Group[]): Group {
+  if (n.section !== undefined) {
+    const own = extra.find((g) => g.key === n.section);
+    if (own !== undefined) return own;
+  }
   return GROUPS.find((g) => g.verbs.includes(n.verb)) ?? OTHER_GROUP;
 }
 
-function needsCards(ctx: Ctx, list: Need[]): Record<string, string> {
+function needsCards(ctx: Ctx, list: Need[], extra: Group[]): Record<string, string> {
   const pinned = new Set(pins(ctx.db).keys());
-  const groupOf = (n: Need) => (pinned.has(n.key) ? PINNED_GROUP : groupFor(n));
+  const groupOf = (n: Need) => (pinned.has(n.key) ? PINNED_GROUP : groupFor(n, extra));
   const cards: Record<string, string> = {};
-  for (const g of [PINNED_GROUP, ...GROUPS, OTHER_GROUP]) {
+  for (const g of [PINNED_GROUP, ...GROUPS, ...extra, OTHER_GROUP]) {
     const rows = list.filter((n) => groupOf(n) === g);
     cards[g.key] = rows.length === 0 ? "" : needsCard(ctx, g, rows, pinned);
   }
@@ -612,27 +630,30 @@ const COL_MOVE: Record<Col, string> = {
   right: "Move to right column",
 };
 
-function block(id: string, html: string, col: Col, hidden: string[]): string {
+function block(id: string, name: string, html: string, col: Col, hidden: string[]): string {
   if (html === "" || hidden.includes(id)) return `<div class="block" data-block="${id}" id="b-${id}" hidden></div>`;
   const move = (dir: string, label: string) => `<button type="button" data-move="${dir}">${esc(label)}</button>`;
   const others = (Object.keys(COL_MOVE) as Col[]).filter((c) => c !== col).map((c) => move(c, COL_MOVE[c]));
   const hide = `<button type="button" data-config="hiddenBlocks" data-value="${esc(JSON.stringify([...hidden, id]))}">Hide</button>`;
-  const grip = `<details class="menu grip-menu" data-key="grip-${id}"><summary class="grip" draggable="true" title="Drag to move" aria-label="Move ${esc(BLOCK_NAME[id] ?? id)}">${svg("grip")}</summary><div class="menu-pop">${move("up", "Move up")}${move("down", "Move down")}${others.join("")}${hide}</div></details>`;
+  const grip = `<details class="menu grip-menu" data-key="grip-${id}"><summary class="grip" draggable="true" title="Drag to move" aria-label="Move ${esc(name)}">${svg("grip")}</summary><div class="menu-pop">${move("up", "Move up")}${move("down", "Move down")}${others.join("")}${hide}</div></details>`;
   return `<div class="block" data-block="${id}" id="b-${id}">${grip}${html}</div>`;
 }
 
-function columns(layout: Layout): Record<Col, string[]> {
+function columns(layout: Layout, extra: string[]): Record<Col, string[]> {
+  const known = [...BLOCKS, ...extra];
   const placed = new Set<string>();
   const take = (ids: string[] | undefined) =>
     (ids ?? []).filter((id) => {
-      if (!BLOCKS.includes(id) || placed.has(id)) return false;
+      if (!known.includes(id) || placed.has(id)) return false;
       placed.add(id);
       return true;
     });
   const cols: Record<Col, string[]> = { top: take(layout.top), left: take(layout.left), right: take(layout.right) };
-  for (const id of BLOCKS) {
+  for (const id of known) {
     if (placed.has(id)) continue;
-    const home = (Object.keys(cols) as Col[]).find((c) => DEFAULT_LAYOUT[c].includes(id)) ?? "left";
+    const home =
+      (Object.keys(cols) as Col[]).find((c) => DEFAULT_LAYOUT[c].includes(id)) ??
+      (extra.includes(id) ? "right" : "left");
     cols[home].push(id);
   }
   return cols;
@@ -700,14 +721,14 @@ function rangeControl(c: Config): string {
   );
 }
 
-function overviewSection(ctx: Ctx, tickets: Ticket[], list: Need[]): string {
+function overviewSection(ctx: Ctx, tickets: Ticket[], list: Need[], extra: Group[]): string {
   const c = ctx.config;
   const active = list.filter(needsYou);
   const dayStart = startOfToday(ctx);
   const fresh = active.filter((n) => n.since >= dayStart).length;
-  const needSlices: Slice[] = [...GROUPS, OTHER_GROUP].map((g) => ({
+  const needSlices: Slice[] = [...GROUPS, ...extra, OTHER_GROUP].map((g) => ({
     label: g.label,
-    value: active.filter((n) => groupFor(n) === g).length,
+    value: active.filter((n) => groupFor(n, extra) === g).length,
     tone: g.tone,
     href: `#b-${g.key}`,
   }));
@@ -995,17 +1016,22 @@ export function indexBody(ctx: Ctx, sync: SyncState): string {
   );
   const list = needs(ctx, tickets);
   const active = list.filter(needsYou).length;
+  const extra = sectionGroups(ctx);
+  const names = blockNames(extra);
   const blocks: Record<string, string> = {
-    overview: overviewSection(ctx, tickets, list),
-    ...needsCards(ctx, list),
+    overview: overviewSection(ctx, tickets, list, extra),
+    ...needsCards(ctx, list, extra),
     tickets: ticketsSection(ctx, tickets, needCounts(list)),
     today: todaySection(ctx),
     drafts: draftsSection(ctx),
     activity: activitySection(ctx),
   };
-  const cols = columns(ctx.config.layout);
+  const cols = columns(
+    ctx.config.layout,
+    extra.map((g) => g.key),
+  );
   const col = (name: Col) =>
-    `<div class="col" data-col="${name}">${cols[name].map((id) => block(id, blocks[id] ?? "", name, ctx.config.hiddenBlocks)).join("")}</div>`;
+    `<div class="col" data-col="${name}">${cols[name].map((id) => block(id, names[id] ?? id, blocks[id] ?? "", name, ctx.config.hiddenBlocks)).join("")}</div>`;
   return `${header(ctx, sync, "home", active)}
 <main class="grid" data-needs-count="${active}">
 ${col("top")}
@@ -1171,12 +1197,19 @@ function segmented(key: string, value: string | number, options: Option[], cls =
     .join("")}</div>`;
 }
 
-function blockChips(hidden: string[]): string {
-  return `<div class="block-chips">${BLOCKS.map((id) => {
-    const on = !hidden.includes(id);
-    const next = on ? [...hidden, id] : hidden.filter((h) => h !== id);
-    return `<button type="button" class="chip-toggle${on ? " on" : ""}" aria-pressed="${on}" data-config="hiddenBlocks" data-value="${esc(JSON.stringify(next))}">${esc(BLOCK_NAME[id] ?? id)}</button>`;
-  }).join("")}</div>`;
+function blockNames(extra: Group[]): Record<string, string> {
+  return { ...BLOCK_NAME, ...Object.fromEntries(extra.map((g) => [g.key, g.label])) };
+}
+
+function blockChips(hidden: string[], extra: Group[]): string {
+  const names = blockNames(extra);
+  return `<div class="block-chips">${[...BLOCKS, ...extra.map((g) => g.key)]
+    .map((id) => {
+      const on = !hidden.includes(id);
+      const next = on ? [...hidden, id] : hidden.filter((h) => h !== id);
+      return `<button type="button" class="chip-toggle${on ? " on" : ""}" aria-pressed="${on}" data-config="hiddenBlocks" data-value="${esc(JSON.stringify(next))}">${esc(names[id] ?? id)}</button>`;
+    })
+    .join("")}</div>`;
 }
 
 function toggle(key: string, on: boolean): string {
@@ -1198,6 +1231,7 @@ export type Fetching = {
   on: boolean;
   script: string | null;
   every: string | null;
+  section: string | null;
   how: string | null;
   ok: boolean | null;
   fixes: string[];
@@ -1220,7 +1254,7 @@ function fetchStatus(ctx: Ctx, f: Fetching): string {
 }
 
 function scriptControls(f: Fetching): string {
-  return `<input class="text src-every" data-source-every="${esc(f.name)}" value="${esc(f.every ?? "")}" aria-label="Every" spellcheck="false">${button("Fetch now", { act: "source-fetch", name: f.name })}${button("Remove", { act: "source-remove", name: f.name, confirm: `Remove ${f.name}?` })}`;
+  return `<input class="text src-every" data-source="${esc(f.name)}" data-field="every" value="${esc(f.every ?? "")}" aria-label="Every" spellcheck="false"><input class="text src-section" data-source="${esc(f.name)}" data-field="section" value="${esc(f.section ?? "")}" placeholder="Section" aria-label="Section" spellcheck="false">${button("Fetch now", { act: "source-fetch", name: f.name })}${button("Remove", { act: "source-remove", name: f.name, confirm: `Remove ${f.name}?` })}`;
 }
 
 function sourceRows(ctx: Ctx, list: Fetching[]): string {
@@ -1320,7 +1354,7 @@ ${section(
         [7, 8, 9, 10].map((h) => [h, `${h}:00`]),
       ),
     ) +
-    row("Blocks", blockChips(c.hiddenBlocks)) +
+    row("Blocks", blockChips(c.hiddenBlocks, sectionGroups(ctx))) +
     row(
       "Layout",
       button("Reset", { config: "layout", value: JSON.stringify(DEFAULT_LAYOUT) }) +

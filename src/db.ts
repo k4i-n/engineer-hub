@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { HubError } from "./util.ts";
 
-export const SCHEMA_VERSION = "9";
+export const SCHEMA_VERSION = "10";
 
 export type Ticket = {
   id: string;
@@ -42,7 +42,14 @@ export type EventRow = {
   ref: string | null;
 };
 export type NoteRow = { ticket_id: string; title: string; body: string; kind: string; position: number };
-export type ScriptRow = { name: string; argv: string; every: string; created_at: string; enabled: number };
+export type ScriptRow = {
+  name: string;
+  argv: string;
+  every: string;
+  created_at: string;
+  enabled: number;
+  section: string | null;
+};
 
 export type DraftRow = {
   ticket_id: string;
@@ -161,7 +168,7 @@ CREATE TABLE source(name TEXT PRIMARY KEY, cursor TEXT, last_sync TEXT NOT NULL,
 CREATE TABLE day(date TEXT PRIMARY KEY, resume TEXT, body TEXT, updated_at TEXT);
 CREATE TABLE pin(key TEXT PRIMARY KEY, pinned_at TEXT NOT NULL);
 CREATE TABLE script_source(name TEXT PRIMARY KEY, argv TEXT NOT NULL, every TEXT NOT NULL, created_at TEXT NOT NULL,
-  enabled INTEGER NOT NULL DEFAULT 1);
+  enabled INTEGER NOT NULL DEFAULT 1, section TEXT);
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE config(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT);
 ${ftsTable("ticket", "ticket_fts", "rowid", ["id", "title", "status", "next", "gate", "decide"])}
@@ -182,6 +189,7 @@ const UPGRADES: Record<string, { to: string; sql: string }> = {
   "6": { to: "7", sql: "ALTER TABLE source ADD COLUMN warning TEXT;" },
   "7": { to: "8", sql: "ALTER TABLE item ADD COLUMN detached INTEGER NOT NULL DEFAULT 0;" },
   "8": { to: "9", sql: "ALTER TABLE script_source ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1;" },
+  "9": { to: "10", sql: "ALTER TABLE script_source ADD COLUMN section TEXT;" },
 };
 
 export function opensAs(version: string | undefined): boolean {
