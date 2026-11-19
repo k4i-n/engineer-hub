@@ -12,10 +12,11 @@ Needs Node.js 24 or newer (`node:sqlite` with FTS5 and native TypeScript type st
 git clone https://github.com/nhkhai-vn/engineer-hub
 cd engineer-hub
 ln -s "$PWD/src/cli.ts" ~/.local/bin/hub   # any folder on PATH
+hub service install                         # macOS; elsewhere run hub serve under a supervisor
 hub board
 ```
 
-The database is `~/.hub/hub.db`; `HUB_DB` or `--db <path>` points elsewhere. It is created on first use.
+`hub serve` is the only process that opens the database (`~/.hub/hub.db`; `HUB_DB` or `--db <path>` points elsewhere, created on first start). Every other command, and every agent, goes through it: the CLI calls its API at `http://127.0.0.1:7420` (`HUB_URL` for another) with the token next to the database, and says so when it is not running. The CLI sends the database path it was pointed at, and a hub serving another database refuses. `hub config syncCommand` is the one write made straight to the file, since the API refuses keys that run commands.
 
 ## Example
 
