@@ -559,3 +559,107 @@ describe("api v1", () => {
     assert.match(hub(["waits"]), /no open waits|^$/);
   });
 });
+
+describe("mcp", () => {
+  async function rpc(method: string, params?: unknown, id: number | null = 1): Promise<Response> {
+    return fetch(`${server.url}/mcp`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${server.token}`,
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", method, ...(id === null ? {} : { id }), ...(params ? { params } : {}) }),
+    });
+  }
+  type Tool = {
+    name: string;
+    inputSchema: { properties: Record<string, unknown>; required?: string[] };
+    annotations: Record<string, boolean>;
+  };
+  const result = async <T>(r: Response) => ((await r.json()) as { result: T }).result;
+
+  test("initialize answers the asked protocol version, and a notification gets 202", async () => {
+    const init = await result<{ protocolVersion: string; serverInfo: { name: string }; instructions: string }>(
+      await rpc("initialize", {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "t", version: "1" },
+      }),
+    );
+    assert.equal(init.protocolVersion, "2025-06-18");
+    assert.equal(init.serverInfo.name, "engineer-hub");
+    assert.match(init.instructions, /Never answer a gate/);
+    const note = await rpc("notifications/initialized", undefined, null);
+    assert.equal(note.status, 202);
+    assert.equal(await note.text(), "");
+  });
+
+  test("tools mirror the API without the dashboard's own routes or the human's answers", async () => {
+    const { tools } = await result<{ tools: Tool[] }>(await rpc("tools/list"));
+    const names = tools.map((t) => t.name);
+    for (const gone of ["gate", "pin", "config_set", "sync", "find"]) assert.ok(!names.includes(gone), gone);
+    for (const kept of [
+      "brief",
+      "ticket",
+      "ticket_set",
+      "log",
+      "item_put",
+      "wait_add",
+      "posted",
+      "match",
+      "step_done",
+    ]) {
+      assert.ok(names.includes(kept), kept);
+    }
+    const tool = (name: string) => tools.find((t) => t.name === name) as Tool;
+    assert.equal(tool("match").inputSchema.properties.answer, undefined);
+    assert.deepEqual(tool("step_done").inputSchema.required, ["id", "n"]);
+    assert.equal(tool("board").annotations.readOnlyHint, true);
+    assert.equal(tool("note_save").annotations.destructiveHint, true);
+    assert.equal(tool("log").annotations.destructiveHint, false);
+  });
+
+  test("a tool call writes through the same functions, and a refusal is a tool error", async () => {
+    const ok = await result<{ content: { text: string }[]; isError: boolean }>(
+      await rpc("tools/call", { name: "log", arguments: { id: "ENG-42", text: "from mcp" } }),
+    );
+    assert.equal(ok.isError, false);
+    assert.match(hub(["events", "ENG-42", "-n", "1"]), /from mcp$/);
+    const bad = await result<{ content: { text: string }[]; isError: boolean }>(
+      await rpc("tools/call", { name: "ticket_set", arguments: { id: "ENG-42", next: "x".repeat(300) } }),
+    );
+    assert.equal(bad.isError, true);
+    assert.match(bad.content[0]?.text ?? "", /next is 300 chars/);
+    const answer = await result<{ isError: boolean; content: { text: string }[] }>(
+      await rpc("tools/call", { name: "match", arguments: { id: "ENG-42", label: "x", answer: "yes" } }),
+    );
+    assert.match(answer.content[0]?.text ?? "", /unknown argument field answer/);
+    const unknown = (await (await rpc("tools/call", { name: "gate", arguments: {} })).json()) as {
+      error: { code: number };
+    };
+    assert.equal(unknown.error.code, -32602);
+    const method = (await (await rpc("resources/list")).json()) as { error: { code: number } };
+    assert.equal(method.error.code, -32601);
+  });
+
+  test("mcp needs the token, refuses a foreign Origin and takes POST only", async () => {
+    assert.equal((await fetch(`${server.url}/mcp`, { method: "POST", body: "{}" })).status, 401);
+    const foreign = await fetch(`${server.url}/mcp`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${server.token}`, origin: "https://evil.example" },
+      body: "{}",
+    });
+    assert.equal(foreign.status, 403);
+    assert.equal(
+      (await fetch(`${server.url}/mcp`, { headers: { authorization: `Bearer ${server.token}` } })).status,
+      405,
+    );
+    const garbled = await fetch(`${server.url}/mcp`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${server.token}` },
+      body: "{not json",
+    });
+    assert.equal(((await garbled.json()) as { error: { code: number } }).error.code, -32700);
+  });
+});
