@@ -609,6 +609,41 @@ describe("items", () => {
   });
 });
 
+describe("detach and wait edit", () => {
+  test("a detached item stays off its ticket when it is fetched again, until attached", async () => {
+    await ok("ticket-new", "ENG-42", "Sync sessions");
+    const line = JSON.stringify({
+      source: "github",
+      ref: "https://github.com/acme/web/pull/101",
+      kind: "pr",
+      title: "ENG-42 sessions",
+      state: "open",
+    });
+    stdin = line;
+    await ok("item", "put", "--stdin");
+    assert.match(await ok("item", "detach", "1"), /#1 detached from ENG-42/);
+    assert.match(await ok("events", "ENG-42", "-n", "1"), /Detached/);
+    stdin = line.replace('"open"', '"merged"');
+    await ok("item", "put", "--stdin");
+    assert.deepEqual(sql("SELECT ticket_id, detached FROM item"), [{ ticket_id: null, detached: 1 }]);
+    await ok("item", "attach", "1", "ENG-42");
+    assert.deepEqual(sql("SELECT ticket_id, detached FROM item"), [{ ticket_id: "ENG-42", detached: 0 }]);
+  });
+
+  test("an open wait changes who and when to ping; a closed one is refused", async () => {
+    await ok("ticket-new", "ENG-42", "Sync sessions");
+    await ok("wait", "ENG-42", "Ana", "https://acme.slack.com/archives/C1/p1", "--ping-after", "1d");
+    assert.match((await hub("wait", "edit", "1")).err, /give who or ping_after/);
+    assert.match(
+      await ok("wait", "edit", "1", "--who", "Bo", "--ping-after", "4h"),
+      /#1 ENG-42 \| Bo \| .* \| ping after /,
+    );
+    assert.deepEqual(sql("SELECT who, ping_after FROM wait"), [{ who: "Bo", ping_after: "2026-11-13T09:20:00.000Z" }]);
+    await ok("wait", "close", "1");
+    assert.match((await hub("wait", "edit", "1", "--who", "Cy")).err, /wait #1 is closed/);
+  });
+});
+
 describe("waits", () => {
   test("a wait shows ping now once its time passes and closes by number or url", async () => {
     await imported();
@@ -913,23 +948,24 @@ describe("db", () => {
     db.close();
     assert.throws(
       () => serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] }),
-      /has schema v1, this hub needs v7: move the file aside and re-import/,
+      /has schema v1, this hub needs v8: move the file aside and re-import/,
     );
     server = await serve({ dbPath: join(dir, "other.db"), port: 0, now: () => now, env: {}, fetchers: [] });
   });
 });
 
 describe("schema upgrade", () => {
-  test("a v2 database gains draft.send_at, the script table, ticket.position and item.ignored, source.warning, and becomes v7, when hub serve opens it", async () => {
+  test("a v2 database gains draft.send_at, the script table, ticket.position and item.ignored, source.warning, item.detached, and becomes v8, when hub serve opens it", async () => {
     await imported();
     await server.close();
     const db = new DatabaseSync(dbFile);
     db.exec(
-      "ALTER TABLE draft DROP COLUMN send_at; DROP TABLE script_source; ALTER TABLE ticket DROP COLUMN position; ALTER TABLE item DROP COLUMN ignored; ALTER TABLE source DROP COLUMN warning; UPDATE meta SET value = '2' WHERE key = 'schema_version'",
+      "ALTER TABLE draft DROP COLUMN send_at; DROP TABLE script_source; ALTER TABLE ticket DROP COLUMN position; ALTER TABLE item DROP COLUMN ignored; ALTER TABLE source DROP COLUMN warning; ALTER TABLE item DROP COLUMN detached; UPDATE meta SET value = '2' WHERE key = 'schema_version'",
     );
     db.close();
     server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] });
-    assert.equal(sql<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'")[0]?.value, "7");
+    assert.equal(sql<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'")[0]?.value, "8");
+    assert.equal(sql<{ n: number }>("SELECT count(*) AS n FROM item WHERE detached = 0")[0]?.n, EXPECTED.links);
     assert.equal(sql<{ n: number }>("SELECT count(*) AS n FROM source WHERE warning IS NOT NULL")[0]?.n, 0);
     assert.equal(sql<{ n: number }>("SELECT count(*) AS n FROM script_source")[0]?.n, 0);
     assert.equal(sql<{ n: number }>("SELECT count(*) AS n FROM draft")[0]?.n, EXPECTED.drafts);

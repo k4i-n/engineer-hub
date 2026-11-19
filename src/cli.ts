@@ -37,9 +37,10 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         match <id> <label> --ref <url> (--file | --stdin) | match <id> <label> (yes | no)
         posted <id> <label> [--at <when>] [--channel <c>] [--answer <text>] [--ref <url>] [--file | --stdin]
         link <id> <url> [--kind <k>] [--title <t>]
-        item put --stdin | item close <item>... | item snooze <item> [--for 1d|tomorrow] | item reopen <item> | item attach <item> <id>
+        item put --stdin | item close <item>... | item snooze <item> [--for 1d|tomorrow] | item reopen <item> | item attach <item> <id> | item detach <item>
         item ignore <item> [--repo] | item unignore <item> [--repo]
         wait <id> <who> <url> [--ping-after 1d] | wait close <wait | url> | wait pinged <wait> [--for 1d|tomorrow] | wait reopen <wait>
+        wait edit <wait> [--who <w>] [--ping-after 1d]
         source <name> [--cursor <c>] [--error <text>] | fetch [source]
         source add <name> --every 5m -- <program> [args] | source remove <name>
         moved --as <session id> [--start] | moved --hook (reads a Claude Code hook's JSON on stdin)
@@ -86,6 +87,7 @@ const OPTIONS = {
   error: { type: "string" },
   evidence: { type: "string" },
   for: { type: "string" },
+  who: { type: "string" },
   port: { type: "string" },
   dir: { type: "string" },
   since: { type: "string" },
@@ -123,6 +125,7 @@ type Values = {
   error?: string;
   evidence?: string;
   for?: string;
+  who?: string;
   port?: string;
   dir?: string;
   since?: string;
@@ -283,13 +286,14 @@ const COMMANDS: Record<string, Handler> = {
   },
   item: (a, v, io) => {
     const usage =
-      "item put --stdin | item close <item>... | item snooze <item> [--for 1d|tomorrow] | item reopen <item> | item attach <item> <id> | item ignore <item> [--repo] | item unignore <item> [--repo]";
+      "item put --stdin | item close <item>... | item snooze <item> [--for 1d|tomorrow] | item reopen <item> | item attach <item> <id> | item detach <item> | item ignore <item> [--repo] | item unignore <item> [--repo]";
     const sub = arg(a, 0, usage);
     if (sub === "put") return c("item_put", { items: lines(body(v, io)) });
     if (sub === "close") return c("item_close", { key: arg(a, 1, usage), more: a.slice(2) });
     if (sub === "snooze") return c("item_snooze", { key: arg(a, 1, usage), for: v.for });
     if (sub === "reopen") return c("item_reopen", { key: arg(a, 1, usage) });
     if (sub === "attach") return c("item_attach", { key: arg(a, 1, usage), ticket: arg(a, 2, usage) });
+    if (sub === "detach") return c("item_detach", { key: arg(a, 1, usage) });
     if (sub === "ignore") return c("item_ignore", { key: arg(a, 1, usage), repo: v.repo === true });
     if (sub === "unignore") return c("item_unignore", { key: arg(a, 1, usage), repo: v.repo === true });
     throw new HubError(`usage: hub ${usage}`);
@@ -299,6 +303,13 @@ const COMMANDS: Record<string, Handler> = {
     if (a[0] === "pinged")
       return c("wait_pinged", { wait: arg(a, 1, "wait pinged <wait> [--for 1d|tomorrow]"), for: v.for });
     if (a[0] === "reopen") return c("wait_reopen", { wait: arg(a, 1, "wait reopen <wait>") });
+    if (a[0] === "edit") {
+      return c("wait_edit", {
+        wait: arg(a, 1, "wait edit <wait> [--who <w>] [--ping-after 1d]"),
+        who: v.who,
+        ping_after: v["ping-after"],
+      });
+    }
     const usage = "wait <id> <who> <url> [--ping-after 1d]";
     return c("wait_add", {
       ticket: arg(a, 0, usage),

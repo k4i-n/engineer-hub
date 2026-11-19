@@ -132,7 +132,10 @@ export function upsertItem(ctx: Ctx, input: ItemInput, withEvents: boolean): Ups
     state: input.state ?? existing.state,
     author: input.author ?? existing.author,
     ticket_id:
-      input.ticket_id ?? existing.ticket_id ?? matchTicket(ctx, [input.title, input.url, existing.title, existing.ref]),
+      input.ticket_id ??
+      existing.ticket_id ??
+      (existing.detached ? null : matchTicket(ctx, [input.title, input.url, existing.title, existing.ref])),
+    detached: input.ticket_id === null ? existing.detached : 0,
     needs_me: input.needs_me === null ? existing.needs_me : input.needs_me ? 1 : 0,
   };
   const fields = Object.keys(next) as (keyof typeof next)[];
@@ -327,11 +330,26 @@ export function attach(ctx: Ctx, key: string, ticketId: string): Result {
   if (item.ticket_id === ticketId) return { text: `#${item.id} already on ${ticketId}`, json: item };
   transaction(ctx.db, () => {
     ctx.db
-      .prepare("UPDATE item SET ticket_id = ?, changed_at = ? WHERE id = ?")
+      .prepare("UPDATE item SET ticket_id = ?, detached = 0, changed_at = ? WHERE id = ?")
       .run(ticketId, nowIso(ctx.now), item.id);
     event(ctx, ticketId, `Attached ${describe(item)}`, item.url ?? item.ref);
   });
   return { text: `#${item.id} attached to ${ticketId}`, json: { id: item.id, ticket_id: ticketId } };
+}
+
+export function detach(ctx: Ctx, key: string): Result {
+  const item = findItem(ctx.db, key);
+  const from = item.ticket_id;
+  transaction(ctx.db, () => {
+    ctx.db
+      .prepare("UPDATE item SET ticket_id = NULL, detached = 1, changed_at = ? WHERE id = ?")
+      .run(nowIso(ctx.now), item.id);
+    if (from !== null) event(ctx, from, `Detached ${describe(item)}`, item.url ?? item.ref);
+  });
+  return {
+    text: from === null ? `#${item.id} stays on no ticket` : `#${item.id} detached from ${from}`,
+    json: { id: item.id, ticket_id: null },
+  };
 }
 
 export function itemLine(i: ItemRow): string {
