@@ -41,6 +41,8 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 | `hub source <name> [--cursor <c>] [--error <text>]` | records a sync of a source |
 | `hub day set <date> (--file \| --stdin)` | stores a day plan |
 | `hub ticket-new <id> <title> [--dir todo]`, `hub move <id> <dir>` | creates a ticket, moves it between dirs (a move drops its place in the order) |
+| `hub backup`, `hub backups` | backs up the database now, lists the backups newest first |
+| `hub restore <name>` | backs up the current database as `…-before-restore.db`, then replaces it with the named backup while hub keeps running |
 | `hub order <id> <place \| ->` | puts the ticket at a place in its dir (1 is the top); tickets above it keep their places and the rest shift down; `-` takes it out of the order. Ordered tickets come first in `hub board`, `hub next` and the dashboard, as `#1`, `#2`…, then the rest by tracker priority |
 | `hub config <key> <json>` | stores a config value, checked against the default's type |
 
@@ -75,6 +77,10 @@ Config lives in the database. `hub config` lists every key with its value:
 | `githubReviewQuery` | `"is:pr is:open review-requested:@me archived:false"` | the GitHub search for review requests |
 | `ignoreRepos` | `{"review_request":[],"pr":[]}` | repos whose review requests or PRs of yours are ignored |
 | `laterHour` | `9` | the hour "later until tomorrow" means |
+| `autoBackup` | `true` | back up the database on a schedule |
+| `backupEvery` | `"1d"` | how often: `1h`, `6h`, `12h`, `1d` or `7d` |
+| `backupDir` | `""` | backup folder, absolute or `~/…`; empty means `backups/` next to the database |
+| `backupKeep` | `14` | backups kept: 7, 14 or 30; older ones are deleted |
 | `stateFields`, `sections`, `trackerSyncMarkers`, `planDir`, `resumeHeading` | | markdown conventions the importer reads |
 
 ## Import from a markdown ticket folder
