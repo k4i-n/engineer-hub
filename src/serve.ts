@@ -29,6 +29,7 @@ export type ServeOptions = {
   fetchers?: Fetcher[];
 };
 export type Server = { url: string; token: string; close: () => Promise<void> };
+type SyncEnd = { ok: boolean; detail: string };
 
 const WATCH_MS = 250;
 const KEEPALIVE_MS = 20_000;
@@ -136,7 +137,7 @@ export function serve(options: ServeOptions): Promise<Server> {
   const startedAt = options.now().getTime();
   const autoSync = setInterval(() => {
     const c = ctx();
-    if (!c.config.autoSync || sync.status === "running") return;
+    if (!c.config.claudeSync || !c.config.autoSync || sync.status === "running") return;
     const every = Date.parse(afterDuration(new Date(0), c.config.syncEvery, "syncEvery"));
     const last = sync.at === null ? startedAt : Date.parse(sync.at);
     if (options.now().getTime() - last >= every) startSync();
@@ -205,39 +206,61 @@ export function serve(options: ServeOptions): Promise<Server> {
     for (const client of clients) client.write(": keepalive\n\n");
   }, KEEPALIVE_MS);
 
+  function runClaude(program: string, args: string[]): Promise<SyncEnd> {
+    return new Promise((done) => {
+      let output = "";
+      const keep = (chunk: Buffer) => {
+        output = (output + chunk.toString("utf8")).slice(-OUTPUT_TAIL);
+      };
+      const proc = spawn(program, args, {
+        cwd: dirname(options.dbPath),
+        env: { ...options.env, HUB_DB: options.dbPath, HUB_URL: `http://127.0.0.1:${port}` },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      child = proc;
+      const timeout = setTimeout(() => proc.kill("SIGTERM"), SYNC_TIMEOUT_MS);
+      const end = (ok: boolean, detail: string) => {
+        clearTimeout(timeout);
+        child = null;
+        done({ ok, detail });
+      };
+      proc.stdout?.on("data", keep);
+      proc.stderr?.on("data", keep);
+      proc.on("error", (error) => end(false, error.message));
+      proc.on("close", (code) => {
+        const last = output.trim().split("\n").at(-1) ?? "";
+        end(code === 0, code === 0 ? last : `exit ${code ?? "signal"}: ${last}`);
+      });
+    });
+  }
+
+  async function fetchSources(): Promise<SyncEnd> {
+    const lines = (await runner.now(null)).json as string[];
+    return { ok: true, detail: lines.join("; ") };
+  }
+
+  async function runSync(claude: string[] | null): Promise<SyncEnd> {
+    if (claude === null) return fetchSources();
+    if (runner.enabled(ctx()).length > 0) await fetchSources();
+    const [program = "", ...args] = claude;
+    return runClaude(program, args);
+  }
+
   function startSync(): boolean {
     if (sync.status === "running") return false;
-    const [program, ...args] = ctx().config.syncCommand;
-    if (program === undefined) throw new HubError("syncCommand is empty (hub config syncCommand)");
-    let output = "";
-    let done = false;
-    const keep = (chunk: Buffer) => {
-      output = (output + chunk.toString("utf8")).slice(-OUTPUT_TAIL);
-    };
-    const finish = (ok: boolean, detail: string | null) => {
-      if (done) return;
-      done = true;
-      clearTimeout(timeout);
-      child = null;
-      sync = { status: ok ? "finished" : "failed", at: nowIso(options.now()), detail };
-      broadcast();
-    };
-    const proc = spawn(program, args, {
-      cwd: dirname(options.dbPath),
-      env: { ...options.env, HUB_DB: options.dbPath, HUB_URL: `http://127.0.0.1:${port}` },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    child = proc;
-    const timeout = setTimeout(() => proc.kill("SIGTERM"), SYNC_TIMEOUT_MS);
-    proc.stdout?.on("data", keep);
-    proc.stderr?.on("data", keep);
-    proc.on("error", (error) => finish(false, error.message));
-    proc.on("close", (code) => {
-      const last = output.trim().split("\n").at(-1) ?? "";
-      finish(code === 0, code === 0 ? last : `exit ${code ?? "signal"}: ${last}`);
-    });
+    const config = ctx().config;
+    if (config.claudeSync && config.syncCommand.length === 0)
+      throw new HubError("syncCommand is empty (hub config syncCommand)");
     sync = { status: "running", at: nowIso(options.now()), detail: null };
     broadcast();
+    runSync(config.claudeSync ? config.syncCommand : null)
+      .catch(
+        (error: unknown): SyncEnd => ({ ok: false, detail: error instanceof Error ? error.message : String(error) }),
+      )
+      .then(({ ok, detail }) => {
+        sync = { status: ok ? "finished" : "failed", at: nowIso(options.now()), detail };
+        broadcast();
+      });
     return true;
   }
 
