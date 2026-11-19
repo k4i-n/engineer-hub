@@ -302,7 +302,8 @@ function githubRef(url: string | null): string | null {
 }
 
 function prTone(state: string | null): { verb: string; tone: Tone } {
-  const s = (state ?? "").toLowerCase();
+  if (state === null) return { verb: "Linked", tone: "grey" };
+  const s = state.toLowerCase();
   if (s.includes("change") || s.includes("fail")) return { verb: "Fix PR", tone: "orange" };
   if (s.includes("approved")) return { verb: "Approved", tone: "green" };
   if (s.includes("comment")) return { verb: "Comments", tone: "teal" };
@@ -566,7 +567,7 @@ const GROUPS: Group[] = [
     key: "prs",
     label: "My PRs",
     tone: "orange",
-    verbs: ["Fix PR", "Approved", "Comments", "In review", "Draft", "Merged", "Closed"],
+    verbs: ["Fix PR", "Approved", "Comments", "In review", "Draft", "Merged", "Closed", "Linked"],
   },
   { key: "triage", label: "Triage", tone: "blue", verbs: ["Triage"] },
   { key: "waiting", label: "Waiting on", tone: "orange", verbs: ["Ping"] },
@@ -575,7 +576,7 @@ const GROUPS: Group[] = [
 const PINNED_GROUP: Group = { key: "pinned", label: "Pinned", tone: "violet", verbs: [] };
 const OTHER_GROUP: Group = { key: "other", label: "Other", tone: "grey", verbs: [] };
 
-const PR_TABS: Record<string, string> = { Draft: "draft", "In review": "review", Merged: "" };
+const PR_TABS: Record<string, string> = { Draft: "draft", "In review": "review", Merged: "", Linked: "" };
 
 function needPanel(n: Need, prs: boolean): string | undefined {
   if (n.dim !== null) return undefined;
