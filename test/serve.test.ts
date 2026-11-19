@@ -295,6 +295,31 @@ describe("serve", () => {
     );
   });
 
+  test("Drafts on the dashboard and the ticket page open on unsent drafts, with sent ones under All", async () => {
+    const counts = async (path: string) => {
+      const html = await (await fetch(`${server.url}${path}`)).text();
+      const tab = (name: string) =>
+        Number(new RegExp(`data-tab="${name}" aria-selected="[a-z]+">[A-Za-z]+ <b>(\\d+)</b>`).exec(html)?.[1]);
+      return { open: tab("open"), all: tab("all"), html };
+    };
+    const home = await counts("/?part=1");
+    const page = await counts("/t/ENG-7?part=1");
+    assert.match(
+      home.html,
+      /<h2>Drafts<\/h2><span class="tabs" role="tablist" data-tabs="drafts"><button[^>]*data-tab="open" aria-selected="true">Open/,
+    );
+    await hub(["draft", "ENG-7", "tell qa", "--stdin"], "fix is on staging");
+    await hub(["posted", "ENG-7", "tell qa"]);
+    const homeAfter = await counts("/?part=1");
+    const pageAfter = await counts("/t/ENG-7?part=1");
+    assert.deepEqual([homeAfter.open, homeAfter.all], [home.open, home.all + 1]);
+    assert.deepEqual([pageAfter.open, pageAfter.all], [page.open, page.all + 1]);
+    assert.match(homeAfter.html, /data-key="d-ENG-7-tell qa" data-tab-panel="all" hidden>[\s\S]*?wording pending/);
+    assert.match(pageAfter.html, /data-key="td-tell qa" data-tab-panel="all" hidden>/);
+    assert.match(homeAfter.html, /data-key="d-[^"]+" data-tab-panel="open all">/);
+    assert.match(pageAfter.html, /<li class="empty" data-tab-panel="open">—<\/li>/);
+  });
+
   test("ticket ids carry their full id as a title and text fields render markdown", async () => {
     await hub(["set", "ENG-7", "decide", "use `retry_after` or **backoff**?"]);
     const html = await (await fetch(`${server.url}/?part=1`)).text();
