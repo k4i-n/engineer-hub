@@ -244,6 +244,18 @@ describe("serve", () => {
     assert.match(row, /chip-pop">.*pull\/4.*pull\/5/);
   });
 
+  test("ticket ids carry their full id as a title and text fields render markdown", async () => {
+    await hub(["set", "ENG-7", "decide", "use `retry_after` or **backoff**?"]);
+    const html = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.match(html, /<a class="tid" href="\/t\/ENG-7" title="ENG-7">ENG-7<\/a>/);
+    assert.match(html, /<span class="need-title">use <code>retry_after<\/code> or <strong>backoff<\/strong>\?<\/span>/);
+    const page = await (await fetch(`${server.url}/t/ENG-7?part=1`)).text();
+    assert.match(
+      page,
+      /<dd class="md tone-text-amber"><p>use <code>retry_after<\/code> or <strong>backoff<\/strong>\?<\/p><\/dd>/,
+    );
+  });
+
   test("the page shows each thing once: no ticket id twice, no Sent? draft in Drafts, only unhealthy sources", async () => {
     await hub(
       ["item", "put", "--stdin"],

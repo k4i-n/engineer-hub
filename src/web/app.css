@@ -886,7 +886,7 @@ button.busy::after {
 .md li.md-task[hidden] {
   display: none;
 }
-.md code {
+:is(.md, .need-title, .need-sub, .t-title, .t-next, .s-title, .e-text, .page-head h1) code {
   font:
     12.5px ui-monospace,
     SFMono-Regular,
@@ -1004,7 +1004,14 @@ button.busy::after {
 }
 .state dd {
   margin: 0;
+  min-width: 0;
   overflow-wrap: anywhere;
+}
+.state dd > :first-child {
+  margin-top: 0;
+}
+.state dd > :last-child {
+  margin-bottom: 0;
 }
 .steps {
   list-style: none;

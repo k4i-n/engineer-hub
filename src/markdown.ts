@@ -22,6 +22,44 @@ function inline(raw: string, link: Link): string {
   return html + esc(raw.slice(last));
 }
 
+type Segment = { code: boolean; text: string };
+
+const BLOCK_MARK = /^(#{1,6}\s+|>\s?|[-*]\s+(\[[ xX]\]\s+)?|\d+[.)]\s+)/;
+
+function segments(text: string): Segment[] {
+  const out: Segment[] = [];
+  let fence: string[] | null = null;
+  const closeFence = () => {
+    if (fence !== null && fence.length > 0) out.push({ code: true, text: fence.join(" ") });
+    fence = null;
+  };
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (line.startsWith("```")) {
+      if (fence === null) fence = [];
+      else closeFence();
+      continue;
+    }
+    if (line === "") continue;
+    if (fence !== null) fence.push(line);
+    else out.push({ code: false, text: line.replace(BLOCK_MARK, "") });
+  }
+  closeFence();
+  return out;
+}
+
+export function renderLine(text: string, link: Link, max = Number.POSITIVE_INFINITY): string {
+  const out: string[] = [];
+  let room = max;
+  for (const s of segments(text)) {
+    if (room <= 0) break;
+    const shown = s.text.length > room ? `${s.text.slice(0, Math.max(room - 3, 0))}...` : s.text;
+    room -= s.text.length + 1;
+    out.push(s.code ? `<code>${esc(shown)}</code>` : inline(shown, link));
+  }
+  return out.join(" ");
+}
+
 export function renderMarkdown(text: string, link: Link, callout: string | null = null): string {
   const out: string[] = [];
   let list: "ul" | "ol" | null = null;
