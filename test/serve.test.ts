@@ -433,6 +433,53 @@ describe("serve", () => {
     assert.match(await (await fetch(`${server.url}/settings`)).text(), /<a class="gear on" href="\/"/);
   });
 
+  test("in app mode a Slack message keeps its permalink, a channel and Linear open in the app, and Open matches", async () => {
+    await hub(["config", "openSlackIn", '"app"']);
+    await hub(["config", "slackTeamId", '"T0TEST1"']);
+    await hub(["config", "openLinearIn", '"app"']);
+    const message = "https://acme.slack.com/archives/C01ABC/p1763440000123456";
+    await hub(
+      ["item", "put", "--stdin"],
+      [
+        { source: "slack", kind: "message", url: message, title: "ping", needs_me: true },
+        { source: "linear", kind: "issue", url: "https://linear.app/acme/issue/ENG-9", title: "bug", needs_me: true },
+      ]
+        .map((i) => JSON.stringify(i))
+        .join("\n"),
+    );
+    await hub(["link", "ENG-7", "https://acme.slack.com/archives/C01ABC"]);
+    const html = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.match(html, new RegExp(`<a class="need-title" href="${message}" target="_blank"`));
+    assert.match(html, new RegExp(`data-href="${message}"[\\s\\S]*?data-open="${message}"`));
+    assert.match(
+      html,
+      /data-href="linear:\/\/acme\/issue\/ENG-9"[\s\S]*?data-open="linear:\/\/acme\/issue\/ENG-9"[\s\S]*?data-copy="https:\/\/linear.app\/acme\/issue\/ENG-9"/,
+    );
+    const page = await (await fetch(`${server.url}/t/ENG-7?part=1`)).text();
+    assert.match(page, /href="slack:\/\/channel\?team=T0TEST1&amp;id=C01ABC"/);
+  });
+
+  test("the page script declares no global that hides a browser function", () => {
+    const script = readFileSync(new URL("../src/web/app.js", import.meta.url), "utf8");
+    for (const name of [
+      "open",
+      "close",
+      "print",
+      "alert",
+      "confirm",
+      "prompt",
+      "find",
+      "focus",
+      "blur",
+      "stop",
+      "scroll",
+      "fetch",
+      "postMessage",
+    ]) {
+      assert.doesNotMatch(script, new RegExp(`^(async )?function ${name}\\(`, "m"), name);
+    }
+  });
+
   test("text from the DB is escaped", async () => {
     await hub(["ticket-new", "NEW-xss", "<script>alert(1)</script>"]);
     const html = await (await fetch(`${server.url}/`)).text();
