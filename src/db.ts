@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { HubError } from "./util.ts";
 
-export const SCHEMA_VERSION = "3";
+export const SCHEMA_VERSION = "4";
 
 export type Ticket = {
   id: string;
@@ -41,6 +41,8 @@ export type EventRow = {
   ref: string | null;
 };
 export type NoteRow = { ticket_id: string; title: string; body: string; kind: string; position: number };
+export type ScriptRow = { name: string; argv: string; every: string; created_at: string };
+
 export type DraftRow = {
   ticket_id: string;
   label: string;
@@ -147,6 +149,7 @@ CREATE TABLE step(id INTEGER PRIMARY KEY, ticket_id TEXT NOT NULL, n INTEGER NOT
 CREATE TABLE source(name TEXT PRIMARY KEY, cursor TEXT, last_sync TEXT NOT NULL, last_error TEXT);
 CREATE TABLE day(date TEXT PRIMARY KEY, resume TEXT, body TEXT, updated_at TEXT);
 CREATE TABLE pin(key TEXT PRIMARY KEY, pinned_at TEXT NOT NULL);
+CREATE TABLE script_source(name TEXT PRIMARY KEY, argv TEXT NOT NULL, every TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE config(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT);
 ${ftsTable("ticket", "ticket_fts", "rowid", ["id", "title", "status", "next", "gate", "decide"])}
@@ -158,6 +161,10 @@ INSERT INTO meta(key, value) VALUES ('schema_version', '${SCHEMA_VERSION}');
 
 const UPGRADES: Record<string, { to: string; sql: string }> = {
   "2": { to: "3", sql: "ALTER TABLE draft ADD COLUMN send_at TEXT;" },
+  "3": {
+    to: "4",
+    sql: "CREATE TABLE script_source(name TEXT PRIMARY KEY, argv TEXT NOT NULL, every TEXT NOT NULL, created_at TEXT NOT NULL);",
+  },
 };
 
 export function openDb(path: string): DatabaseSync {
@@ -170,13 +177,13 @@ export function openDb(path: string): DatabaseSync {
     return db;
   }
   let version = one<{ value: string }>(db, "SELECT value FROM meta WHERE key = 'schema_version'")?.value;
-  const upgrade = version === undefined ? undefined : UPGRADES[version];
-  if (upgrade !== undefined) {
+  for (let upgrade = UPGRADES[version ?? ""]; upgrade !== undefined; upgrade = UPGRADES[version ?? ""]) {
+    const step = upgrade;
     transaction(db, () => {
-      db.exec(upgrade.sql);
-      db.prepare("UPDATE meta SET value = ? WHERE key = 'schema_version'").run(upgrade.to);
+      db.exec(step.sql);
+      db.prepare("UPDATE meta SET value = ? WHERE key = 'schema_version'").run(step.to);
     });
-    version = upgrade.to;
+    version = step.to;
   }
   if (version === SCHEMA_VERSION) return db;
   db.close();

@@ -38,5 +38,11 @@ export function sources(ctx: Ctx): Result {
       .filter((part) => part !== null)
       .join(" | "),
   );
-  return { text: lines.join("\n") || "no sources synced yet", json: rows };
+  const scripts = all<{ name: string; argv: string; every: string }>(
+    ctx.db,
+    "SELECT * FROM script_source ORDER BY name",
+  );
+  for (const sc of scripts)
+    lines.push(`script ${sc.name}: ${(JSON.parse(sc.argv) as string[]).join(" ")} | every ${sc.every}`);
+  return { text: lines.join("\n") || "no sources synced yet", json: { sources: rows, scripts } };
 }

@@ -2,6 +2,7 @@ import type { Ctx, Result } from "./commands.ts";
 import { one, type SourceRow } from "./db.ts";
 import * as items from "./items.ts";
 import { type KeySpec, lastLine, type System, storeCommands } from "./keys.ts";
+import { scriptFetcher, scripts } from "./scripts.ts";
 import * as sources from "./sources.ts";
 import { afterDuration, HubError } from "./util.ts";
 import * as waits from "./waits.ts";
@@ -11,6 +12,8 @@ export type Check = { ok: boolean; how: string; fix: string[] };
 export type Fetcher = {
   name: string;
   key: KeySpec | null;
+  every?: string;
+  argv?: string[];
   check: (sys: System) => Promise<Check>;
   fetch: (sys: System, ctx: Ctx, cursor: string | null) => Promise<Fetched>;
 };
@@ -32,25 +35,36 @@ export function write(ctx: Ctx, name: string, fetched: Fetched): string {
 
 export class Runner {
   readonly status = new Map<string, Status>();
-  readonly fetchers: Fetcher[];
+  private readonly builtIns: Fetcher[];
   private readonly sys: System;
   private readonly ctx: () => Ctx;
 
-  constructor(fetchers: Fetcher[], sys: System, ctx: () => Ctx) {
-    this.fetchers = fetchers;
+  constructor(builtIns: Fetcher[], sys: System, ctx: () => Ctx) {
+    this.builtIns = builtIns;
     this.sys = sys;
     this.ctx = ctx;
-    for (const f of fetchers) this.status.set(f.name, { running: false, check: null });
+  }
+
+  fetchers(c: Ctx): Fetcher[] {
+    return [...this.builtIns, ...scripts(c).map(scriptFetcher)];
+  }
+
+  state(name: string): Status {
+    const known = this.status.get(name);
+    if (known !== undefined) return known;
+    const fresh: Status = { running: false, check: null };
+    this.status.set(name, fresh);
+    return fresh;
   }
 
   enabled(c: Ctx): Fetcher[] {
-    return this.fetchers.filter((f) => c.config.fetch[f.name] === true);
+    return this.fetchers(c).filter((f) => f.argv !== undefined || c.config.fetch[f.name] === true);
   }
 
   due(c: Ctx): Fetcher[] {
-    const every = Date.parse(afterDuration(new Date(0), c.config.fetchEvery, "fetchEvery"));
     return this.enabled(c).filter((f) => {
-      if (this.status.get(f.name)?.running) return false;
+      if (this.state(f.name).running) return false;
+      const every = Date.parse(afterDuration(new Date(0), f.every ?? c.config.fetchEvery, "every"));
       const last = one<SourceRow>(c.db, "SELECT * FROM source WHERE name = ?", f.name)?.last_sync;
       return last === undefined || c.now.getTime() - Date.parse(last) >= every;
     });
@@ -61,7 +75,7 @@ export class Runner {
   }
 
   async runOne(f: Fetcher): Promise<string> {
-    const state = this.status.get(f.name) as Status;
+    const state = this.state(f.name);
     if (state.running) return `${f.name}: already running`;
     state.running = true;
     try {
@@ -81,17 +95,17 @@ export class Runner {
 
   async now(name: string | null): Promise<Result> {
     const c = this.ctx();
-    const chosen = name === null ? this.enabled(c) : this.fetchers.filter((f) => f.name === name);
+    const chosen = name === null ? this.enabled(c) : this.fetchers(c).filter((f) => f.name === name);
     if (chosen.length === 0) {
-      throw new HubError(name === null ? "no source is on (hub config fetch)" : `no built-in source ${name}`);
+      throw new HubError(name === null ? "no source is on (hub config fetch)" : `no source ${name} to fetch`);
     }
     const lines = await Promise.all(chosen.map((f) => this.runOne(f)));
     return { text: lines.join("\n"), json: lines };
   }
 
-  fixes(name: string): string[] {
-    const f = this.fetchers.find((x) => x.name === name);
-    if (f?.key == null) return this.status.get(name)?.check?.fix ?? [];
+  fixes(f: Fetcher): string[] {
+    if (f.argv !== undefined) return [`hub source remove ${f.name}`];
+    if (f.key === null) return this.status.get(f.name)?.check?.fix ?? [];
     const c = storeCommands(f.key, this.sys.platform);
     return [c.hub, c.sealcall];
   }

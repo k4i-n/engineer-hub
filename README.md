@@ -134,6 +134,18 @@ sealcall add slack --host slack.com --header 'Authorization: Bearer {key}' \
   --allow 'GET /api/auth.test' --allow 'GET /api/search.messages' --allow 'GET /api/conversations.replies'   # or sealcall
 ```
 
+### Script sources
+
+For a service hub has no built-in for, a small script of yours runs on its own timer:
+
+```sh
+hub source add pagerduty --every 5m -- node examples/sources/pagerduty.mjs
+hub fetch pagerduty
+hub source remove pagerduty
+```
+
+hub runs the program and its arguments with no shell, a 2 minute timeout and `HUB_SINCE` set to the start of its last good run, and reads one item JSON object per line from stdout (`source` defaults to the script's name). A non-zero exit or a bad line writes nothing and is the source error (with the last stderr line). Script sources are added and removed from the terminal only; the API and the dashboard cannot set a command hub runs. `examples/sources/` has PagerDuty, incident.io and Cloudflare scripts to copy; each calls through sealcall when a route with its name exists, else reads its own Keychain item, so hub never sees their keys (written from the vendors' API docs, not run against live accounts). The `hub-source` skill writes one for a named service.
+
 ## Items from connectors
 
 For everything else an agent reads each source (Slack, the tracker, mail, alerts) through the connector it already has, and writes what it found with `hub item put --stdin` (or the `item_put` tool), one object per line:

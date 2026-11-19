@@ -639,21 +639,24 @@ describe("db", () => {
     db.close();
     assert.throws(
       () => serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] }),
-      /has schema v1, this hub needs v3: move the file aside and re-import/,
+      /has schema v1, this hub needs v4: move the file aside and re-import/,
     );
     server = await serve({ dbPath: join(dir, "other.db"), port: 0, now: () => now, env: {}, fetchers: [] });
   });
 });
 
 describe("schema upgrade", () => {
-  test("a v2 database gains draft.send_at and becomes v3 when hub serve opens it", async () => {
+  test("a v2 database gains draft.send_at and the script table, and becomes v4, when hub serve opens it", async () => {
     await imported();
     await server.close();
     const db = new DatabaseSync(dbFile);
-    db.exec("ALTER TABLE draft DROP COLUMN send_at; UPDATE meta SET value = '2' WHERE key = 'schema_version'");
+    db.exec(
+      "ALTER TABLE draft DROP COLUMN send_at; DROP TABLE script_source; UPDATE meta SET value = '2' WHERE key = 'schema_version'",
+    );
     db.close();
     server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] });
-    assert.equal(sql<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'")[0]?.value, "3");
+    assert.equal(sql<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'")[0]?.value, "4");
+    assert.equal(sql<{ n: number }>("SELECT count(*) AS n FROM script_source")[0]?.n, 0);
     assert.equal(sql<{ n: number }>("SELECT count(*) AS n FROM draft")[0]?.n, EXPECTED.drafts);
     await ok("draft", "ENG-7", "later", "--stdin", "--send-at", "tomorrow 12:00");
   });

@@ -2,7 +2,11 @@ import { spawn } from "node:child_process";
 import { HubError } from "./util.ts";
 
 export type Ran = { code: number; stdout: string; stderr: string };
-export type Run = (program: string, args: string[], options?: { input?: string; timeoutMs?: number }) => Promise<Ran>;
+export type Run = (
+  program: string,
+  args: string[],
+  options?: { input?: string; timeoutMs?: number; env?: NodeJS.ProcessEnv },
+) => Promise<Ran>;
 export type Http = (url: string, init: RequestInit) => Promise<{ status: number; text: () => Promise<string> }>;
 export type System = { platform: NodeJS.Platform; env: NodeJS.ProcessEnv; run: Run; http: Http };
 
@@ -15,7 +19,7 @@ export const KEYCHAIN_SERVICE = "engineer-hub";
 
 export const run: Run = (program, args, options = {}) =>
   new Promise((resolve) => {
-    const child = spawn(program, args, { stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(program, args, { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, ...options.env } });
     let stdout = "";
     let stderr = "";
     const timer = setTimeout(() => child.kill("SIGTERM"), options.timeoutMs ?? RUN_TIMEOUT_MS);
