@@ -8,7 +8,7 @@
 |---|---|---|
 | `github` (on by default) | review requests found by the `githubReviewQuery` search (closed when no longer found), your PRs updated since the last fetch, each attached to the ticket whose id is in its title, branch name or body, with a status from draft, review decision, latest reviews and checks: changes requested, checks failing, approved and commented need you; draft and in review do not | none in hub: it runs your signed-in `gh` |
 | `linear` | issues assigned to you updated since the last fetch (a new one with no hub ticket needs you; done and canceled do not), and mentions of you in issues and comments; an issue whose id is a hub ticket also sets that ticket's tracker state, priority, assignee, link and update time (what `board`, `next` and the `[TRACKER: …]` warning read) | a personal API key with read access |
-| `slack` | messages that mention you (need you), messages you sent (state `sent`, for an agent to match to drafts), and replies or a reaction from someone else on your message in threads you wait on (the wait closes and the answer needs you). Slack markup reads as text: `<@U…>` as `@name`, `<#C…>` as `#channel`, groups, `@here` and links; DMs and group DMs are named. Your own ✅ (`white_check_mark`, `heavy_check_mark`, `ballot_box_with_check`, `done`) on a mention takes it off your list; another reaction of yours shows as its state. Your later reply in the mention's thread also takes it off, with state `replied`; `hub item put` with `needs_me: true` puts it back. Not yet: DMs that do not mention you | a user token (`xoxp-`) |
+| `slack` | messages that mention you (need you), new messages in the channels listed in `slackAlertChannels` (alerts: Fix now, until your ✅), messages you sent (state `sent`, for an agent to match to drafts), and replies or a reaction from someone else on your message in threads you wait on (the wait closes and the answer needs you). Slack markup reads as text: `<@U…>` as `@name`, `<#C…>` as `#channel`, groups, `@here` and links; DMs and group DMs are named. Your own ✅ (`white_check_mark`, `heavy_check_mark`, `ballot_box_with_check`, `done`) on a mention takes it off your list; another reaction of yours shows as its state. Your later reply in the mention's thread also takes it off, with state `replied`; `hub item put` with `needs_me: true` puts it back. Not yet: DMs that do not mention you | a user token (`xoxp-`) |
 
 The review request search defaults to `is:pr is:open review-requested:@me archived:false` and takes any GitHub search filter. Change it in Settings → Sources, where the active search is shown, or from the terminal:
 
@@ -33,6 +33,14 @@ sealcall add slack --host slack.com --header 'Authorization: Bearer {key}' \
   --allow 'GET /api/conversations.info' --allow 'GET /api/users.info' --allow 'GET /api/usergroups.list' \
   --allow 'GET /api/reactions.get'   # or sealcall
 ```
+
+To watch alert channels, list them in Settings → Sources → Alert channels, or:
+
+```sh
+hub config slackAlertChannels '["alerts-prod","oncall"]'
+```
+
+Every new message there from someone other than you, bot posts included, is an alert that needs you; a bot post with no text uses its first attachment's title. Your ✅ on it takes it off; replying in its thread does not. Each channel is one more `search.messages` call per fetch (Slack allows about 20 a minute), and a private channel needs you to be a member.
 
 The second group of scopes is optional: a scope the token lacks (or an endpoint the sealcall route does not allow) only leaves that detail out, ids stay ids, and the source shows an amber warning naming the missing scopes in the header and in Settings → Sources. Adding a scope to an installed app needs a reinstall, which issues a new token; store it again (`sealcall rotate slack` keeps the route).
 
