@@ -5,15 +5,16 @@ import { lastLine, type System } from "../keys.ts";
 import { HubError } from "../util.ts";
 
 const FIRST_LOOK_MS = 2 * 86_400_000;
+const MAX_BODY = 4000;
 
 const QUERY = `query($requested: String!, $mine: String!) {
   requested: search(query: $requested, type: ISSUE, first: 50) {
-    nodes { ... on PullRequest { url title author { login } } }
+    nodes { ... on PullRequest { url title headRefName body author { login } } }
   }
   mine: search(query: $mine, type: ISSUE, first: 50) {
     nodes {
       ... on PullRequest {
-        url title state merged isDraft reviewDecision author { login }
+        url title headRefName body state merged isDraft reviewDecision author { login }
         latestReviews(first: 20) { nodes { state } }
         commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
       }
@@ -24,6 +25,8 @@ const QUERY = `query($requested: String!, $mine: String!) {
 type Pr = {
   url?: string;
   title?: string;
+  headRefName?: string;
+  body?: string;
   author?: { login: string } | null;
   state?: string;
   merged?: boolean;
@@ -33,6 +36,10 @@ type Pr = {
   commits?: { nodes: { commit: { statusCheckRollup: { state: string } | null } }[] };
 };
 type Answer = { data?: { requested: { nodes: Pr[] }; mine: { nodes: Pr[] } }; errors?: { message: string }[] };
+
+function context(pr: Pr): string {
+  return [pr.headRefName ?? "", (pr.body ?? "").slice(0, MAX_BODY)].join("\n");
+}
 
 export function prState(pr: Pr): { state: string; needsMe: boolean } {
   if (pr.merged) return { state: "merged", needsMe: false };
@@ -78,6 +85,7 @@ async function fetchGithub(sys: System, ctx: Ctx, cursor: string | null): Promis
     author: pr.author?.login,
     state: "open",
     needs_me: true,
+    context: context(pr),
   }));
   const open = new Set(requested.map((pr) => pr.url));
   const tracked = all<ItemRow>(
@@ -99,6 +107,7 @@ async function fetchGithub(sys: System, ctx: Ctx, cursor: string | null): Promis
       author: pr.author?.login,
       state: s.state,
       needs_me: s.needsMe,
+      context: context(pr),
     });
   }
   return { items: out, cursor: started };
