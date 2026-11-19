@@ -110,7 +110,7 @@ export function appHref(ctx: Ctx, url: string): { href: string; app: boolean } {
   if (ctx.config.openLinearIn === "app" && url.startsWith("https://linear.app/")) {
     return { href: `linear://${url.slice("https://linear.app/".length)}`, app: true };
   }
-  const slack = /^https:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)/.exec(url);
+  const slack = /^https:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/?$/.exec(url);
   if (ctx.config.openSlackIn === "app" && ctx.config.slackTeamId !== "" && slack) {
     return { href: `slack://channel?team=${ctx.config.slackTeamId}&id=${slack[1]}`, app: true };
   }
@@ -200,7 +200,7 @@ function menuItem(icon: string, label: string, data: Data, key = ""): string {
   return `<button type="button"${dataAttrs(data)}>${svg(icon)}<span>${esc(label)}</span>${key ? `<span class="key">${esc(key)}</span>` : ""}</button>`;
 }
 
-function rail(n: Need, pinned: boolean): string {
+function rail(n: Need, pinned: boolean, target: string | null): string {
   const first =
     n.undo === null
       ? iconButton("ok", n.ok?.label ?? "Done", "e", n.ok?.data ?? null)
@@ -224,7 +224,7 @@ function rail(n: Need, pinned: boolean): string {
       : ["1h", "4h", "tomorrow"].map((f) =>
           menuItem("later", LATER_TEXT[later.act][f] ?? f, { act: later.act, ...later.data, for: f }),
         )),
-    ...(n.href === null ? [] : [menuItem("open", "Open", { open: n.href }, "↵")]),
+    ...(target === null ? [] : [menuItem("open", "Open", { open: target }, "↵")]),
     ...(n.href !== null && /^https?:/.test(n.href) ? [menuItem("link", "Copy link", { copy: n.href })] : []),
     ...ignoreItems(n.ignore),
   ];
@@ -492,7 +492,8 @@ function waitNeed(ctx: Ctx, w: WaitRow): Need {
 }
 
 function needRow(ctx: Ctx, n: Need, pinned: boolean, showVerb = true): string {
-  const href = n.href === null ? "" : ` data-href="${esc(n.href)}"`;
+  const target = n.href === null ? null : appHref(ctx, n.href).href;
+  const href = target === null ? "" : ` data-href="${esc(target)}"`;
   const dim = n.dim === null ? "" : `<span class="dim-label">${esc(n.dim)}</span>${n.sub === "" ? "" : " · "}`;
   const finished = n.dim !== null && ["done", "answered", "yes", "no"].includes(n.dim);
   const pin = pinned ? `<span class="pinmark" title="Pinned">${svg("pin")}</span>` : "";
@@ -502,7 +503,7 @@ ${showVerb ? `<span class="verb">${esc(n.verb)}</span>` : ""}
 <span class="need-main"><span class="need-line">${pin}${n.title}</span><span class="need-sub">${dim}${n.sub}</span>${n.ask}</span>
 <span class="need-ticket">${ticketLink(n.ticket)}</span>
 <span class="need-age">${esc(ago(ctx, n.since))}</span>
-${rail(n, pinned)}
+${rail(n, pinned, target)}
 </li>`;
 }
 

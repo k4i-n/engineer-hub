@@ -421,7 +421,7 @@ function searchKey(e) {
   } else if (e.key === "Enter") {
     e.preventDefault();
     const hit = hits[activeHit];
-    if (hit?.href) open(hit.getAttribute("href"), true);
+    if (hit?.href) openHref(hit.getAttribute("href"), true);
   } else if (e.key === "Escape") {
     if (e.target.value !== "") {
       e.target.value = "";
@@ -430,7 +430,7 @@ function searchKey(e) {
   }
 }
 
-function open(href, newTab) {
+function openHref(href, newTab) {
   if (!href) return;
   if (href.startsWith("/")) location.href = href;
   else if (/^https?:/.test(href) && newTab) window.open(href, "_blank", "noopener");
@@ -503,7 +503,7 @@ document.addEventListener("click", async (e) => {
   if (b && !b.disabled) {
     if (b.dataset.open !== undefined) {
       closeMenus();
-      open(b.dataset.open, true);
+      openHref(b.dataset.open, true);
       return;
     }
     if (b.dataset.copy !== undefined) {
@@ -526,7 +526,7 @@ document.addEventListener("click", async (e) => {
   }
   if (e.target.closest("a, input, textarea, summary")) return;
   const ticket = e.target.closest(".ticket[data-href]");
-  if (ticket) open(ticket.dataset.href);
+  if (ticket) openHref(ticket.dataset.href);
 });
 
 function layoutFromDom() {
@@ -688,7 +688,7 @@ document.addEventListener("keydown", (e) => {
   const li = list[current];
   if (e.key === "j" || e.key === "ArrowDown") select(list[Math.min(current + 1, list.length - 1)] ?? list[0]);
   else if (e.key === "k" || e.key === "ArrowUp") select(list[Math.max(current - 1, 0)]);
-  else if ((e.key === "Enter" || e.key === "o") && li) open(li.dataset.href, true);
+  else if ((e.key === "Enter" || e.key === "o") && li) openHref(li.dataset.href, true);
   else if (["e", "s", "y", "n", "p"].includes(e.key) && li) {
     const b = li.querySelector(`button[data-hotkey="${e.key}"]:not(:disabled)`);
     if (b) act(b);
