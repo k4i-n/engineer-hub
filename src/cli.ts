@@ -1,21 +1,16 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync } from "node:fs";
-import type { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { brief } from "./brief.ts";
-import type { Ctx, Result } from "./commands.ts";
+import { type Args, COMMAND_KEYS, params, ROUTES } from "./api.ts";
+import type { Result } from "./commands.ts";
 import * as commands from "./commands.ts";
 import { dbPath, loadConfig } from "./config.ts";
 import { openDb } from "./db.ts";
-import { applyImport, collectImport, countPlan, formatSummary } from "./importer.ts";
-import * as items from "./items.ts";
 import { serve } from "./serve.ts";
 import * as service from "./service.ts";
-import * as sources from "./sources.ts";
-import * as steps from "./steps.ts";
+import { tokenPath } from "./token.ts";
 import { HubError } from "./util.ts";
-import * as waits from "./waits.ts";
 
 export type Io = {
   stdout: (text: string) => void;
@@ -107,7 +102,10 @@ type Values = {
   n?: string;
 };
 
-type Handler = (ctx: Ctx, args: string[], values: Values, io: Io) => Result;
+type Call = { route: string; args: Args };
+type Handler = (args: string[], values: Values, io: Io) => Call;
+
+const c = (route: string, args: Args = {}): Call => ({ route, args });
 
 function arg(args: string[], index: number, usage: string): string {
   const value = args[index];
@@ -136,125 +134,165 @@ function root(values: Values): string {
   return values.root;
 }
 
+function lines(text: string): unknown[] {
+  return text
+    .split("\n")
+    .filter((line) => line.trim() !== "")
+    .map((line, index) => {
+      try {
+        return JSON.parse(line) as unknown;
+      } catch {
+        throw new HubError(`line ${index + 1}: not JSON`);
+      }
+    });
+}
+
+function configValue(raw: string): unknown {
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    throw new HubError(`config value must be JSON, e.g. '"Europe/Berlin"' or '["a","b"]'`);
+  }
+}
+
 const COMMANDS: Record<string, Handler> = {
-  ticket: (ctx, a) => commands.ticket(ctx, arg(a, 0, "ticket <id>")),
-  board: (ctx, a) => commands.board(ctx, a[0]),
-  next: (ctx) => commands.next(ctx),
-  gates: (ctx) => commands.gates(ctx),
-  changed: (ctx, _a, v) => commands.changed(ctx, v.since),
-  search: (ctx, a, v) => commands.search(ctx, a.join(" "), count(v.n, 10)),
-  events: (ctx, a, v) => commands.events(ctx, arg(a, 0, "events <id>"), count(v.n, 20), v.full === true),
-  notes: (ctx, a) => commands.notes(ctx, arg(a, 0, "notes <id>")),
-  "note-show": (ctx, a) =>
-    commands.noteShow(ctx, arg(a, 0, "note-show <id> <title>"), arg(a, 1, "note-show <id> <title>")),
-  drafts: (ctx, a) => commands.drafts(ctx, a[0]),
-  "draft-show": (ctx, a) =>
-    commands.draftShow(ctx, arg(a, 0, "draft-show <id> <label>"), arg(a, 1, "draft-show <id> <label>")),
-  items: (ctx, _a, v) =>
-    items.items(ctx, {
-      needsMe: v["needs-me"] === true,
-      source: v.source ?? null,
-      ticket: v.ticket ?? null,
+  ticket: (a) => c("ticket", { id: arg(a, 0, "ticket <id>") }),
+  board: (a) => c("board", a[0] === undefined ? {} : { q: a[0] }),
+  next: () => c("next"),
+  gates: () => c("gates"),
+  changed: (_a, v) => c("changed", v.since === undefined ? {} : { since: v.since }),
+  search: (a, v) => c("search", { q: a.join(" "), n: count(v.n, 10) }),
+  events: (a, v) => c("events", { id: arg(a, 0, "events <id>"), n: count(v.n, 20), full: v.full === true }),
+  notes: (a) => c("notes", { id: arg(a, 0, "notes <id>") }),
+  "note-show": (a) =>
+    c("note", { id: arg(a, 0, "note-show <id> <title>"), title: arg(a, 1, "note-show <id> <title>") }),
+  drafts: (a) => c("drafts", a[0] === undefined ? {} : { ticket: a[0] }),
+  "draft-show": (a) =>
+    c("draft", { id: arg(a, 0, "draft-show <id> <label>"), label: arg(a, 1, "draft-show <id> <label>") }),
+  items: (_a, v) =>
+    c("items", {
+      needs_me: v["needs-me"] === true,
       all: v.all === true,
+      ...(v.source === undefined ? {} : { source: v.source }),
+      ...(v.ticket === undefined ? {} : { ticket: v.ticket }),
     }),
-  day: (ctx, a, v, io) => {
-    if (a[0] !== "set") return commands.day(ctx, a[0]);
-    return commands.daySet(ctx, arg(a, 1, "day set <date> (--file <path> | --stdin)"), body(v, io));
+  day: (a, v, io) => {
+    if (a[0] !== "set") return c("day", a[0] === undefined ? {} : { date: a[0] });
+    return c("day_set", { date: arg(a, 1, "day set <date> (--file <path> | --stdin)"), body: body(v, io) });
   },
-  lint: (ctx) => commands.lint(ctx),
-  config: (ctx, a) => commands.config(ctx, a[0], a[1]),
-  set: (ctx, a) => {
+  lint: () => c("lint"),
+  config: (a) => {
+    if (a[0] === undefined) return c("config");
+    if (a[1] === undefined) return c("config", { key: a[0] });
+    return c("config_set", { key: a[0], value: configValue(a[1]) });
+  },
+  set: (a) => {
     const usage = "set <id> <field> <value>";
-    return commands.set(ctx, arg(a, 0, usage), arg(a, 1, usage), arg(a, 2, usage));
+    return c("ticket_set", { id: arg(a, 0, usage), [arg(a, 1, usage)]: arg(a, 2, usage) });
   },
-  log: (ctx, a, v) =>
-    commands.log(ctx, arg(a, 0, "log <id> <text>"), a.slice(1).join(" "), {
+  log: (a, v) =>
+    c("log", {
+      id: arg(a, 0, "log <id> <text>"),
+      text: a.slice(1).join(" "),
       kind: v.kind ?? "log",
       source: v.source ?? "agent",
-      ref: v.ref ?? null,
+      ...(v.ref === undefined ? {} : { ref: v.ref }),
     }),
-  note: (ctx, a, v, io) => {
+  note: (a, v, io) => {
     const usage = "note <id> <title> (--file <path> | --stdin)";
-    return commands.note(ctx, arg(a, 0, usage), arg(a, 1, usage), body(v, io), v.kind ?? "detail");
-  },
-  draft: (ctx, a, v, io) => {
-    const usage = "draft <id> <label> (--file <path> | --stdin)";
-    return commands.draft(ctx, arg(a, 0, usage), arg(a, 1, usage), body(v, io), v.channel ?? null);
-  },
-  posted: (ctx, a, v, io) => {
-    const usage = "posted <id> <label>";
-    const sent = v.file !== undefined || v.stdin ? body(v, io) : null;
-    return commands.posted(ctx, arg(a, 0, usage), arg(a, 1, usage), {
-      at: v.at ?? null,
-      channel: v.channel ?? null,
-      answer: v.answer ?? null,
-      sentText: sent,
-      sentRef: v.ref ?? null,
+    return c("note_save", {
+      id: arg(a, 0, usage),
+      title: arg(a, 1, usage),
+      body: body(v, io),
+      kind: v.kind ?? "detail",
     });
   },
-  link: (ctx, a, v) => {
-    const usage = "link <id> <url>";
-    return items.link(ctx, arg(a, 0, usage), arg(a, 1, usage), { kind: v.kind ?? null, title: v.title ?? null });
+  draft: (a, v, io) => {
+    const usage = "draft <id> <label> (--file <path> | --stdin)";
+    return c("draft_save", {
+      id: arg(a, 0, usage),
+      label: arg(a, 1, usage),
+      body: body(v, io),
+      ...(v.channel === undefined ? {} : { channel: v.channel }),
+    });
   },
-  item: (ctx, a, v, io) => {
+  posted: (a, v, io) => {
+    const usage = "posted <id> <label>";
+    const sent = v.file !== undefined || v.stdin ? body(v, io) : undefined;
+    return c("posted", {
+      id: arg(a, 0, usage),
+      label: arg(a, 1, usage),
+      at: v.at,
+      channel: v.channel,
+      answer: v.answer,
+      sent_text: sent,
+      sent_ref: v.ref,
+    });
+  },
+  link: (a, v) => {
+    const usage = "link <id> <url>";
+    return c("link", { id: arg(a, 0, usage), url: arg(a, 1, usage), kind: v.kind, title: v.title });
+  },
+  item: (a, v, io) => {
     const usage =
       "item put --stdin | item close <item>... | item snooze <item> [--for 1d|tomorrow] | item reopen <item> | item attach <item> <id>";
     const sub = arg(a, 0, usage);
-    if (sub === "put") return items.put(ctx, body(v, io));
-    if (sub === "close") return items.close(ctx, a.slice(1));
-    if (sub === "snooze") return items.snooze(ctx, arg(a, 1, usage), v.for ?? "1d");
-    if (sub === "reopen") return items.reopen(ctx, arg(a, 1, usage));
-    if (sub === "attach") return items.attach(ctx, arg(a, 1, usage), arg(a, 2, usage));
+    if (sub === "put") return c("item_put", { items: lines(body(v, io)) });
+    if (sub === "close") return c("item_close", { key: arg(a, 1, usage), more: a.slice(2) });
+    if (sub === "snooze") return c("item_snooze", { key: arg(a, 1, usage), for: v.for });
+    if (sub === "reopen") return c("item_reopen", { key: arg(a, 1, usage) });
+    if (sub === "attach") return c("item_attach", { key: arg(a, 1, usage), ticket: arg(a, 2, usage) });
     throw new HubError(`usage: hub ${usage}`);
   },
-  wait: (ctx, a, v) => {
-    if (a[0] === "close") return waits.closeWait(ctx, arg(a, 1, "wait close <wait | url>"));
-    if (a[0] === "pinged") return waits.pinged(ctx, arg(a, 1, "wait pinged <wait> [--for 1d|tomorrow]"), v.for ?? "1d");
-    if (a[0] === "reopen") return waits.reopenWait(ctx, arg(a, 1, "wait reopen <wait>"));
+  wait: (a, v) => {
+    if (a[0] === "close") return c("wait_close", { wait: arg(a, 1, "wait close <wait | url>") });
+    if (a[0] === "pinged")
+      return c("wait_pinged", { wait: arg(a, 1, "wait pinged <wait> [--for 1d|tomorrow]"), for: v.for });
+    if (a[0] === "reopen") return c("wait_reopen", { wait: arg(a, 1, "wait reopen <wait>") });
     const usage = "wait <id> <who> <url> [--ping-after 1d]";
-    return waits.wait(ctx, arg(a, 0, usage), arg(a, 1, usage), arg(a, 2, usage), v["ping-after"] ?? null);
+    return c("wait_add", {
+      ticket: arg(a, 0, usage),
+      who: arg(a, 1, usage),
+      url: arg(a, 2, usage),
+      ping_after: v["ping-after"],
+    });
   },
-  waits: (ctx, _a, v) => waits.waits(ctx, v.due === true),
-  source: (ctx, a, v) =>
-    sources.synced(ctx, arg(a, 0, "source <name> [--cursor <c>] [--error <text>]"), {
-      cursor: v.cursor ?? null,
-      error: v.error ?? null,
+  waits: (_a, v) => c("waits", { due: v.due === true }),
+  source: (a, v) =>
+    c("source_status", {
+      name: arg(a, 0, "source <name> [--cursor <c>] [--error <text>]"),
+      cursor: v.cursor,
+      error: v.error,
     }),
-  sources: (ctx) => sources.sources(ctx),
-  brief: (ctx) => brief(ctx),
-  steps: (ctx, a) => steps.steps(ctx, arg(a, 0, "steps <id>")),
-  step: (ctx, a, v) => {
+  sources: () => c("sources"),
+  brief: () => c("brief"),
+  steps: (a) => c("steps", { id: arg(a, 0, "steps <id>") }),
+  step: (a, v) => {
     const usage = "step add <id> <title> | step done <id> <n> [--evidence <url>]";
     const sub = arg(a, 0, usage);
-    if (sub === "add") return steps.add(ctx, arg(a, 1, usage), a.slice(2).join(" ") || arg(a, 2, usage));
-    if (sub === "done") return steps.done(ctx, arg(a, 1, usage), arg(a, 2, usage), v.evidence ?? null);
+    if (sub === "add") return c("step_add", { id: arg(a, 1, usage), title: a.slice(2).join(" ") || arg(a, 2, usage) });
+    if (sub === "done") return c("step_done", { id: arg(a, 1, usage), n: arg(a, 2, usage), evidence: v.evidence });
     throw new HubError(`usage: hub ${usage}`);
   },
-  match: (ctx, a, v, io) => {
+  match: (a, v, io) => {
     const usage = "match <id> <label> --ref <url> (--file | --stdin) | match <id> <label> (yes | no)";
     const [id, label, answer] = [arg(a, 0, usage), arg(a, 1, usage), a[2]];
-    if (answer !== undefined) return commands.resolveMatch(ctx, id, label, answer);
+    if (answer !== undefined) return c("match", { id, label, answer });
     if (v.ref === undefined) throw new HubError("give the sent message's permalink with --ref <url>");
-    return commands.match(ctx, id, label, body(v, io), v.ref);
+    return c("match", { id, label, sent_text: body(v, io), sent_ref: v.ref });
   },
-  "ticket-new": (ctx, a, v) => {
+  "ticket-new": (a, v) => {
     const usage = "ticket-new <id> <title>";
-    return commands.ticketNew(ctx, arg(a, 0, usage), a.slice(1).join(" ") || arg(a, 1, usage), v.dir ?? "todo");
+    return c("ticket_new", {
+      id: arg(a, 0, usage),
+      title: a.slice(1).join(" ") || arg(a, 1, usage),
+      dir: v.dir ?? "todo",
+    });
   },
-  gate: (ctx, a) => commands.answerGate(ctx, arg(a, 0, "gate <id> (yes | no)"), arg(a, 1, "gate <id> (yes | no)")),
-  move: (ctx, a) => commands.move(ctx, arg(a, 0, "move <id> <dir>"), arg(a, 1, "move <id> <dir>")),
-  import: (ctx, _a, v) => {
-    const plan = collectImport(ctx.db, root(v), ctx.config, ctx.now);
-    const changes = v.apply ? applyImport(ctx.db, plan, ctx.now) : null;
-    return { text: formatSummary(plan, changes), json: { counts: countPlan(plan), report: plan.report, changes } };
-  },
+  gate: (a) => c("gate", { id: arg(a, 0, "gate <id> (yes | no)"), answer: arg(a, 1, "gate <id> (yes | no)") }),
+  move: (a) => c("ticket_set", { id: arg(a, 0, "move <id> <dir>"), dir: arg(a, 1, "move <id> <dir>") }),
+  import: (_a, v) => c("import", { root: root(v), apply: v.apply === true }),
 };
-
-function open(command: string, values: Values, io: Io): DatabaseSync {
-  const path = dbPath(values.db, io.env);
-  const dryRun = command === "import" && !values.apply;
-  return openDb(dryRun && !existsSync(path) ? ":memory:" : path);
-}
 
 function port(values: Values): number {
   const value = values.port === undefined ? 7420 : Number(values.port);
@@ -310,7 +348,72 @@ function runService(args: string[], values: Values, io: Io): number {
   }
 }
 
-export function run(argv: string[], io: Io): number {
+const DEFAULT_URL = "http://127.0.0.1:7420";
+
+function notRunning(base: string): HubError {
+  return new HubError(`hub is not running at ${base}: hub service install, or hub serve`);
+}
+
+function readToken(file: string, base: string): string {
+  try {
+    return readFileSync(file, "utf8").trim();
+  } catch {
+    throw notRunning(base);
+  }
+}
+
+function localConfig(key: string, raw: string, values: Values, io: Io): Result {
+  const db = openDb(dbPath(values.db, io.env));
+  try {
+    return commands.config({ db, config: loadConfig(db), now: io.now() }, key, raw);
+  } finally {
+    db.close();
+  }
+}
+
+async function request(call: Call, values: Values, io: Io): Promise<number> {
+  const route = ROUTES.find((r) => r.name === call.route);
+  if (route === undefined) throw new Error(`no route ${call.route}`);
+  const base = io.env.HUB_URL ?? DEFAULT_URL;
+  const db = dbPath(values.db, io.env);
+  const rest: Args = { ...call.args };
+  let path = route.path;
+  for (const name of params(route.path)) {
+    path = path.replace(`{${name}}`, encodeURIComponent(String(rest[name])));
+    delete rest[name];
+  }
+  const url = new URL(`/api/v1${path}`, base);
+  const init: RequestInit = {
+    method: route.method,
+    headers: {
+      authorization: `Bearer ${readToken(tokenPath(db), base)}`,
+      accept: values.json ? "application/json" : "text/plain",
+      "content-type": "application/json",
+      "x-hub-db": db,
+    },
+  };
+  if (route.method === "GET") {
+    for (const [k, v] of Object.entries(rest)) if (v !== undefined && v !== false) url.searchParams.set(k, String(v));
+  } else init.body = JSON.stringify(rest);
+  let response: Response;
+  try {
+    response = await fetch(url, init);
+  } catch {
+    throw notRunning(base);
+  }
+  const text = await response.text();
+  if (!response.ok) {
+    let message = text;
+    try {
+      message = (JSON.parse(text) as { error?: string }).error ?? text;
+    } catch {}
+    throw new HubError(message || `${response.status} from ${base}`);
+  }
+  io.stdout(text);
+  return Number(response.headers.get("x-hub-exit") ?? "0");
+}
+
+export async function run(argv: string[], io: Io): Promise<number> {
   let parsed: { values: Values; positionals: string[] };
   try {
     parsed = parseArgs({ args: argv, options: OPTIONS, allowPositionals: true, strict: true });
@@ -326,26 +429,28 @@ export function run(argv: string[], io: Io): number {
     io.stderr(USAGE);
     return 2;
   }
-  let db: DatabaseSync | undefined;
   try {
-    db = open(command, parsed.values, io);
-    const result = handler({ db, config: loadConfig(db), now: io.now() }, args, parsed.values, io);
-    io.stdout(parsed.values.json ? JSON.stringify(result.json) : result.text);
-    return result.exitCode ?? 0;
+    const key = args[1] === undefined ? undefined : args[0];
+    if (command === "config" && key !== undefined && COMMAND_KEYS.includes(key)) {
+      const result = localConfig(key, args[1] as string, parsed.values, io);
+      io.stdout(parsed.values.json ? JSON.stringify(result.json) : result.text);
+      return 0;
+    }
+    return await request(handler(args, parsed.values, io), parsed.values, io);
   } catch (error) {
     report(io, error);
     return 1;
-  } finally {
-    db?.close();
   }
 }
 
 if (import.meta.main) {
-  process.exitCode = run(process.argv.slice(2), {
+  run(process.argv.slice(2), {
     stdout: (text) => process.stdout.write(`${text}\n`),
     stderr: (text) => process.stderr.write(`${text}\n`),
     readStdin: () => readFileSync(0, "utf8"),
     env: process.env,
     now: () => new Date(),
+  }).then((code) => {
+    process.exitCode = code;
   });
 }
