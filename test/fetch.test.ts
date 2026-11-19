@@ -916,6 +916,9 @@ describe("slack", () => {
       said(ts(50), "U3", "build is green", { id: "D02", is_im: true }, link("D02", ts(50))),
       said(ts(60), "U4", "not a DM", web, link("C02", ts(60))),
       said(ts(70), ME, "mine", { id: "D01", is_im: true }, link("D01", ts(70))),
+      said(ts(80), "U7", "your build finished", { id: "D03", is_im: true }, link("D03", ts(80))),
+      said(ts(81), "USLACKBOT", "reminder: standup", { id: "D04", is_im: true }, link("D04", ts(81))),
+      { ...said(ts(82), "U8", "new comment", { id: "D05", is_im: true }, link("D05", ts(82))), bot_id: "B1" },
     ];
     let mentions = [said(lgtm, "U6", `<@${ME}> looks good`, web, link("C02", lgtm, posted))];
     let inOps = [
@@ -945,8 +948,9 @@ describe("slack", () => {
         });
       }
       if (u.pathname === "/api/users.info") {
-        const names: Record<string, string> = { U2: "Ana", U3: "Ken", U5: "Bo", U6: "Yui" };
-        return ok({ user: { id: p.get("user"), profile: { display_name: names[p.get("user") ?? ""] ?? "" } } });
+        const names: Record<string, string> = { U2: "Ana", U3: "Ken", U5: "Bo", U6: "Yui", U7: "CI" };
+        const id = p.get("user") ?? "";
+        return ok({ user: { id, is_bot: id === "U7", profile: { display_name: names[id] ?? "" } } });
       }
       if (u.pathname === "/api/conversations.info") return ok({ channel: { id: p.get("channel"), is_im: true } });
       if (u.pathname === "/api/reactions.get") return ok({ message: { reactions: [] } });
@@ -960,6 +964,7 @@ describe("slack", () => {
     assert.match(needs, /slack\/message \| needs you \| #web · Yui: @U0ME looks good \| mention/);
     assert.doesNotMatch(needs, /not a DM|build is green|mine/);
     const all = await hub("items", "--source", "slack");
+    assert.doesNotMatch(all, /build finished|standup|new comment/);
     assert.match(all, /DM · Ken: build is green \| replied/);
     assert.equal(all.match(/looks good/g)?.length, 1);
 
