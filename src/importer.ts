@@ -29,7 +29,7 @@ const TICKET_COLUMNS = [
 ] as const;
 
 type Column = (typeof TICKET_COLUMNS)[number];
-type TicketRec = { id: string } & Record<Column, string | null>;
+type TicketRec = { id: string; position: number | null } & Record<Column, string | null>;
 type EventRec = { ticket_id: string; ts: string; kind: string; text: string; source: string };
 type NoteRec = { ticket_id: string } & ParsedNote;
 type DraftRec = { ticket_id: string } & ParsedDraft;
@@ -134,7 +134,9 @@ function collectTickets(db: DatabaseSync, root: string, config: Config, now: Dat
     rec.title = ticket.title;
     rec.dir = file.dir;
     rec.path = file.path;
-    for (const [key, value] of Object.entries(ticket.state)) rec[key as Column] = value ?? null;
+    const { order, ...fields } = ticket.state;
+    for (const [key, value] of Object.entries(fields)) rec[key as Column] = value ?? null;
+    rec.position = order ?? null;
     if (ticket.tracker) {
       rec.tracker_state = ticket.tracker.state ?? null;
       rec.tracker_priority = ticket.tracker.priority ?? null;
@@ -218,7 +220,7 @@ function differs(existing: Record<string, unknown>, rec: Record<string, unknown>
 }
 
 function upsertTicket(db: DatabaseSync, rec: TicketRec, at: string): number {
-  const columns = TICKET_COLUMNS;
+  const columns = [...TICKET_COLUMNS, "position"] as const;
   const existing = one<Ticket>(db, "SELECT * FROM ticket WHERE id = ?", rec.id ?? "");
   if (!existing) {
     const cols = ["id", ...columns, "created_at", "updated_at"];

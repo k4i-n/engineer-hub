@@ -66,7 +66,7 @@ export const DEFAULTS: Config = {
   localIdPrefixes: ["DRAFT-", "NEW-"],
   taskDirs: ["inprogress", "todo", "triage", "backlog", "done"],
   openDirs: ["inprogress", "todo", "triage", "backlog", "unfiled"],
-  stateFields: ["Status", "Repo", "PRs", "Gate", "Next", "Owner", "Decide", "Linear"],
+  stateFields: ["Status", "Repo", "PRs", "Gate", "Next", "Owner", "Decide", "Order", "Linear"],
   limits: { status: 240, repo: 240, prs: 240, gate: 240, decide: 240, next: 240, owner: 120 },
   sections: { body: "Ticket body as filed", detail: "Detail", log: "Log", messages: "Messages" },
   trackerSyncMarkers: ["<!-- linear-sync:start", "<!-- linear-sync:end"],

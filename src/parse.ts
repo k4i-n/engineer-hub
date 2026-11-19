@@ -12,6 +12,7 @@ export type StateFields = {
   owner?: string;
   updated?: string;
   tracker_url?: string;
+  order?: number;
 };
 
 export type Tracker = {
@@ -39,7 +40,7 @@ export type ParsedTicket = {
   otherHeadings: string[];
 };
 
-const STATE_COLUMNS: Record<string, keyof StateFields> = {
+const STATE_COLUMNS: Record<string, Exclude<keyof StateFields, "order">> = {
   status: "status",
   repo: "repo",
   prs: "prs",
@@ -120,6 +121,11 @@ function setState(state: StateFields, name: string, value: string): void {
     const [owner = "", updated] = value.split(" | Updated: ");
     state.owner = owner.trim();
     if (updated) state.updated = updated.trim();
+    return;
+  }
+  if (key === "order") {
+    const place = Number(value.match(/\d+/)?.[0] ?? 0);
+    if (place > 0) state.order = place;
     return;
   }
   const column = STATE_COLUMNS[key];

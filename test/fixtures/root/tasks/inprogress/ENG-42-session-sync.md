@@ -8,6 +8,7 @@ Repo: acme/web | Worktree: ~/wt/eng-42 | Branch: feat/session-sync
 PRs: #101
 Gate: waiting on design review
 Decide: keep refresh tokens in cookie or header
+Order: P2
 Next: write the migration for the sessions table
 Owner: me | Updated: 2026-11-12
 Linear: https://tracker.example.com/acme/issue/ENG-42
