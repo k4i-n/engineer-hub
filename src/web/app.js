@@ -190,17 +190,7 @@ async function refresh() {
     const boxFocused = document.activeElement === box;
     const caret = box?.selectionStart ?? null;
     const focusKey = document.activeElement?.closest?.("[data-key]")?.dataset.key;
-    const kept = new Map([...app.querySelectorAll("[data-keep]")].map((el) => [el.dataset.keep, el.value]));
-    const keptFocus = document.activeElement?.dataset?.keep;
-    const keptCaret = document.activeElement?.selectionStart ?? null;
     app.innerHTML = html;
-    for (const el of app.querySelectorAll("[data-keep]")) el.value = kept.get(el.dataset.keep) ?? "";
-    const refocus = keptFocus ? app.querySelector(`[data-keep="${keptFocus}"]`) : null;
-    if (refocus) {
-      refocus.focus();
-      if (keptCaret !== null) refocus.setSelectionRange(keptCaret, keptCaret);
-    }
-    sourceLine();
     for (const d of app.querySelectorAll("details[data-key]")) if (open.has(d.dataset.key)) d.open = true;
     for (const e of app.querySelectorAll("[data-keep-scroll][data-key]")) e.scrollTop = scroll.get(e.dataset.key) ?? 0;
     const newBox = app.querySelector("[data-search-box]");
@@ -760,23 +750,6 @@ document.addEventListener(
   },
   true,
 );
-
-function sourceLine() {
-  const form = app.querySelector("[data-source-form]");
-  if (!form) return;
-  const value = (name) => form.querySelector(`[name="${name}"]`).value.trim();
-  const [name, every, command] = [value("name"), value("every"), value("command")];
-  const line = `hub source add ${name || "<name>"} --every ${every || "5m"} -- ${command || "<program>"}`;
-  const row = form.closest(".set-control");
-  row.querySelector("[data-source-line]").textContent = line;
-  const copy = row.querySelector("button[data-copy]");
-  copy.dataset.copy = line;
-  copy.disabled = name === "" || command === "";
-}
-
-document.addEventListener("input", (e) => {
-  if (e.target.closest("[data-source-form]")) sourceLine();
-});
 
 document.addEventListener("change", async (e) => {
   const el = e.target.closest("input[data-source]");

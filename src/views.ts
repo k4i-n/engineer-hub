@@ -1364,11 +1364,7 @@ function sourceRows(ctx: Ctx, list: Fetching[]): string {
 }
 
 function addSourceRow(): string {
-  const line = "hub source add <name> --every 5m -- <program>";
-  return row(
-    "Add",
-    `<div class="src-add" data-source-form><input class="text" data-keep="src-name" name="name" placeholder="name" aria-label="Name" spellcheck="false"><input class="text src-every" data-keep="src-every" name="every" placeholder="5m" aria-label="Every" spellcheck="false"><input class="text src-cmd" data-keep="src-cmd" name="command" placeholder="program args" aria-label="Command" spellcheck="false"></div><div class="md code-block"><pre><code data-source-line>${esc(line)}</code></pre></div>${button("Copy", { copy: line }, { disabled: true })}`,
-  );
+  return row("Add", codeBlock("hub source add <name> --every 5m -- <program>"));
 }
 
 const IGNORED_KIND: Record<string, string> = { review_request: "Review requests", pr: "My PRs" };

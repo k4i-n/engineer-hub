@@ -1640,15 +1640,6 @@ textarea.text {
   flex: none;
   width: 120px;
 }
-.src-add {
-  display: flex;
-  gap: 8px;
-  flex-basis: 100%;
-  min-width: 0;
-}
-.src-cmd {
-  flex: 3;
-}
 .set-control > .code-block {
   flex-basis: 100%;
   min-width: 0;

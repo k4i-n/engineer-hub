@@ -1145,9 +1145,10 @@ describe("script sources", () => {
     await hub("source", "remove", "oncall");
   });
 
-  test("Settings builds the add command for the terminal", async () => {
+  test("Settings shows the add command for the terminal, with no form", async () => {
     const settings = await (await fetch(`${server.url}/settings?part=1`)).text();
-    assert.match(settings, /data-source-form[\s\S]*?hub source add &lt;name&gt; --every 5m -- &lt;program&gt;/);
+    assert.match(settings, /hub source add &lt;name&gt; --every 5m -- &lt;program&gt;/);
+    assert.doesNotMatch(settings, /data-source-form|<input[^>]*name="command"/);
   });
 
   test("a failing run or a bad line writes nothing and is the source error", async () => {
