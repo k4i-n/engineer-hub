@@ -125,7 +125,7 @@ function linker(ctx: Ctx) {
 
 function ticketLink(id: string | null): string {
   if (id === null) return "";
-  return `<a class="tid" href="/t/${encodeURIComponent(id)}">${esc(id)}</a>`;
+  return `<a class="tid" href="/t/${encodeURIComponent(id)}" title="${esc(id)}">${esc(id)}</a>`;
 }
 
 function button(

@@ -386,6 +386,11 @@ h1 {
   padding: 20px 24px 0;
 }
 .tid {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
   font-weight: 650;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -483,6 +488,7 @@ a.need-title:hover {
   white-space: nowrap;
 }
 .need-ticket {
+  min-width: 0;
   text-align: right;
 }
 .need-line {
