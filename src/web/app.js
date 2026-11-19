@@ -30,30 +30,6 @@ const UNDO = {
   "wait-pinged": (d, r) => ["wait-unpinged", { ...d, pingAfter: r.before?.ping_after, pingedAt: r.before?.pinged_at }],
   "draft-later": (d, r) => ["draft-send-at", { ...d, sendAt: r.before?.send_at }],
 };
-const LATER_TOAST = {
-  "item-snooze": { "1h": "Snoozed for an hour", "4h": "Snoozed for 4 hours", tomorrow: "Snoozed until tomorrow" },
-  "wait-pinged": { "1h": "Reminder in an hour", "4h": "Reminder in 4 hours", tomorrow: "Reminder tomorrow" },
-  "draft-later": { "1h": "Send in an hour", "4h": "Send in 4 hours", tomorrow: "Send tomorrow" },
-};
-const DONE_TEXT = {
-  backup: "Backed up",
-  "item-done": "Done",
-  "item-reopen": "Back in the list",
-  "wait-close": "Answered",
-  "wait-reopen": "Back in the list",
-  "item-ignore": "Ignored",
-  "item-unignore": "Shown again",
-  "repo-unignore": "Shown again",
-  sent: "Marked sent",
-  "draft-unsent": "Marked not sent",
-  "gate-reopen": "Open again",
-  "match-propose": "Back in the list",
-  match: "Saved",
-  gate: "Answered",
-  "source-fetch": "Fetched",
-  "source-remove": "Removed",
-};
-
 let seen = null;
 let selected = null;
 let lastUndo = null;
@@ -249,21 +225,12 @@ async function refresh() {
   }
 }
 
-function toast(text, opts = {}) {
+function fail(text) {
   const el = document.createElement("div");
-  el.className = `toast${opts.bad ? " bad" : ""}`;
+  el.className = "toast";
   el.textContent = text;
-  if (opts.undo) {
-    const b = document.createElement("button");
-    b.textContent = "Undo";
-    b.onclick = () => {
-      el.remove();
-      opts.undo();
-    };
-    el.append(b);
-  }
   toasts.append(el);
-  setTimeout(() => el.remove(), opts.bad ? 7000 : 5000);
+  setTimeout(() => el.remove(), 7000);
 }
 
 function closeMenus(except) {
@@ -360,31 +327,26 @@ function keep(key, value) {
   } catch {}
 }
 
-function offer(text, steps) {
+function offerUndo(steps) {
   lastUndo = steps ? () => runUndo(steps) : null;
-  toast(text, { undo: lastUndo ?? undefined });
 }
 
 async function runUndo(steps) {
   try {
     for (const [name, data] of steps) await post(name, data);
-    const [name, data] = steps[steps.length - 1];
-    if (data.go !== undefined) {
-      location.href = data.go.replace("{value}", encodeURIComponent(data.value ?? ""));
-      return;
-    }
-    toast(DONE_TEXT[name] ?? "Undone");
+    const data = steps[steps.length - 1][1];
+    if (data.go !== undefined) location.href = data.go.replace("{value}", encodeURIComponent(data.value ?? ""));
   } catch (error) {
-    toast(error.message, { bad: true });
+    fail(error.message);
   }
 }
 
-function pendingToast() {
+function pendingUndo() {
   try {
-    const raw = sessionStorage.getItem("hub.toast");
-    sessionStorage.removeItem("hub.toast");
-    const pending = raw ? JSON.parse(raw) : null;
-    if (pending) offer(pending.text, pending.steps);
+    const raw = sessionStorage.getItem("hub.undo");
+    sessionStorage.removeItem("hub.undo");
+    const steps = raw ? JSON.parse(raw) : null;
+    if (steps) offerUndo(steps);
   } catch {}
 }
 
@@ -403,21 +365,14 @@ async function act(button) {
     const r = await post(name, data);
     const result = await r.json().catch(() => ({}));
     const steps = undoSteps(name, data, result);
-    const text =
-      (name === "pin"
-        ? data.on === "1"
-          ? "Pinned"
-          : "Unpinned"
-        : (LATER_TOAST[name]?.[data.for] ?? DONE_TEXT[name])) ?? "Saved";
     if (data.go !== undefined) {
-      if (steps) keep("hub.toast", { text, steps });
+      if (steps) keep("hub.undo", steps);
       location.href = data.go.replace("{value}", encodeURIComponent(data.value ?? ""));
       return;
     }
-    if (name === "sync") return;
-    offer(text, steps);
+    if (name !== "sync") offerUndo(steps);
   } catch (error) {
-    toast(error.message, { bad: true });
+    fail(error.message);
   } finally {
     button.classList.remove("busy");
   }
@@ -606,7 +561,7 @@ function selectFromHash() {
 
 window.addEventListener("hashchange", selectFromHash);
 selectFromHash();
-pendingToast();
+pendingUndo();
 
 async function saveConfig(key, value, el) {
   try {
@@ -622,7 +577,7 @@ async function saveConfig(key, value, el) {
       await Notification.requestPermission();
     }
   } catch (error) {
-    toast(error.message, { bad: true });
+    fail(error.message);
     if (el) el.classList.add("invalid");
   }
 }
@@ -662,7 +617,6 @@ document.addEventListener("click", async (e) => {
     if (b.dataset.copy !== undefined) {
       closeMenus();
       await navigator.clipboard.writeText(b.dataset.copy);
-      toast("Copied");
       return;
     }
     if (b.dataset.config) {
@@ -694,7 +648,7 @@ async function saveOrder(row) {
   try {
     await api("PUT", `/tickets/${encodeURIComponent(row.dataset.id)}/order`, { place: rows.indexOf(row) + 1 });
   } catch (error) {
-    toast(error.message, { bad: true });
+    fail(error.message);
     refresh();
   }
 }
@@ -703,7 +657,7 @@ async function saveLayout() {
   try {
     await post("config", { key: "layout", value: JSON.stringify(layoutFromDom()) });
   } catch (error) {
-    toast(error.message, { bad: true });
+    fail(error.message);
     refresh();
   }
 }
@@ -829,9 +783,8 @@ document.addEventListener("change", async (e) => {
   if (!el) return;
   try {
     await api("PATCH", `/sources/${encodeURIComponent(el.dataset.source)}`, { [el.dataset.field]: el.value.trim() });
-    toast("Saved");
   } catch (error) {
-    toast(error.message, { bad: true });
+    fail(error.message);
     el.classList.add("invalid");
   }
 });

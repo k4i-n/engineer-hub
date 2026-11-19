@@ -1722,29 +1722,13 @@ kbd {
   align-items: center;
 }
 .toast {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  background: #1f2330;
+  background: var(--red);
   color: #fff;
-  padding: 8px 10px 8px 14px;
+  padding: 8px 14px;
   border-radius: 10px;
   font-size: 13px;
   box-shadow: 0 8px 24px rgb(0 0 0 / 22%);
   animation: rise 0.18s ease-out;
-}
-.toast.bad {
-  background: var(--red);
-}
-.toast button {
-  height: 26px;
-  min-width: 0;
-  background: transparent;
-  color: #a5b4fc;
-  border-color: transparent;
-}
-.toast button:hover:not(:disabled) {
-  color: #fff;
 }
 @keyframes rise {
   from {
