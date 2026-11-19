@@ -53,6 +53,23 @@ export function laterTime(now: Date, value: string, timezone: string, hour: numb
   return new Date(start + hour * 3_600_000).toISOString();
 }
 
+const AT = /^(?:(tomorrow|today|\d{4}-\d{2}-\d{2}) )?(\d{1,2}):(\d{2})$/;
+
+export function sendTime(now: Date, value: string, timezone: string, hour: number, flag: string): string {
+  const at = AT.exec(value);
+  if (at === null) {
+    if (value === "tomorrow" || DURATION.test(value)) return laterTime(now, value, timezone, hour, flag);
+    throw new HubError(`${flag} takes 30m, 4h, 2d, tomorrow, HH:MM, tomorrow HH:MM or YYYY-MM-DD HH:MM, not ${value}`);
+  }
+  const [h, m] = [Number(at[2]), Number(at[3])];
+  if (h > 23 || m > 59) throw new HubError(`${flag} has no time ${at[2]}:${at[3]}`);
+  const day = today(now, timezone);
+  const date = at[1] === "tomorrow" ? shiftDate(day, 1) : at[1] === undefined || at[1] === "today" ? day : at[1];
+  const time = (d: string) => Date.parse(startOfDayIso(d, timezone)) + h * 3_600_000 + m * 60_000;
+  const when = at[1] === undefined && time(date) <= now.getTime() ? time(shiftDate(date, 1)) : time(date);
+  return new Date(when).toISOString();
+}
+
 export function cut(value: string, max: number): string {
   const line = value.replace(/\s*\n\s*/g, " ");
   if (line.length <= max) return line;

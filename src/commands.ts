@@ -18,7 +18,7 @@ import {
 } from "./db.ts";
 import { splitResume } from "./parse.ts";
 import { progress } from "./steps.ts";
-import { cut, HubError, nowIso, nowTs, sinceDate, startOfDayIso, today } from "./util.ts";
+import { cut, HubError, nowIso, nowTs, sendTime, sinceDate, startOfDayIso, today } from "./util.ts";
 
 export type Ctx = { db: DatabaseSync; config: Config; now: Date };
 export type Result = { text: string; json: unknown; exitCode?: number };
@@ -187,9 +187,9 @@ export function changed(ctx: Ctx, since: string | undefined): Result {
   if (!since) throw new HubError("usage: hub changed --since <YYYY-MM-DD|yesterday|today>");
   const date = sinceDate(since, ctx.now, ctx.config.timezone);
   const from = startOfDayIso(date, ctx.config.timezone);
-  const events = all<EventRow & { created_at: string }>(
+  const events = all<EventRow & { ticket_id: string; created_at: string }>(
     ctx.db,
-    "SELECT * FROM event WHERE created_at >= ? ORDER BY ts DESC, id DESC",
+    "SELECT * FROM event WHERE created_at >= ? AND ticket_id IS NOT NULL ORDER BY ts DESC, id DESC",
     from,
   );
   const touched = all<{ id: string; updated_at: string }>(
@@ -481,20 +481,46 @@ export function note(ctx: Ctx, id: string, title: string, body: string, kind: st
   return { text: `${id} note "${title}" saved (${body.length} chars)`, json: { ticket_id: id, title, kind } };
 }
 
-export function draft(ctx: Ctx, id: string, label: string, body: string, channel: string | null): Result {
+export function draft(
+  ctx: Ctx,
+  id: string,
+  label: string,
+  body: string,
+  channel: string | null,
+  sendAt: string | null,
+): Result {
   if (!label.trim()) throw new HubError("draft label is empty");
   getTicket(ctx.db, id);
   const at = nowIso(ctx.now);
+  const send = sendAt === null ? null : sendTime(ctx.now, sendAt, ctx.config.timezone, ctx.config.laterHour, "send_at");
   ctx.db
     .prepare(
-      `INSERT INTO draft(ticket_id, label, body, status, channel, created_at, updated_at) VALUES (?, ?, ?, 'draft', ?, ?, ?)
+      `INSERT INTO draft(ticket_id, label, body, status, channel, send_at, created_at, updated_at) VALUES (?, ?, ?, 'draft', ?, ?, ?, ?)
        ON CONFLICT(ticket_id, label) DO UPDATE SET body = excluded.body, status = 'draft',
-         channel = coalesce(excluded.channel, draft.channel), posted_at = NULL, sent_text = NULL, sent_ref = NULL,
-         answer = NULL, match_text = NULL, match_ref = NULL, updated_at = excluded.updated_at`,
+         channel = coalesce(excluded.channel, draft.channel), send_at = excluded.send_at, posted_at = NULL, sent_text = NULL,
+         sent_ref = NULL, answer = NULL, match_text = NULL, match_ref = NULL, updated_at = excluded.updated_at`,
     )
-    .run(id, label, body, channel, at, at);
+    .run(id, label, body, channel, send, at, at);
   touch(ctx, id);
-  return { text: `${id} draft "${label}" saved`, json: { ticket_id: id, label, status: "draft" } };
+  const when = send === null ? "" : `, send at ${nowTs(new Date(send), ctx.config.timezone)}`;
+  return {
+    text: `${id} draft "${label}" saved${when}`,
+    json: { ticket_id: id, label, status: "draft", send_at: send },
+  };
+}
+
+export function draftLater(ctx: Ctx, id: string, label: string, duration: string): Result {
+  const d = one<DraftRow>(ctx.db, "SELECT * FROM draft WHERE ticket_id = ? AND label = ?", id, label);
+  if (!d) throw new HubError(`no draft "${label}" on ${id} (hub drafts ${id} lists them)`);
+  if (d.status !== "draft") throw new HubError(`draft "${label}" on ${id} is already ${d.status}`);
+  const send = sendTime(ctx.now, duration, ctx.config.timezone, ctx.config.laterHour, "for");
+  ctx.db
+    .prepare("UPDATE draft SET send_at = ?, updated_at = ? WHERE ticket_id = ? AND label = ?")
+    .run(send, nowIso(ctx.now), id, label);
+  return {
+    text: `${id} draft "${label}" send at ${nowTs(new Date(send), ctx.config.timezone)}`,
+    json: { ticket_id: id, label, send_at: send },
+  };
 }
 
 export type PostedOptions = {

@@ -1,13 +1,13 @@
 import { brief } from "./brief.ts";
 import type { Ctx, Result } from "./commands.ts";
 import * as commands from "./commands.ts";
-import { SETTABLE_FIELDS, transaction } from "./db.ts";
+import { one, SETTABLE_FIELDS, transaction, type WaitRow } from "./db.ts";
 import { applyImport, collectImport, countPlan, formatSummary } from "./importer.ts";
 import * as items from "./items.ts";
 import * as pins from "./pins.ts";
 import * as sources from "./sources.ts";
 import * as steps from "./steps.ts";
-import { HubError } from "./util.ts";
+import { HubError, nowIso, nowTs } from "./util.ts";
 import * as waits from "./waits.ts";
 
 export type FieldType = "string" | "integer" | "boolean" | "object" | "array" | "any";
@@ -200,8 +200,13 @@ export const ROUTES: Route[] = [
     body: {
       body: { type: "string", required: true, about: "text" },
       channel: { type: "string", about: "where it goes" },
+      send_at: {
+        type: "string",
+        about: "when the human should send it: 30m, 4h, tomorrow, 12:00, tomorrow 12:00 or YYYY-MM-DD HH:MM",
+      },
     },
-    run: (ctx, a) => commands.draft(ctx, str(a, "id"), str(a, "label"), str(a, "body"), opt(a, "channel")),
+    run: (ctx, a) =>
+      commands.draft(ctx, str(a, "id"), str(a, "label"), str(a, "body"), opt(a, "channel"), opt(a, "send_at")),
   },
   {
     name: "posted",
@@ -223,6 +228,14 @@ export const ROUTES: Route[] = [
         sentText: opt(a, "sent_text"),
         sentRef: opt(a, "sent_ref"),
       }),
+  },
+  {
+    name: "draft_later",
+    method: "POST",
+    path: "/tickets/{id}/drafts/{label}/later",
+    about: "Move a draft's send time later.",
+    body: { for: { type: "string", about: "30m, 4h, tomorrow, 12:00 or tomorrow 12:00 (default tomorrow)" } },
+    run: (ctx, a) => commands.draftLater(ctx, str(a, "id"), str(a, "label"), opt(a, "for") ?? "tomorrow"),
   },
   {
     name: "match",
@@ -470,7 +483,8 @@ export const ROUTES: Route[] = [
     name: "brief",
     method: "GET",
     path: "/brief",
-    about: "The small context a sync needs: open drafts, waits, tracked threads, cursors.",
+    about:
+      "The small context a sync needs: open drafts, waits, tracked threads, cursors, and what the human did on the dashboard since the last brief (which this call moves on).",
     run: (ctx) => brief(ctx),
   },
   {
@@ -667,4 +681,51 @@ export function openapi(version: string): unknown {
     },
     paths,
   };
+}
+
+type Note = { ticket: string | null; text: string };
+
+function itemNote(ctx: Ctx, key: string, verb: string): Note {
+  const i = items.findItem(ctx.db, key);
+  return { ticket: i.ticket_id, text: `${verb}: ${i.kind} ${i.title ?? i.ref}` };
+}
+
+function waitNote(ctx: Ctx, key: string, verb: string): Note | null {
+  const w = one<WaitRow>(
+    ctx.db,
+    /^\d+$/.test(key) ? "SELECT * FROM wait WHERE id = ?" : "SELECT * FROM wait WHERE url = ?",
+    key,
+  );
+  return w === undefined ? null : { ticket: w.ticket_id, text: `${verb}: ${w.who} ${w.url}` };
+}
+
+const HUMAN_NOTES: Record<string, (ctx: Ctx, a: Args) => Note | null> = {
+  item_close: (ctx, a) => itemNote(ctx, str(a, "key"), "done"),
+  item_snooze: (ctx, a) => itemNote(ctx, str(a, "key"), `later (${opt(a, "for") ?? "1d"})`),
+  item_reopen: (ctx, a) => itemNote(ctx, str(a, "key"), "back in the list"),
+  wait_close: (ctx, a) => waitNote(ctx, str(a, "wait"), "answered"),
+  wait_reopen: (ctx, a) => waitNote(ctx, str(a, "wait"), "waiting again"),
+  posted: (_ctx, a) => ({ ticket: str(a, "id"), text: `sent draft "${str(a, "label")}"` }),
+  draft_later: (_ctx, a) => ({
+    ticket: str(a, "id"),
+    text: `send draft "${str(a, "label")}" later (${opt(a, "for") ?? "tomorrow"})`,
+  }),
+  match: (_ctx, a) =>
+    a.answer === undefined
+      ? null
+      : { ticket: str(a, "id"), text: `draft "${str(a, "label")}" match: ${str(a, "answer")}` },
+};
+
+export function runRoute(ctx: Ctx, route: Route, args: Args, hooks: Hooks, human: boolean): Result {
+  const describe = human ? HUMAN_NOTES[route.name] : undefined;
+  const note = describe === undefined ? null : describe(ctx, args);
+  const result = route.run(ctx, args, hooks);
+  if (note !== null) {
+    ctx.db
+      .prepare(
+        "INSERT INTO event(ticket_id, ts, kind, text, source, created_at) VALUES (?, ?, 'action', ?, 'human', ?)",
+      )
+      .run(note.ticket, nowTs(ctx.now, ctx.config.timezone), note.text, nowIso(ctx.now));
+  }
+  return result;
 }

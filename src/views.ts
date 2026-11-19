@@ -30,7 +30,7 @@ export type DbInfo = { path: string; size: number; schema: string };
 
 type Tone = "red" | "orange" | "amber" | "green" | "teal" | "blue" | "violet" | "grey";
 type Data = Record<string, string | number>;
-type Later = { act: "item-snooze" | "wait-pinged"; id: number };
+type Later = { act: "item-snooze" | "wait-pinged" | "draft-later"; data: Data };
 type Need = {
   key: string;
   rank: number;
@@ -157,6 +157,7 @@ const LATER_TEXT: Record<Later["act"], Record<string, string>> = {
     "4h": "Pinged, remind in 4 hours",
     tomorrow: "Pinged, remind tomorrow",
   },
+  "draft-later": { "1h": "Send in 1 hour", "4h": "Send in 4 hours", tomorrow: "Send tomorrow" },
 };
 
 function svg(name: string): string {
@@ -189,7 +190,7 @@ function rail(n: Need, pinned: boolean): string {
     "later",
     later === null ? "Later" : (LATER_TEXT[later.act].tomorrow ?? ""),
     "s",
-    later === null ? null : { act: later.act, id: later.id, for: "tomorrow" },
+    later === null ? null : { act: later.act, ...later.data, for: "tomorrow" },
   );
   const items = [
     menuItem(
@@ -201,7 +202,7 @@ function rail(n: Need, pinned: boolean): string {
     ...(later === null
       ? []
       : ["1h", "4h", "tomorrow"].map((f) =>
-          menuItem("later", LATER_TEXT[later.act][f] ?? f, { act: later.act, id: later.id, for: f }),
+          menuItem("later", LATER_TEXT[later.act][f] ?? f, { act: later.act, ...later.data, for: f }),
         )),
     ...(n.href === null ? [] : [menuItem("open", "Open", { open: n.href }, "↵")]),
     ...(n.href !== null && /^https?:/.test(n.href) ? [menuItem("link", "Copy link", { copy: n.href })] : []),
@@ -283,6 +284,11 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
     dayStart,
   );
   const matches = all<DraftRow>(ctx.db, "SELECT * FROM draft WHERE match_ref IS NOT NULL");
+  const sends = all<DraftRow>(
+    ctx.db,
+    "SELECT * FROM draft WHERE status = 'draft' AND match_ref IS NULL AND send_at IS NOT NULL AND send_at <= ? ORDER BY send_at",
+    now,
+  );
   const answered = all<EventRow & { created_at: string }>(
     ctx.db,
     "SELECT * FROM event WHERE kind = 'decision' AND source = 'human' AND created_at >= ?",
@@ -308,7 +314,7 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
       dim,
       ok: { label: "Done", data: { act: "item-done", id: i.id } },
       undo: dim === null ? null : { act: "item-reopen", id: i.id },
-      later: dim === null ? { act: "item-snooze", id: i.id } : null,
+      later: dim === null ? { act: "item-snooze", data: { id: i.id } } : null,
     });
   }
   for (const d of matches) {
@@ -331,6 +337,24 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
       ok: null,
       undo: null,
       later: null,
+    });
+  }
+  for (const d of sends) {
+    list.push({
+      key: `send-${d.ticket_id}-${d.label}`,
+      rank: 2,
+      since: d.send_at ?? now,
+      verb: "Send",
+      tone: "teal",
+      title: `<span class="need-title">${esc(d.label)}</span>`,
+      sub: esc(cut([d.channel, d.body.split("\n")[0]].filter(Boolean).join(" · "), 160)),
+      ask: askChips("", [button("Copy", { copy: d.body }, { cls: "chip-btn" })]),
+      ticket: d.ticket_id,
+      href: null,
+      dim: null,
+      ok: { label: "Sent", data: { act: "sent", ticket: d.ticket_id, label: d.label } },
+      undo: null,
+      later: { act: "draft-later", data: { ticket: d.ticket_id, label: d.label } },
     });
   }
   for (const w of waits) list.push(waitNeed(ctx, w));
@@ -426,7 +450,7 @@ function waitNeed(ctx: Ctx, w: WaitRow): Need {
     dim: closed ? "answered" : pinged ? "pinged" : null,
     ok: { label: "Answered", data: { act: "wait-close", id: w.id } },
     undo: closed ? { act: "wait-reopen", id: w.id } : null,
-    later: closed ? null : { act: "wait-pinged", id: w.id },
+    later: closed ? null : { act: "wait-pinged", data: { id: w.id } },
   };
 }
 
@@ -450,7 +474,7 @@ type Group = { key: string; label: string; tone: Tone; verbs: string[] };
 const GROUPS: Group[] = [
   { key: "fix", label: "Fix now", tone: "red", verbs: ["Alert"] },
   { key: "review", label: "Review", tone: "violet", verbs: ["Review"] },
-  { key: "reply", label: "Reply", tone: "teal", verbs: ["Reply", "Sent?"] },
+  { key: "reply", label: "Reply", tone: "teal", verbs: ["Reply", "Send", "Sent?"] },
   { key: "prs", label: "My PRs", tone: "orange", verbs: ["Fix PR", "Merge?", "Merged", "Closed", "PR"] },
   { key: "triage", label: "Triage", tone: "blue", verbs: ["Triage"] },
   { key: "waiting", label: "Waiting on", tone: "orange", verbs: ["Ping"] },
@@ -713,11 +737,22 @@ function todaySection(ctx: Ctx): string {
 function draftsSection(ctx: Ctx): string {
   const rows = all<DraftRow>(
     ctx.db,
-    "SELECT * FROM draft WHERE (status = 'draft' OR sent_text IS NULL) AND match_ref IS NULL ORDER BY status != 'draft', ticket_id, label",
+    `SELECT * FROM draft WHERE (status = 'draft' OR sent_text IS NULL) AND match_ref IS NULL
+       AND NOT (status = 'draft' AND send_at IS NOT NULL AND send_at <= ?)
+     ORDER BY status != 'draft', send_at IS NOT NULL, send_at, ticket_id, label`,
+    nowIso(ctx.now),
   ).map((d) => {
+    const later = d.status === "draft" && d.send_at !== null;
     const sent = d.status !== "draft";
-    const state = d.match_ref !== null ? pill("sent?", "blue") : sent ? pill("wording pending", "grey") : "";
-    return `<li class="draft${sent ? " is-dim" : ""}" data-key="d-${esc(d.ticket_id)}-${esc(d.label)}">
+    const state =
+      d.match_ref !== null
+        ? pill("sent?", "blue")
+        : sent
+          ? pill("wording pending", "grey")
+          : later
+            ? pill(`send ${when(ctx, d.send_at ?? "")}`, "grey")
+            : "";
+    return `<li class="draft${sent || later ? " is-dim" : ""}" data-key="d-${esc(d.ticket_id)}-${esc(d.label)}">
 <div class="d-head">${ticketLink(d.ticket_id)}<span class="d-label">${esc(d.label)}</span>${d.channel ? pill(d.channel, "teal") : ""}${state}<span class="d-actions">${button("Copy", { copy: d.body })}${button(sent ? "Sent" : "Sent", { act: "sent", ticket: d.ticket_id, label: d.label }, { cls: sent ? "" : "primary", disabled: sent || d.match_ref !== null })}</span></div>
 <details class="d-fold" data-key="dfold-${esc(d.ticket_id)}-${esc(d.label)}"><summary><pre class="d-body">${esc(d.body)}</pre></summary></details>
 </li>`;

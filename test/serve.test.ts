@@ -170,7 +170,7 @@ describe("serve", () => {
   test("settings show the database and save config through the same checks as the CLI", async () => {
     const html = await (await fetch(`${server.url}/settings`)).text();
     assert.ok(html.includes(dbFile));
-    assert.match(html, /Schema<\/span><div class="set-control">v2/);
+    assert.match(html, /Schema<\/span><div class="set-control">v3/);
     assert.equal((await setConfigKey("openLinearIn", '"app"')).status, 200);
     const command = await setConfigKey("syncCommand", '["sh","-c","touch /tmp/x"]');
     assert.equal(command.status, 400);
@@ -665,5 +665,73 @@ describe("mcp", () => {
       body: "{not json",
     });
     assert.equal(((await garbled.json()) as { error: { code: number } }).error.code, -32700);
+  });
+});
+
+describe("send later", () => {
+  test("a draft due to send is a Send row under Reply, a later one waits dimmed in Drafts", async () => {
+    await hub(["draft", "ENG-7", "due now", "--stdin", "--send-at", "1m"], "ping product");
+    await hub(["draft", "ENG-7", "for later", "--stdin", "--send-at", "2026-12-31 12:00"], "year end");
+    const db = new DatabaseSync(dbFile);
+    db.prepare("UPDATE draft SET send_at = ? WHERE label = 'due now'").run(new Date(Date.now() - 60_000).toISOString());
+    db.close();
+    const html = await (await fetch(`${server.url}/?part=1`)).text();
+    const reply = /data-group="reply"[\s\S]*?<\/section>/.exec(html)?.[0] ?? "";
+    assert.match(reply, /data-key="send-ENG-7-due now"[\s\S]*?data-copy="ping product"/);
+    assert.match(reply, /data-act="sent" data-ticket="ENG-7" data-label="due now"/);
+    assert.match(reply, /data-act="draft-later" data-ticket="ENG-7" data-label="due now" data-for="tomorrow"/);
+    const drafts = /<section class="drafts">[\s\S]*?<\/section>/.exec(html)?.[0] ?? "";
+    assert.doesNotMatch(drafts, /due now/);
+    assert.match(
+      drafts,
+      /class="draft is-dim"[^>]*>[\s\S]*?for later[\s\S]*?send 12-31 12:00|class="draft is-dim"[^>]*>[\s\S]*?for later[\s\S]*?send 2026-12-31 12:00/,
+    );
+    const later = await call("POST", `/tickets/ENG-7/drafts/${encodeURIComponent("due now")}/later`, { for: "1h" });
+    assert.equal(later.status, 200);
+    assert.doesNotMatch(
+      /data-group="reply"[\s\S]*?<\/section>/.exec(await (await fetch(`${server.url}/?part=1`)).text())?.[0] ?? "",
+      /due now/,
+    );
+  });
+
+  test("brief lists what the human did on the dashboard since the last brief, once", async () => {
+    await hub(
+      ["item", "put", "--stdin"],
+      '{"source":"github","kind":"review_request","url":"https://github.com/acme/web/pull/9","title":"Fix login","needs_me":true}',
+    );
+    await hub(["draft", "ENG-7", "ask product", "--stdin"], "Can we cap exports?");
+    await call("GET", "/brief");
+    const human = (method: string, path: string, body: unknown) =>
+      fetch(`${server.url}/api/v1${path}`, {
+        method,
+        headers: {
+          authorization: `Bearer ${server.token}`,
+          "x-hub-actor": "human",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+    const key = encodeURIComponent("https://github.com/acme/web/pull/9");
+    assert.equal((await human("POST", `/items/${key}/close`, {})).status, 200);
+    assert.equal((await call("POST", "/tickets/ENG-7/events", { text: "an agent wrote this" })).status, 200);
+    assert.equal(
+      (await human("POST", `/tickets/ENG-7/drafts/${encodeURIComponent("ask product")}/posted`, {})).status,
+      200,
+    );
+    const brief = await (
+      await fetch(`${server.url}/api/v1/brief`, {
+        headers: { authorization: `Bearer ${server.token}`, accept: "text/plain" },
+      })
+    ).text();
+    const section = brief.slice(brief.indexOf("from you since"));
+    assert.match(section, /done: review_request Fix login/);
+    assert.match(section, /ENG-7 sent draft "ask product"/);
+    assert.doesNotMatch(section, /an agent wrote this/);
+    const again = await (
+      await fetch(`${server.url}/api/v1/brief`, {
+        headers: { authorization: `Bearer ${server.token}`, accept: "text/plain" },
+      })
+    ).text();
+    assert.match(again, /from you since [\d-]+ [\d:]+: none$/);
   });
 });
