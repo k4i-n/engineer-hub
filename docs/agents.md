@@ -25,7 +25,7 @@ Cold start for a ticket: brief, then board or ticket. Read a note only when the 
 During work: log what changed, readings and decisions; ticket_set next (one action) and gate (a decision waiting on the human); link every PR, run, thread or doc touched.
 Waiting on someone: wait_add with ping_after; waits with due says whom to ping.
 Drafts for humans to post: draft_save; when posted: posted with the wording actually sent and its permalink.
-Daily plan: day to resume; day_set after writing it. Longer content: note_save.
+Daily plan: day to resume; day_set after writing it. To change an existing plan: day with full, merge, day_set with its rev. Longer content: note_save.
 State fields are one line each; hub refuses more and says where the text belongs. Never answer a gate or a draft match for the human.
 ```
 
