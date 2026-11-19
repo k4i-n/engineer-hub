@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -937,6 +938,36 @@ describe("record gate", () => {
     assert.match(await ok("record-gate", "--hook"), /"decision":"block".*deploy\.sh prod/);
     stdin = "not json";
     assert.deepEqual(await hub("record-gate", "--hook"), { code: 0, out: "", err: "" });
+  });
+});
+
+describe("record hook", () => {
+  test("links the PR a push or PR command printed to the one ticket on the checkout's branch", async () => {
+    await imported();
+    const repo = join(dir, "repo");
+    execFileSync("git", ["init", "-q", "-b", "feat/limits", repo]);
+    const pr = "https://github.com/acme/web/pull/150";
+    const post = (command: string, stdout: string) =>
+      JSON.stringify({ tool_name: "Bash", tool_input: { command }, tool_response: { stdout, stderr: "" }, cwd: repo });
+
+    stdin = post("gh pr create --fill", `${pr}\n`);
+    assert.equal(await ok("record", "--hook"), "");
+    await ok("set", "ENG-7", "branch", "feat/limits");
+    stdin = post("gh pr view 150", `${pr}\n`);
+    assert.equal(await ok("record", "--hook"), "");
+    stdin = post("gh pr create --fill", `${pr}\n`);
+    assert.match(
+      await ok("record", "--hook"),
+      /"additionalContext":"hub linked https:\/\/github.com\/acme\/web\/pull\/150 to ENG-7/,
+    );
+    assert.match(await ok("items", "--ticket", "ENG-7"), /pull\/150/);
+    assert.equal(await ok("record", "--hook"), "");
+
+    stdin = post("git push", "remote: https://github.com/acme/web/pull/151#issuecomment-1\n");
+    await ok("set", "ENG-42", "branch", "feat/limits");
+    assert.equal(await ok("record", "--hook"), "");
+    stdin = "not json";
+    assert.deepEqual(await hub("record", "--hook"), { code: 0, out: "", err: "" });
   });
 });
 
