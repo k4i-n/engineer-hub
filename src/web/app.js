@@ -5,6 +5,7 @@ const UNDO = { "item-done": "item-reopen", "item-snooze": "item-reopen", "wait-c
 const LATER_TOAST = {
   "item-snooze": { "1h": "Snoozed for an hour", "4h": "Snoozed for 4 hours", tomorrow: "Snoozed until tomorrow" },
   "wait-pinged": { "1h": "Reminder in an hour", "4h": "Reminder in 4 hours", tomorrow: "Reminder tomorrow" },
+  "draft-later": { "1h": "Send in an hour", "4h": "Send in 4 hours", tomorrow: "Send tomorrow" },
 };
 const DONE_TEXT = {
   "item-done": "Done",
@@ -216,6 +217,7 @@ const e = encodeURIComponent;
 const later = (d) => (d.for ? { for: d.for } : {});
 const ROUTES = {
   sent: (d) => ["POST", `/tickets/${e(d.ticket)}/drafts/${e(d.label)}/posted`, {}],
+  "draft-later": (d) => ["POST", `/tickets/${e(d.ticket)}/drafts/${e(d.label)}/later`, later(d)],
   match: (d) => ["POST", `/tickets/${e(d.ticket)}/drafts/${e(d.label)}/match`, { answer: d.answer }],
   gate: (d) => ["POST", `/tickets/${e(d.ticket)}/gate`, { answer: d.answer }],
   pin: (d) => ["PUT", `/pins/${e(d.row)}`, { on: d.on === "1" }],
@@ -233,7 +235,11 @@ async function api(method, path, body) {
   const r = await fetch(`/api/v1${path}`, {
     method,
     cache: "no-store",
-    headers: { authorization: `Bearer ${token}`, ...(body ? { "content-type": "application/json" } : {}) },
+    headers: {
+      authorization: `Bearer ${token}`,
+      "x-hub-actor": "human",
+      ...(body ? { "content-type": "application/json" } : {}),
+    },
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!r.ok) throw new Error((await r.json().catch(() => null))?.error || `${r.status}`);
