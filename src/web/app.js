@@ -6,6 +6,7 @@ const UNDO = {
   "item-snooze": "item-reopen",
   "wait-close": "wait-reopen",
   "item-ignore": "item-unignore",
+  sent: "draft-unsent",
 };
 const LATER_TOAST = {
   "item-snooze": { "1h": "Snoozed for an hour", "4h": "Snoozed for 4 hours", tomorrow: "Snoozed until tomorrow" },
@@ -22,6 +23,7 @@ const DONE_TEXT = {
   "item-unignore": "Shown again",
   "repo-unignore": "Shown again",
   sent: "Marked sent",
+  "draft-unsent": "Marked not sent",
   match: "Saved",
   gate: "Answered",
   "source-fetch": "Fetched",
@@ -248,6 +250,7 @@ const e = encodeURIComponent;
 const later = (d) => (d.for ? { for: d.for } : {});
 const ROUTES = {
   sent: (d) => ["POST", `/tickets/${e(d.ticket)}/drafts/${e(d.label)}/posted`, {}],
+  "draft-unsent": (d) => ["POST", `/tickets/${e(d.ticket)}/drafts/${e(d.label)}/unposted`, {}],
   "draft-later": (d) => ["POST", `/tickets/${e(d.ticket)}/drafts/${e(d.label)}/later`, later(d)],
   match: (d) => ["POST", `/tickets/${e(d.ticket)}/drafts/${e(d.label)}/match`, { answer: d.answer }],
   gate: (d) => ["POST", `/tickets/${e(d.ticket)}/gate`, { answer: d.answer }],
@@ -320,7 +323,7 @@ async function act(button) {
     }
     if (name === "sync") return;
     const undo = UNDO[name];
-    lastUndo = undo ? () => post(undo, { id: data.id, repo: data.repo }).then(() => toast(DONE_TEXT[undo])) : null;
+    lastUndo = undo ? () => post(undo, data).then(() => toast(DONE_TEXT[undo])) : null;
     const text =
       name === "pin" ? (data.on === "1" ? "Pinned" : "Unpinned") : (LATER_TOAST[name]?.[data.for] ?? DONE_TEXT[name]);
     toast(text ?? "Saved", {

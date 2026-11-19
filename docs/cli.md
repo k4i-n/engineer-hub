@@ -34,6 +34,7 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 | `hub draft <id> <label> (--file \| --stdin) [--channel <c>] [--send-at <when>]` | adds or replaces a draft; `--send-at` takes `30m`, `4h`, `tomorrow`, `12:00`, `tomorrow 12:00` or `2026-11-20 12:00` |
 | `hub draft-later <id> <label> [--for <when>]` | moves a draft's send time (default tomorrow) |
 | `hub posted <id> <label> [--at <when>] [--channel <c>] [--answer <text>] [--ref <url>] [--file \| --stdin]` | marks a draft posted or answered; the text given is the wording actually sent, which may differ from the draft (without it the draft shows "wording pending") |
+| `hub unposted <id> <label>` | marks a sent draft not sent again, dropping its sent wording, permalink and answer |
 | `hub link <id> <url> [--kind <k>] [--title <t>]` | attaches the URL to the ticket as an item; source and kind come from the URL |
 | `hub match <id> <label> --ref <url> (--file \| --stdin)`, `hub match <id> <label> (yes \| no)` | proposes a sent message as the wording of a draft when the agent is unsure; yes marks the draft posted with it, no drops it |
 | `hub step add <id> <title> [--at <n>]`, `hub step done <id> <n> [--evidence <url>]` | adds a step (at the end, or at place n with the rest moving down), marks one done and logs it |
