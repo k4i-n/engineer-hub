@@ -212,13 +212,30 @@ describe("serve", () => {
     assert.equal((await call("PUT", "/tickets/ENG-7/order", { place: -1 })).status, 400);
   });
 
-  test("tickets split into ongoing and recently done tabs", async () => {
-    await hub(["move", "ENG-7", "done"]);
-    const html = await (await fetch(`${server.url}/?part=1`)).text();
+  test("tickets split into a tab per open folder, in openDirs order, and a recently done tab", async () => {
+    await hub(["ticket-new", "ENG-9", "Look at flaky test", "--dir", "triage"]);
+    let html = await (await fetch(`${server.url}/?part=1`)).text();
     const panel = (tab: string) =>
-      new RegExp(`<ul class="rows ticket-list" data-tab-panel="${tab}"[^>]*>([\\s\\S]*?)</ul>`).exec(html)?.[1] ?? "";
-    assert.match(panel("done"), /class="ticket is-closed" data-key="t-ENG-7"[\s\S]*?<span class="t-next">done /);
-    assert.doesNotMatch(panel("ongoing"), /data-key="t-ENG-7"/);
+      new RegExp(`<ul class="rows ticket-list" data-tab-panel="${tab}"([^>]*)>([\\s\\S]*?)</ul>`).exec(html) ?? [];
+    assert.match(
+      html,
+      /<span class="tabs" role="tablist" data-tabs="tickets"><button[^>]*data-tab="inprogress" aria-selected="true">In progress <b>1<\/b><\/button><button[^>]*data-tab="todo" aria-selected="false">To do <b>1<\/b><\/button><button[^>]*data-tab="triage" aria-selected="false">Triage <b>1<\/b><\/button><button[^>]*data-tab="backlog" aria-selected="false">Backlog <b>0<\/b><\/button><button[^>]*data-tab="unfiled" aria-selected="false">Unfiled <b>0<\/b><\/button><button[^>]*data-tab="done" aria-selected="false">Done <b>0<\/b><\/button><\/span>/,
+    );
+    assert.equal(panel("inprogress")[1], "");
+    assert.match(panel("inprogress")[2] ?? "", /data-key="t-ENG-42"/);
+    assert.doesNotMatch(panel("inprogress")[2] ?? "", /data-key="t-ENG-7"/);
+    assert.equal(panel("todo")[1], " hidden");
+    assert.match(panel("todo")[2] ?? "", /data-key="t-ENG-7"/);
+    assert.match(panel("triage")[2] ?? "", /data-key="t-ENG-9"/);
+    assert.match(panel("backlog")[2] ?? "", /<li class="empty">/);
+
+    await hub(["move", "ENG-7", "done"]);
+    html = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.match(
+      panel("done")[2] ?? "",
+      /class="ticket is-closed" data-key="t-ENG-7"[\s\S]*?<span class="t-next">done /,
+    );
+    assert.doesNotMatch(panel("todo")[2] ?? "", /data-key="t-ENG-7"/);
     assert.match(html, /data-tab="done" aria-selected="false">Done <b>1<\/b>/);
     assert.match(html, /title="done in the last 14 days">1 done</);
     assert.equal((await setConfigKey("horizon", '"month"')).status, 200);
@@ -276,6 +293,31 @@ describe("serve", () => {
       await (await fetch(`${server.url}/t/ENG-42`)).text(),
       /<div class="page-head"><span class="prio tone-orange" title="High"/,
     );
+  });
+
+  test("Drafts on the dashboard and the ticket page open on unsent drafts, with sent ones under All", async () => {
+    const counts = async (path: string) => {
+      const html = await (await fetch(`${server.url}${path}`)).text();
+      const tab = (name: string) =>
+        Number(new RegExp(`data-tab="${name}" aria-selected="[a-z]+">[A-Za-z]+ <b>(\\d+)</b>`).exec(html)?.[1]);
+      return { open: tab("open"), all: tab("all"), html };
+    };
+    const home = await counts("/?part=1");
+    const page = await counts("/t/ENG-7?part=1");
+    assert.match(
+      home.html,
+      /<h2>Drafts<\/h2><span class="tabs" role="tablist" data-tabs="drafts"><button[^>]*data-tab="open" aria-selected="true">Open/,
+    );
+    await hub(["draft", "ENG-7", "tell qa", "--stdin"], "fix is on staging");
+    await hub(["posted", "ENG-7", "tell qa"]);
+    const homeAfter = await counts("/?part=1");
+    const pageAfter = await counts("/t/ENG-7?part=1");
+    assert.deepEqual([homeAfter.open, homeAfter.all], [home.open, home.all + 1]);
+    assert.deepEqual([pageAfter.open, pageAfter.all], [page.open, page.all + 1]);
+    assert.match(homeAfter.html, /data-key="d-ENG-7-tell qa" data-tab-panel="all" hidden>[\s\S]*?wording pending/);
+    assert.match(pageAfter.html, /data-key="td-tell qa" data-tab-panel="all" hidden>/);
+    assert.match(homeAfter.html, /data-key="d-[^"]+" data-tab-panel="open all">/);
+    assert.match(pageAfter.html, /<li class="empty" data-tab-panel="open">—<\/li>/);
   });
 
   test("ticket ids carry their full id as a title and text fields render markdown", async () => {

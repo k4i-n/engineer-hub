@@ -936,6 +936,9 @@ button.busy::after {
 }
 
 /* drafts */
+[data-tab-panel][hidden] {
+  display: none;
+}
 .draft {
   padding: 10px 0;
 }

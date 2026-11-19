@@ -785,17 +785,60 @@ function ticketRow(ctx: Ctx, t: Ticket, done = false, needing: Need[] = []): str
 </li>`;
 }
 
-function ticketList(ctx: Ctx, tab: string, tickets: Ticket[], done: boolean, needing: Map<string, Need[]>): string {
-  const rows = tickets.map((t) => ticketRow(ctx, t, done, needing.get(t.id) ?? [])).join("");
-  return `<ul class="rows ticket-list" data-tab-panel="${tab}"${done ? " hidden" : ""}>${rows === "" ? `<li class="empty">—</li>` : rows}</ul>`;
+type Tab = { name: string; label: string; count: number };
+
+function tabBar(group: string, tabs: Tab[]): string {
+  const buttons = tabs.map((t, i) => {
+    const on = i === 0;
+    return `<button type="button" role="tab" class="tab${on ? " on" : ""}" data-tab="${esc(t.name)}" aria-selected="${on}">${esc(t.label)} <b>${t.count}</b></button>`;
+  });
+  return `<span class="tabs" role="tablist" data-tabs="${group}">${buttons.join("")}</span>`;
+}
+
+function openDrafts(drafts: DraftRow[]): number {
+  return drafts.filter((d) => d.status === "draft").length;
+}
+
+function draftTabs(drafts: DraftRow[]): string {
+  return tabBar("drafts", [
+    { name: "open", label: "Open", count: openDrafts(drafts) },
+    { name: "all", label: "All", count: drafts.length },
+  ]);
+}
+
+function draftPanel(d: DraftRow): string {
+  return d.status === "draft" ? ` data-tab-panel="open all"` : ` data-tab-panel="all" hidden`;
+}
+
+function draftList(drafts: DraftRow[], rows: string[]): string {
+  if (rows.length === 0) return empty();
+  const none = openDrafts(drafts) === 0 ? `<li class="empty" data-tab-panel="open">—</li>` : "";
+  return `<ul class="rows">${rows.join("")}${none}</ul>`;
+}
+
+type TicketGroup = { name: string; label: string; tickets: Ticket[] };
+
+function ticketList(ctx: Ctx, group: TicketGroup, on: boolean, needing: Map<string, Need[]>): string {
+  const done = group.name === "done";
+  const rows = group.tickets.map((t) => ticketRow(ctx, t, done, needing.get(t.id) ?? [])).join("");
+  return `<ul class="rows ticket-list" data-tab-panel="${esc(group.name)}"${on ? "" : " hidden"}>${rows === "" ? `<li class="empty">—</li>` : rows}</ul>`;
 }
 
 function ticketsSection(ctx: Ctx, tickets: Ticket[], needing: Map<string, Need[]>): string {
-  const done = recentlyDone(ctx);
-  const tab = (name: string, label: string, n: number, on: boolean) =>
-    `<button type="button" role="tab" class="tab${on ? " on" : ""}" data-tab="${name}" aria-selected="${on}">${label} <b>${n}</b></button>`;
-  const tabs = `<span class="tabs" role="tablist">${tab("ongoing", "Ongoing", tickets.length, true)}${tab("done", "Done", done.length, false)}</span>`;
-  return `<section class="tickets"><div class="sec-head"><h2>Tickets</h2>${tabs}</div>${ticketList(ctx, "ongoing", tickets, false, needing)}${ticketList(ctx, "done", done, true, needing)}</section>`;
+  const groups: TicketGroup[] = [
+    ...ctx.config.openDirs.map((dir) => ({
+      name: dir,
+      label: DIR_LABEL[dir] ?? dir,
+      tickets: tickets.filter((t) => t.dir === dir),
+    })),
+    { name: "done", label: "Done", tickets: recentlyDone(ctx) },
+  ];
+  const tabs = tabBar(
+    "tickets",
+    groups.map((g) => ({ name: g.name, label: g.label, count: g.tickets.length })),
+  );
+  const lists = groups.map((g, i) => ticketList(ctx, g, i === 0, needing)).join("");
+  return `<section class="tickets"><div class="sec-head"><h2>Tickets</h2>${tabs}</div>${lists}</section>`;
 }
 
 function todaySection(ctx: Ctx): string {
@@ -815,13 +858,14 @@ function todaySection(ctx: Ctx): string {
 }
 
 function draftsSection(ctx: Ctx): string {
-  const rows = all<DraftRow>(
+  const drafts = all<DraftRow>(
     ctx.db,
     `SELECT * FROM draft WHERE (status = 'draft' OR sent_text IS NULL) AND match_ref IS NULL
        AND NOT (status = 'draft' AND send_at IS NOT NULL AND send_at <= ?)
      ORDER BY status != 'draft', send_at IS NOT NULL, send_at, ticket_id, label`,
     nowIso(ctx.now),
-  ).map((d) => {
+  );
+  const rows = drafts.map((d) => {
     const later = d.status === "draft" && d.send_at !== null;
     const sent = d.status !== "draft";
     const state =
@@ -832,17 +876,12 @@ function draftsSection(ctx: Ctx): string {
           : later
             ? pill(`send ${when(ctx, d.send_at ?? "")}`, "grey")
             : "";
-    return `<li class="draft${sent || later ? " is-dim" : ""}" data-key="d-${esc(d.ticket_id)}-${esc(d.label)}">
+    return `<li class="draft${sent || later ? " is-dim" : ""}" data-key="d-${esc(d.ticket_id)}-${esc(d.label)}"${draftPanel(d)}>
 <div class="d-head">${ticketLink(d.ticket_id)}<span class="d-label">${line(ctx, d.label)}</span>${d.channel ? pill(d.channel, "teal") : ""}${state}<span class="d-actions">${button("Copy", { copy: d.body })}${button(sent ? "Sent" : "Sent", { act: "sent", ticket: d.ticket_id, label: d.label }, { cls: sent ? "" : "primary", disabled: sent || d.match_ref !== null })}</span></div>
 <details class="d-fold" data-key="dfold-${esc(d.ticket_id)}-${esc(d.label)}"><summary><span class="d-line">${line(ctx, d.body)}</span><div class="d-body md">${markdown(ctx, d.body)}</div></summary></details>
 </li>`;
   });
-  return section(
-    "Drafts",
-    rows.length,
-    rows.length === 0 ? empty() : `<ul class="rows">${rows.join("")}</ul>`,
-    "drafts",
-  );
+  return section("Drafts", null, draftList(drafts, rows), "drafts", draftTabs(drafts));
 }
 
 function eventRow(ctx: Ctx, e: EventRow, showTicket: boolean): string {
@@ -1046,7 +1085,7 @@ export function ticketBody(ctx: Ctx, id: string, sync: SyncState): string {
   });
   const draftRows = drafts.map(
     (d) =>
-      `<li class="draft" data-key="td-${esc(d.label)}"><div class="d-head"><span class="d-label">${line(ctx, d.label)}</span>${pill(d.status, d.status === "draft" ? "blue" : "green")}${d.channel ? pill(d.channel, "teal") : ""}<span class="d-actions">${button("Copy", { copy: d.sent_text ?? d.body })}${moreMenu(
+      `<li class="draft" data-key="td-${esc(d.label)}"${draftPanel(d)}><div class="d-head"><span class="d-label">${line(ctx, d.label)}</span>${pill(d.status, d.status === "draft" ? "blue" : "green")}${d.channel ? pill(d.channel, "teal") : ""}<span class="d-actions">${button("Copy", { copy: d.sent_text ?? d.body })}${moreMenu(
         `menu-td-${d.label}`,
         [
           menuItem("edit", "Rename", {
@@ -1104,7 +1143,7 @@ export function ticketBody(ctx: Ctx, id: string, sync: SyncState): string {
 ${head}
 <main class="grid">
 <div class="col">${ticketNeeds}${section("State", null, state, "state-sec")}${section("Steps", steps.length, stepList, "steps-sec")}${section("Timeline", events.length, events.length === 0 ? empty() : `<ul class="rows events" data-keep-scroll data-key="timeline">${events.map((e) => eventRow(ctx, e, false)).join("")}</ul>`, "timeline")}</div>
-<div class="col">${section("Items", items.length, itemRows.length === 0 ? empty() : `<ul class="rows">${itemRows.join("")}</ul>`, "items-sec")}${section("Waiting on", waits.length, waitRows.length === 0 ? empty() : `<ul class="rows">${waitRows.join("")}</ul>`, "waits-sec")}${section("Drafts", drafts.length, draftRows.length === 0 ? empty() : `<ul class="rows">${draftRows.join("")}</ul>`, "drafts")}${section("Notes", notes.length, noteRows.length === 0 ? empty() : noteRows.join(""), "notes")}</div>
+<div class="col">${section("Items", items.length, itemRows.length === 0 ? empty() : `<ul class="rows">${itemRows.join("")}</ul>`, "items-sec")}${section("Waiting on", waits.length, waitRows.length === 0 ? empty() : `<ul class="rows">${waitRows.join("")}</ul>`, "waits-sec")}${section("Drafts", null, draftList(drafts, draftRows), "drafts", draftTabs(drafts))}${section("Notes", notes.length, noteRows.length === 0 ? empty() : noteRows.join(""), "notes")}</div>
 </main>`;
 }
 

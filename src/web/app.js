@@ -319,18 +319,19 @@ function tick() {
 }
 setInterval(tick, 1000);
 
-let ticketTab = "ongoing";
-try {
-  ticketTab = localStorage.getItem("hub.ticketTab") ?? "ongoing";
-} catch {}
-
 function applyTab() {
-  for (const b of app.querySelectorAll("[data-tab]")) {
-    const on = b.dataset.tab === ticketTab;
-    b.classList.toggle("on", on);
-    b.setAttribute("aria-selected", String(on));
+  for (const bar of app.querySelectorAll("[data-tabs]")) {
+    const buttons = [...bar.querySelectorAll("[data-tab]")];
+    const saved = stored(`hub.tab.${bar.dataset.tabs}`, null);
+    const current = buttons.some((b) => b.dataset.tab === saved) ? saved : buttons[0]?.dataset.tab;
+    for (const b of buttons) {
+      const on = b.dataset.tab === current;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-selected", String(on));
+    }
+    for (const el of bar.closest("section")?.querySelectorAll("[data-tab-panel]") ?? [])
+      el.hidden = !el.dataset.tabPanel.split(" ").includes(current);
   }
-  for (const ul of app.querySelectorAll("[data-tab-panel]")) ul.hidden = ul.dataset.tabPanel !== ticketTab;
 }
 
 let lastResults = [];
@@ -515,10 +516,7 @@ document.addEventListener("click", async (e) => {
     return;
   }
   if (b?.dataset.tab) {
-    ticketTab = b.dataset.tab;
-    try {
-      localStorage.setItem("hub.ticketTab", ticketTab);
-    } catch {}
+    store(`hub.tab.${b.closest("[data-tabs]")?.dataset.tabs}`, b.dataset.tab);
     applyTab();
     return;
   }
