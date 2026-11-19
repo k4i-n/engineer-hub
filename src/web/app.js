@@ -89,7 +89,6 @@ function store(key, value) {
 
 const TODAY_SHOWN = 3;
 let inPlace = new Set();
-let openNow = new Set();
 
 function foldGroups() {
   const closed = new Set(stored("hub.closedGroups", []));
@@ -111,44 +110,40 @@ function foldSections() {
   for (const b of app.querySelectorAll("button[data-fold]")) setFold(b, closed.has(sectionKey(b.dataset.fold)));
 }
 
-function foldCleared() {
+function markCleared() {
   const kept = new Set();
-  for (const g of app.querySelectorAll("details.ngroup")) {
-    const list = g.querySelector(":scope > ul.needs-list");
-    const cleared = [...list.querySelectorAll(":scope > li.is-dim")].filter((li) => !inPlace.has(li.dataset.key));
-    for (const li of list.querySelectorAll(":scope > li")) if (!cleared.includes(li)) kept.add(li.dataset.key);
-    if (cleared.length === 0) continue;
-    const fold = document.createElement("details");
-    fold.className = "cleared";
-    fold.dataset.key = `cleared-${g.dataset.group}`;
-    fold.open = openNow.has(fold.dataset.key);
-    fold.innerHTML = `<summary>Done & snoozed ${cleared.length}</summary><ul class="rows needs-list"></ul>`;
-    fold.querySelector("ul").append(...cleared);
-    g.append(fold);
+  for (const li of app.querySelectorAll("details.ngroup > ul.needs-list > li")) {
+    if (li.classList.contains("is-dim") && !inPlace.has(li.dataset.key)) li.dataset.tabPanel = "all";
+    else kept.add(li.dataset.key);
   }
   inPlace = kept;
 }
 
 function foldToday() {
   const expanded = stored("hub.todayExpanded", false);
+  const bar = app.querySelector('[data-tabs="today"]');
+  const all = bar !== null && currentTab(bar) === "all";
+  for (const b of app.querySelectorAll('[data-key="today"] .more-btn')) b.remove();
   for (const ul of app.querySelectorAll('[data-key="today"] ul, [data-key="today"] ol')) {
     const items = [...ul.children];
-    if (items.length <= TODAY_SHOWN) continue;
-    for (const li of items.slice(TODAY_SHOWN)) li.hidden = !expanded;
+    const shown = items.filter((li) => all || !li.classList.contains("done"));
+    for (const li of items) li.hidden = !shown.includes(li);
+    if (shown.length <= TODAY_SHOWN) continue;
+    for (const li of shown.slice(TODAY_SHOWN)) li.hidden = !expanded;
     const b = document.createElement("button");
     b.type = "button";
     b.className = "more-btn";
     b.dataset.todayToggle = "";
-    b.textContent = expanded ? "Show less" : `${items.length - TODAY_SHOWN} more`;
+    b.textContent = expanded ? "Show less" : `${shown.length - TODAY_SHOWN} more`;
     ul.after(b);
   }
 }
 
 function afterRender(first) {
-  applyTab();
   foldGroups();
   foldSections();
-  foldCleared();
+  markCleared();
+  applyTab();
   foldToday();
   const keys = needKeys();
   const section = app.querySelector("[data-needs-count]");
@@ -185,7 +180,6 @@ async function refresh() {
     if (!r.ok) return;
     const html = await r.text();
     const open = new Set([...app.querySelectorAll("details[open][data-key]")].map((d) => d.dataset.key));
-    openNow = open;
     const scroll = new Map(
       [...app.querySelectorAll("[data-keep-scroll][data-key]")].map((e) => [e.dataset.key, e.scrollTop]),
     );
@@ -350,11 +344,16 @@ function tick() {
 }
 setInterval(tick, 1000);
 
+function currentTab(bar) {
+  const buttons = [...bar.querySelectorAll("[data-tab]")];
+  const saved = stored(`hub.tab.${bar.dataset.tabs}`, null);
+  return buttons.some((b) => b.dataset.tab === saved) ? saved : buttons[0]?.dataset.tab;
+}
+
 function applyTab() {
   for (const bar of app.querySelectorAll("[data-tabs]")) {
     const buttons = [...bar.querySelectorAll("[data-tab]")];
-    const saved = stored(`hub.tab.${bar.dataset.tabs}`, null);
-    const current = buttons.some((b) => b.dataset.tab === saved) ? saved : buttons[0]?.dataset.tab;
+    const current = currentTab(bar);
     for (const b of buttons) {
       const on = b.dataset.tab === current;
       b.classList.toggle("on", on);
@@ -557,8 +556,10 @@ document.addEventListener("click", async (e) => {
     return;
   }
   if (b?.dataset.tab) {
+    e.preventDefault();
     store(`hub.tab.${b.closest("[data-tabs]")?.dataset.tabs}`, b.dataset.tab);
     applyTab();
+    foldToday();
     return;
   }
   if (b && !b.disabled) {

@@ -52,6 +52,7 @@ type Need = {
   ignore?: { id: number; kind: string; repo: string | null };
   fyi?: boolean;
   section?: string;
+  panel?: string;
 };
 
 const MAX_ACTIVITY = 40;
@@ -337,9 +338,12 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
   const link = linker(ctx);
   const now = nowIso(ctx.now);
   const dayStart = startOfToday(ctx);
+  const { from } = span(ctx.config.horizon, ctx.now, ctx.config.timezone);
   const items = all<ItemRow>(
     ctx.db,
-    "SELECT * FROM item WHERE (needs_me = 1 OR (kind = 'pr' AND coalesce(state, '') NOT IN ('merged', 'closed'))) AND ignored IS NULL AND (closed_at IS NULL OR closed_at >= ?)",
+    `SELECT * FROM item WHERE (needs_me = 1 OR (kind = 'pr' AND (coalesce(state, '') NOT IN ('merged', 'closed') OR (state = 'merged' AND changed_at >= ?))))
+       AND ignored IS NULL AND (closed_at IS NULL OR closed_at >= ?)`,
+    from,
     dayStart,
   );
   const waits = all<WaitRow>(
@@ -534,7 +538,9 @@ function needRow(ctx: Ctx, n: Need, pinned: boolean, showVerb: boolean | "inline
   const finished = n.dim !== null && ["done", "answered", "yes", "no"].includes(n.dim);
   const pin = pinned ? `<span class="pinmark" title="Pinned">${svg("pin")}</span>` : "";
   const cls = `need tone-${n.tone}${n.dim === null ? "" : " is-dim"}${finished ? " is-done" : ""}${pinned ? " pinned" : ""}`;
-  return `<li class="${cls}" data-key="${esc(n.key)}"${href}>
+  const panel =
+    n.panel === undefined ? "" : ` data-tab-panel="${n.panel}"${n.panel.split(" ").includes("open") ? "" : " hidden"}`;
+  return `<li class="${cls}" data-key="${esc(n.key)}"${href}${panel}>
 ${showVerb === true ? `<span class="verb">${esc(n.verb)}</span>` : ""}
 <span class="need-main"><span class="need-line">${pin}${showVerb === "inline" ? `<span class="verb verb-inline">${esc(n.verb)}</span>` : ""}${n.title}</span><span class="need-sub">${dim}${n.sub}</span>${n.ask}</span>
 <span class="need-ticket">${ticketLink(n.ticket)}</span>
@@ -562,10 +568,40 @@ const GROUPS: Group[] = [
 const PINNED_GROUP: Group = { key: "pinned", label: "Pinned", tone: "violet", verbs: [] };
 const OTHER_GROUP: Group = { key: "other", label: "Other", tone: "grey", verbs: [] };
 
+const PR_TABS: Record<string, string> = { Draft: "draft", "In review": "review", Merged: "" };
+
+function needPanel(n: Need, prs: boolean): string | undefined {
+  if (n.dim !== null) return undefined;
+  const tab = PR_TABS[n.verb];
+  if (tab === "") return "all";
+  if (tab !== undefined) return `${tab} all`;
+  return prs ? "open all" : undefined;
+}
+
+function needTabs(g: Group, rows: Need[]): Tab[] {
+  const active = rows.filter((n) => n.dim === null);
+  const tabs = [{ name: "open", label: "Open", count: active.filter((n) => PR_TABS[n.verb] === undefined).length }];
+  if (g.key === "prs")
+    for (const [verb, name] of Object.entries(PR_TABS).filter(([, tab]) => tab !== ""))
+      tabs.push({ name, label: verb, count: active.filter((n) => n.verb === verb).length });
+  return [...tabs, { name: "all", label: "All", count: rows.length }];
+}
+
 function needsCard(ctx: Ctx, g: Group, rows: Need[], pinned: Set<string>): string {
-  const active = rows.filter((n) => n.dim === null).length;
-  const list = rows.map((n) => needRow(ctx, n, pinned.has(n.key), g.key === "prs" ? "inline" : false)).join("");
-  return `<section class="ncard tone-${g.tone}"><details class="ngroup" data-key="group-${g.key}" data-group="${g.key}" open><summary><span class="g-label">${esc(g.label)}</span><span class="g-count">${active}</span></summary><ul class="rows needs-list">${list}</ul></details></section>`;
+  const tabs = needTabs(g, rows);
+  const prs = g.key === "prs";
+  const list = rows
+    .map((n) => {
+      const panel = needPanel(n, prs);
+      return needRow(
+        ctx,
+        { ...n, ...(panel === undefined ? {} : { panel }) },
+        pinned.has(n.key),
+        prs ? "inline" : false,
+      );
+    })
+    .join("");
+  return `<section class="ncard tone-${g.tone}"><details class="ngroup" data-key="group-${g.key}" data-group="${g.key}" open><summary><span class="g-label">${esc(g.label)}</span><span class="g-count">${tabs[0]?.count ?? 0}</span>${tabBar(`needs-${g.key}`, tabs)}</summary><ul class="rows needs-list">${list}</ul></details></section>`;
 }
 
 function needsYou(n: Need): boolean {
@@ -837,21 +873,31 @@ function openDrafts(drafts: DraftRow[]): number {
   return drafts.filter((d) => d.status === "draft").length;
 }
 
-function draftTabs(drafts: DraftRow[]): string {
-  return tabBar("drafts", [
-    { name: "open", label: "Open", count: openDrafts(drafts) },
-    { name: "all", label: "All", count: drafts.length },
+function openTabs(group: string, open: number, total: number): string {
+  return tabBar(group, [
+    { name: "open", label: "Open", count: open },
+    { name: "all", label: "All", count: total },
   ]);
+}
+
+function openRows(open: number): string {
+  return open === 0 ? `<li class="empty" data-tab-panel="open">—</li>` : "";
+}
+
+function draftTabs(drafts: DraftRow[]): string {
+  return openTabs("drafts", openDrafts(drafts), drafts.length);
 }
 
 function draftPanel(d: DraftRow): string {
   return d.status === "draft" ? ` data-tab-panel="open all"` : ` data-tab-panel="all" hidden`;
 }
 
+function rowList(rows: string[], open: number): string {
+  return rows.length === 0 ? empty() : `<ul class="rows">${rows.join("")}${openRows(open)}</ul>`;
+}
+
 function draftList(drafts: DraftRow[], rows: string[]): string {
-  if (rows.length === 0) return empty();
-  const none = openDrafts(drafts) === 0 ? `<li class="empty" data-tab-panel="open">—</li>` : "";
-  return `<ul class="rows">${rows.join("")}${none}</ul>`;
+  return rowList(rows, openDrafts(drafts));
 }
 
 type TicketGroup = { name: string; label: string; tickets: Ticket[] };
@@ -892,7 +938,9 @@ function todaySection(ctx: Ctx): string {
     day === undefined || day.date === today(ctx.now, ctx.config.timezone)
       ? ""
       : `<span class="muted">${esc(day.date)}</span>`;
-  return section("Today", null, body, "today", date);
+  const listed = (body.match(/<li[\s>]/g) ?? []).length;
+  const checked = (body.match(/<li class="md-task done"/g) ?? []).length;
+  return section("Today", null, body, "today", date + openTabs("today", listed - checked, listed));
 }
 
 function draftsSection(ctx: Ctx): string {
@@ -928,6 +976,27 @@ function eventRow(ctx: Ctx, e: EventRow, showTicket: boolean): string {
   return `<li class="event"><span class="dot tone-${tone}"></span><span class="ts">${esc(e.ts.length > 10 && e.ts.startsWith(today(ctx.now, ctx.config.timezone)) ? e.ts.slice(11) : e.ts.slice(5))}</span>${showTicket ? ticketLink(e.ticket_id) : ""}<span class="e-text">${line(ctx, e.text)}</span>${e.ref ? link(e.ref, "↗", "e-ref") : ""}</li>`;
 }
 
+const WORK_EVENTS = new Set(["step", "decision", "pr", "tracker", "slack", "action"]);
+
+function eventTabs(group: string, events: EventRow[]): { tabs: string; work: EventRow[] } {
+  const work = events.filter((e) => WORK_EVENTS.has(e.kind));
+  const tabs = tabBar(group, [
+    { name: "work", label: "Work", count: work.length },
+    { name: "all", label: "All", count: events.length },
+  ]);
+  return { tabs, work };
+}
+
+function activityPanel(ctx: Ctx, events: EventRow[], name: string, on: boolean): string {
+  const rows = events.map((e) => eventRow(ctx, e, true));
+  const first = `<ul class="rows events">${rows.slice(0, ACTIVITY_SHOWN).join("")}</ul>`;
+  const rest =
+    rows.length <= ACTIVITY_SHOWN
+      ? ""
+      : `<details class="more-fold" data-key="activity-more-${name}"><summary><span class="when-closed">Show all ${rows.length}</span><span class="when-open">Show less</span></summary><ul class="rows events">${rows.slice(ACTIVITY_SHOWN).join("")}</ul></details>`;
+  return `<div data-tab-panel="${name}"${on ? "" : " hidden"}>${rows.length === 0 ? empty() : first + rest}</div>`;
+}
+
 function activitySection(ctx: Ctx): string {
   const { from } = span(ctx.config.horizon, ctx.now, ctx.config.timezone);
   const events = all<EventRow>(
@@ -936,13 +1005,9 @@ function activitySection(ctx: Ctx): string {
     from,
     MAX_ACTIVITY,
   );
-  const rows = events.map((e) => eventRow(ctx, e, true));
-  const first = `<ul class="rows events">${rows.slice(0, ACTIVITY_SHOWN).join("")}</ul>`;
-  const rest =
-    rows.length <= ACTIVITY_SHOWN
-      ? ""
-      : `<details class="more-fold" data-key="activity-more"><summary><span class="when-closed">Show all ${rows.length}</span><span class="when-open">Show less</span></summary><ul class="rows events">${rows.slice(ACTIVITY_SHOWN).join("")}</ul></details>`;
-  return section("Activity", events.length, events.length === 0 ? empty() : first + rest, "activity");
+  const { tabs, work } = eventTabs("activity", events);
+  const body = activityPanel(ctx, work, "work", true) + activityPanel(ctx, events, "all", false);
+  return section("Activity", null, body, "activity", tabs);
 }
 
 function sourceState(ctx: Ctx, s: SourceRow): "ok" | "stale" | "bad" | "warn" {
@@ -1061,7 +1126,7 @@ export function ticketBody(ctx: Ctx, id: string, sync: SyncState): string {
   );
   const waits = all<WaitRow>(
     ctx.db,
-    "SELECT * FROM wait WHERE ticket_id = ? AND closed_at IS NULL ORDER BY asked_at",
+    "SELECT * FROM wait WHERE ticket_id = ? ORDER BY closed_at IS NOT NULL, asked_at",
     id,
   );
   const drafts = all<DraftRow>(ctx.db, "SELECT * FROM draft WHERE ticket_id = ? ORDER BY id", id);
@@ -1088,13 +1153,21 @@ export function ticketBody(ctx: Ctx, id: string, sync: SyncState): string {
   ]);
   const head = `<div class="page-head">${priorityMark(t.tracker_priority)}${ticketLink(t.id)}<h1>${line(ctx, t.title ?? "")}</h1>${ticketMenu}${pill(DIR_LABEL[t.dir ?? ""] ?? t.dir ?? "", DIR_TONE[t.dir ?? ""] ?? "grey")}${t.tracker_state ? pill(t.tracker_state, "violet") : ""}${link(t.tracker_url, "tracker ↗", "head-link")}</div>`;
   const state = `<dl class="state">${field(ctx, "Status", t.status)}${field(ctx, "Next", t.next, "blue")}${field(ctx, "Approve?", t.gate, "amber")}${field(ctx, "Decide", t.decide, "amber")}${field(ctx, "Repo", [t.repo, t.branch].filter(Boolean).join(" · "))}${field(ctx, "PRs", t.prs)}${field(ctx, "Owner", t.owner)}</dl>`;
+  const openSteps = steps.filter((s) => s.done_at === null).length;
+  const openItems = items.filter((i) => i.closed_at === null).length;
+  const openWaits = waits.filter((w) => w.closed_at === null).length;
+  const { tabs: timelineTabs, work } = eventTabs("timeline", events);
+  const timelinePanel = (list: EventRow[], name: string, on: boolean) =>
+    `<ul class="rows events" data-keep-scroll data-key="timeline-${name}" data-tab-panel="${name}"${on ? "" : " hidden"}>${list.length === 0 ? `<li class="empty">—</li>` : list.map((e) => eventRow(ctx, e, false)).join("")}</ul>`;
+  const timeline =
+    events.length === 0 ? empty() : timelinePanel(work, "work", true) + timelinePanel(events, "all", false);
   const stepList =
     steps.length === 0
       ? empty()
       : `${progressView(ctx.config.progressStyle, p.done, p.total, true)}<ol class="steps">${steps
           .map(
             (s) =>
-              `<li class="${s.done_at === null ? (p.next?.n === s.n ? "next" : "") : "done"}"><span class="check"></span><span class="s-title">${line(ctx, s.title)}</span>${s.evidence ? link(s.evidence, "↗", "e-ref") : ""}${moreMenu(
+              `<li class="${s.done_at === null ? (p.next?.n === s.n ? "next" : "") : "done"}"${s.done_at === null ? "" : ' data-tab-panel="all" hidden'}><span class="check"></span><span class="s-title">${line(ctx, s.title)}</span>${s.evidence ? link(s.evidence, "↗", "e-ref") : ""}${moreMenu(
                 `menu-step-${s.n}`,
                 [
                   menuItem("edit", "Edit", {
@@ -1116,15 +1189,15 @@ export function ticketBody(ctx: Ctx, id: string, sync: SyncState): string {
                 ],
               )}</li>`,
           )
-          .join("")}</ol>`;
+          .join("")}${openRows(openSteps)}</ol>`;
   const itemRows = items.map((i) => {
     const v = itemVerb(i);
-    return `<li class="need tone-${v.tone}${i.closed_at ? " is-dim" : ""}" data-key="ti-${i.id}"><span class="verb">${esc(v.verb)}</span><span class="need-main">${link(i.url ?? (/^https?:/.test(i.ref) ? i.ref : null), i.title ?? i.ref, "need-title")}<span class="need-sub">${sourceLine([githubRef(i.url) ?? i.source, i.state, i.ignored ? "ignored" : i.closed_at ? "closed" : null])}</span></span>${moreMenu(`menu-ti-${i.id}`, [menuItem("ignore", "Detach", { act: "item-detach", id: i.id })])}</li>`;
+    return `<li class="need tone-${v.tone}${i.closed_at ? " is-dim" : ""}" data-key="ti-${i.id}"${i.closed_at ? ' data-tab-panel="all" hidden' : ""}><span class="verb">${esc(v.verb)}</span><span class="need-main">${link(i.url ?? (/^https?:/.test(i.ref) ? i.ref : null), i.title ?? i.ref, "need-title")}<span class="need-sub">${sourceLine([githubRef(i.url) ?? i.source, i.state, i.ignored ? "ignored" : i.closed_at ? "closed" : null])}</span></span>${moreMenu(`menu-ti-${i.id}`, [menuItem("ignore", "Detach", { act: "item-detach", id: i.id })])}</li>`;
   });
   const pinned = pins(ctx.db);
   const waitRows = waits.map((w) => {
     const n = waitNeed(ctx, w);
-    return needRow(ctx, { ...n, ticket: null }, pinned.has(n.key));
+    return needRow(ctx, { ...n, ticket: null, ...(w.closed_at === null ? {} : { panel: "all" }) }, pinned.has(n.key));
   });
   const draftRows = drafts.map(
     (d) =>
@@ -1185,8 +1258,8 @@ export function ticketBody(ctx: Ctx, id: string, sync: SyncState): string {
   return `${header(ctx, sync, "ticket")}
 ${head}
 <main class="grid">
-<div class="col">${ticketNeeds}${section("State", null, state, "state-sec")}${section("Steps", steps.length, stepList, "steps-sec")}${section("Timeline", events.length, events.length === 0 ? empty() : `<ul class="rows events" data-keep-scroll data-key="timeline">${events.map((e) => eventRow(ctx, e, false)).join("")}</ul>`, "timeline")}</div>
-<div class="col">${section("Items", items.length, itemRows.length === 0 ? empty() : `<ul class="rows">${itemRows.join("")}</ul>`, "items-sec")}${section("Waiting on", waits.length, waitRows.length === 0 ? empty() : `<ul class="rows">${waitRows.join("")}</ul>`, "waits-sec")}${section("Drafts", null, draftList(drafts, draftRows), "drafts", draftTabs(drafts))}${section("Notes", notes.length, noteRows.length === 0 ? empty() : noteRows.join(""), "notes")}</div>
+<div class="col">${ticketNeeds}${section("State", null, state, "state-sec")}${section("Steps", null, stepList, "steps-sec", openTabs("steps", openSteps, steps.length))}${section("Timeline", null, timeline, "timeline", timelineTabs)}</div>
+<div class="col">${section("Items", null, rowList(itemRows, openItems), "items-sec", openTabs("items", openItems, items.length))}${section("Waiting on", null, rowList(waitRows, openWaits), "waits-sec", openTabs("waits", openWaits, waits.length))}${section("Drafts", null, draftList(drafts, draftRows), "drafts", draftTabs(drafts))}${section("Notes", notes.length, noteRows.length === 0 ? empty() : noteRows.join(""), "notes")}</div>
 </main>`;
 }
 
