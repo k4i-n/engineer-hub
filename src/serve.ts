@@ -7,11 +7,14 @@ import { resolve } from "node:path";
 import { type Args, checkFields, findRoute, openapi, queryArgs, runRoute } from "./api.ts";
 import type { Ctx } from "./commands.ts";
 import { loadConfig } from "./config.ts";
-import { one, openDb, SCHEMA_VERSION } from "./db.ts";
+import { one, openDb, SCHEMA_VERSION, type SourceRow } from "./db.ts";
+import { type Fetcher, Runner } from "./fetch.ts";
+import { FETCHERS } from "./fetchers/index.ts";
+import { type System, system } from "./keys.ts";
 import { handleRpc } from "./mcp.ts";
 import { loadToken, tokenPath } from "./token.ts";
 import { afterDuration, HubError, nowIso } from "./util.ts";
-import { indexBody, page, type SyncState, settingsBody, ticketBody } from "./views.ts";
+import { type Fetching, indexBody, page, type SyncState, settingsBody, ticketBody } from "./views.ts";
 
 export type ServeOptions = {
   dbPath: string;
@@ -19,6 +22,9 @@ export type ServeOptions = {
   now: () => Date;
   env: NodeJS.ProcessEnv;
   autoSyncCheckMs?: number;
+  fetchCheckMs?: number;
+  system?: System;
+  fetchers?: Fetcher[];
 };
 export type Server = { url: string; token: string; close: () => Promise<void> };
 
@@ -29,6 +35,7 @@ const MAX_BODY = 1_048_576;
 const API = "/api/v1";
 const OUTPUT_TAIL = 2_000;
 const AUTO_SYNC_CHECK_MS = 60_000;
+const FETCH_CHECK_MS = 15_000;
 
 const VERSION = (JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string })
   .version;
@@ -84,6 +91,22 @@ async function readBody(req: IncomingMessage): Promise<Args> {
   return value as Args;
 }
 
+function fetching(c: Ctx, runner: Runner): Fetching[] {
+  return runner.fetchers.map((f) => {
+    const row = one<SourceRow>(c.db, "SELECT * FROM source WHERE name = ?", f.name);
+    const state = runner.status.get(f.name);
+    return {
+      name: f.name,
+      on: c.config.fetch[f.name] === true,
+      how: state?.check?.how ?? null,
+      ok: state?.check?.ok ?? null,
+      fixes: runner.fixes(f.name),
+      last: row?.last_sync ?? null,
+      error: row?.last_error ?? null,
+    };
+  });
+}
+
 export function serve(options: ServeOptions): Promise<Server> {
   const token = loadToken(tokenPath(options.dbPath));
   const db = openDb(options.dbPath);
@@ -114,6 +137,11 @@ export function serve(options: ServeOptions): Promise<Server> {
     if (options.now().getTime() - last >= every) startSync();
   }, options.autoSyncCheckMs ?? AUTO_SYNC_CHECK_MS);
   autoSync.unref();
+  const runner = new Runner(options.fetchers ?? FETCHERS, options.system ?? system(options.env), ctx);
+  const fetchTimer = setInterval(() => {
+    runner.tick().catch(() => {});
+  }, options.fetchCheckMs ?? FETCH_CHECK_MS);
+  fetchTimer.unref();
   const keepalive = setInterval(() => {
     for (const client of clients) client.write(": keepalive\n\n");
   }, KEEPALIVE_MS);
@@ -190,7 +218,7 @@ export function serve(options: ServeOptions): Promise<Server> {
         if (url.search !== "") throw new HubError("send fields in the JSON body, not the query");
         input = checkFields(route.body ?? {}, await readBody(req), "body");
       }
-      const result = runRoute(ctx(), route, { ...input, ...args }, hooks, req.headers["x-hub-actor"] === "human");
+      const result = await runRoute(ctx(), route, { ...input, ...args }, hooks, req.headers["x-hub-actor"] === "human");
       const status = route.status?.(result) ?? 200;
       const exit = { "x-hub-exit": String(result.exitCode ?? 0) };
       if (req.headers.accept === "text/plain") send(res, status, "text/plain", result.text, exit);
@@ -224,7 +252,7 @@ export function serve(options: ServeOptions): Promise<Server> {
       json(400, { jsonrpc: "2.0", id: null, error: { code: -32700, message: text } });
       return;
     }
-    const reply = handleRpc(message, ctx, hooks);
+    const reply = await handleRpc(message, ctx, hooks);
     if (reply === null) res.writeHead(202).end();
     else json(200, reply);
   }
@@ -233,6 +261,7 @@ export function serve(options: ServeOptions): Promise<Server> {
     version: VERSION,
     syncStatus: () => sync,
     startSync: () => ({ started: startSync(), status: sync }),
+    fetchNow: (source: string | null) => runner.now(source),
   };
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -272,11 +301,16 @@ export function serve(options: ServeOptions): Promise<Server> {
         else if (url.pathname === "/settings") {
           title = "Settings · hub";
           const schema = one<{ value: string }>(db, "SELECT value FROM meta WHERE key = 'schema_version'")?.value;
-          body = settingsBody(c, sync, {
-            path: options.dbPath,
-            size: statSync(options.dbPath).size,
-            schema: schema ?? SCHEMA_VERSION,
-          });
+          body = settingsBody(
+            c,
+            sync,
+            {
+              path: options.dbPath,
+              size: statSync(options.dbPath).size,
+              schema: schema ?? SCHEMA_VERSION,
+            },
+            fetching(c, runner),
+          );
         } else {
           const id = decodeURIComponent(url.pathname.slice(3));
           title = `${id} · hub`;
@@ -315,6 +349,7 @@ export function serve(options: ServeOptions): Promise<Server> {
     clearInterval(watcher);
     clearInterval(keepalive);
     clearInterval(autoSync);
+    clearInterval(fetchTimer);
     child?.kill("SIGTERM");
     for (const client of clients) client.end();
     server.closeAllConnections();
@@ -328,6 +363,7 @@ export function serve(options: ServeOptions): Promise<Server> {
       clearInterval(watcher);
       clearInterval(keepalive);
       clearInterval(autoSync);
+      clearInterval(fetchTimer);
       db.close();
       watch.close();
       reject(error);

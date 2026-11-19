@@ -59,7 +59,7 @@ export function toolList(): unknown {
   };
 }
 
-function callTool(ctx: Ctx, hooks: Hooks, raw: unknown): unknown {
+async function callTool(ctx: Ctx, hooks: Hooks, raw: unknown): Promise<unknown> {
   const p = (typeof raw === "object" && raw !== null ? raw : {}) as { name?: unknown; arguments?: unknown };
   const route = TOOLS.find((r) => r.name === p.name);
   if (route === undefined) throw new RpcError(-32602, `no tool ${String(p.name)}`);
@@ -68,7 +68,7 @@ function callTool(ctx: Ctx, hooks: Hooks, raw: unknown): unknown {
     if (typeof given !== "object" || given === null || Array.isArray(given))
       throw new HubError("arguments must be an object");
     const args = checkFields(fieldsOf(route), { ...(given as Args) }, "argument");
-    const result = route.run(ctx, args, hooks);
+    const result = await route.run(ctx, args, hooks);
     return { content: [{ type: "text", text: result.text || JSON.stringify(result.json) }], isError: false };
   } catch (error) {
     if (!(error instanceof HubError)) throw error;
@@ -76,7 +76,7 @@ function callTool(ctx: Ctx, hooks: Hooks, raw: unknown): unknown {
   }
 }
 
-export function handleRpc(message: unknown, ctx: () => Ctx, hooks: Hooks): RpcReply | null {
+export async function handleRpc(message: unknown, ctx: () => Ctx, hooks: Hooks): Promise<RpcReply | null> {
   const m = (typeof message === "object" && message !== null && !Array.isArray(message) ? message : {}) as Rpc;
   const id = m.id ?? null;
   if (m.jsonrpc !== "2.0" || typeof m.method !== "string") {
@@ -84,14 +84,14 @@ export function handleRpc(message: unknown, ctx: () => Ctx, hooks: Hooks): RpcRe
   }
   if (m.id === undefined) return null;
   try {
-    return { jsonrpc: "2.0", id, result: dispatch(m.method, m.params, ctx, hooks) };
+    return { jsonrpc: "2.0", id, result: await dispatch(m.method, m.params, ctx, hooks) };
   } catch (error) {
     if (!(error instanceof RpcError)) throw error;
     return { jsonrpc: "2.0", id, error: { code: error.code, message: error.message } };
   }
 }
 
-function dispatch(method: string, raw: unknown, ctx: () => Ctx, hooks: Hooks): unknown {
+async function dispatch(method: string, raw: unknown, ctx: () => Ctx, hooks: Hooks): Promise<unknown> {
   if (method === "initialize") {
     const asked = (raw as { protocolVersion?: unknown } | undefined)?.protocolVersion;
     const version = typeof asked === "string" && PROTOCOL_VERSIONS.includes(asked) ? asked : PROTOCOL_VERSIONS[0];
@@ -104,6 +104,6 @@ function dispatch(method: string, raw: unknown, ctx: () => Ctx, hooks: Hooks): u
   }
   if (method === "ping") return {};
   if (method === "tools/list") return toolList();
-  if (method === "tools/call") return callTool(ctx(), hooks, raw);
+  if (method === "tools/call") return await callTool(ctx(), hooks, raw);
   throw new RpcError(-32601, `no method ${method}`);
 }

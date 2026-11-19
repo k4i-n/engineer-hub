@@ -26,6 +26,8 @@ export type Config = {
   layout: Layout;
   autoSync: boolean;
   syncEvery: string;
+  fetch: Record<string, boolean>;
+  fetchEvery: string;
   hiddenBlocks: string[];
   progressStyle: string;
   chartDays: number;
@@ -87,6 +89,8 @@ export const DEFAULTS: Config = {
   layout: DEFAULT_LAYOUT,
   autoSync: true,
   syncEvery: "15m",
+  fetch: { github: true },
+  fetchEvery: "1m",
   hiddenBlocks: [],
   progressStyle: "ring",
   chartDays: 14,
@@ -99,6 +103,7 @@ const CHOICES: Partial<Record<keyof Config, string[]>> = {
   openLinearIn: ["browser", "app"],
   theme: ["system", "light", "dark"],
   syncEvery: ["15m", "30m", "1h", "2h"],
+  fetchEvery: ["1m", "5m", "15m", "30m"],
   progressStyle: ["ring", "half", "bar"],
   chartDays: ["7", "14", "30"],
   doneDays: ["7", "14", "30"],
