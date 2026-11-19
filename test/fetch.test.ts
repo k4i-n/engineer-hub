@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, test } from "node:test";
 import { type Io, run } from "../src/cli.ts";
 import { github } from "../src/fetchers/github.ts";
 import { linear } from "../src/fetchers/linear.ts";
+import { slack, threadOf } from "../src/fetchers/slack.ts";
 import type { Ran, System } from "../src/keys.ts";
 import { type Server, serve } from "../src/serve.ts";
 
@@ -85,7 +86,7 @@ beforeEach(async () => {
     port: 0,
     now: () => new Date(),
     env: {},
-    fetchers: [github, linear],
+    fetchers: [github, linear, slack],
     system: fake(),
     fetchCheckMs: 3_600_000,
   });
@@ -144,7 +145,7 @@ describe("github", () => {
       port: 0,
       now: () => new Date(),
       env: {},
-      fetchers: [github, linear],
+      fetchers: [github, linear, slack],
       system: fake(),
       fetchCheckMs: 20,
     });
@@ -244,5 +245,104 @@ describe("linear", () => {
     assert.match(await hub("fetch", "linear"), /^linear: linear: Authentication required$/);
     assert.ok(calls.some((c) => c.join(" ").startsWith("sealcall call linear POST /graphql --data -")));
     assert.equal(calls.filter((c) => c[0] === "http").length, 0);
+  });
+});
+
+describe("slack", () => {
+  const ME = "U0ME";
+  const now = Math.floor(Date.now() / 1000);
+  const ts = (agoS: number, micro = "000100") => `${now - agoS}.${micro}`;
+  const permalink = (t: string) => `https://acme.slack.com/archives/C01/p${t.replace(".", "")}`;
+
+  test("a permalink gives the thread: its own ts, or thread_ts for a reply link", () => {
+    assert.deepEqual(threadOf("https://acme.slack.com/archives/C02DEF/p1763350000123456"), {
+      channel: "C02DEF",
+      ts: "1763350000.123456",
+    });
+    assert.deepEqual(
+      threadOf("https://acme.slack.com/archives/C02DEF/p1763350000123456?thread_ts=1763340000.000100&cid=C02DEF"),
+      {
+        channel: "C02DEF",
+        ts: "1763340000.000100",
+      },
+    );
+    assert.equal(threadOf("https://github.com/acme/web/pull/1"), null);
+  });
+
+  test("mentions need you, sent messages wait for judging, and a reply in a waited thread closes the wait", async () => {
+    await hub("config", "fetch", '{"github":false,"slack":true}');
+    answers.security = (args) =>
+      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+    const thread = ts(3600);
+    await hub("wait", "ENG-42", "Ken", permalink(thread), "--ping-after", "1d");
+    const asked = Date.now() / 1000;
+    const reply = `${Math.floor(asked) + 30}.000200`;
+    const queries: string[] = [];
+    httpAnswer = (url) => {
+      const u = new URL(url);
+      if (u.pathname === "/api/auth.test") return { status: 200, body: JSON.stringify({ ok: true, user_id: ME }) };
+      if (u.pathname === "/api/search.messages") {
+        const q = u.searchParams.get("query") ?? "";
+        queries.push(q);
+        const matches = q.startsWith("from:")
+          ? [
+              {
+                ts: ts(60),
+                text: "Shipped the fix, can you look?",
+                permalink: permalink(ts(60)),
+                user: ME,
+                username: "khai",
+                channel: { id: "C01", name: "web" },
+              },
+            ]
+          : [
+              {
+                ts: ts(120),
+                text: `<@${ME}> are you on call?`,
+                permalink: permalink(ts(120)),
+                user: "U2",
+                username: "ana",
+                channel: { id: "C01", name: "ops" },
+              },
+              { ts: ts(9 * 86_400), text: "old", permalink: permalink(ts(9 * 86_400)), user: "U2", username: "ana" },
+            ];
+        return { status: 200, body: JSON.stringify({ ok: true, messages: { matches } }) };
+      }
+      if (u.pathname === "/api/conversations.replies") {
+        assert.equal(u.searchParams.get("channel"), "C01");
+        assert.equal(u.searchParams.get("ts"), thread);
+        return {
+          status: 200,
+          body: JSON.stringify({
+            ok: true,
+            messages: [
+              { ts: thread, text: "q", user: ME },
+              { ts: reply, text: "yes, ship it", user: "U3" },
+            ],
+          }),
+        };
+      }
+      return { status: 404, body: "" };
+    };
+    assert.match(await hub("fetch", "slack"), /^slack: items: 3 new, 0 changed, 0 unchanged; closed #1$/);
+    assert.match(queries[0] ?? "", new RegExp(`^<@${ME}> after:\\d{4}-\\d{2}-\\d{2}$`));
+    assert.match(queries[1] ?? "", new RegExp(`^from:<@${ME}> after:`));
+    const needs = await hub("items", "--needs-me", "--source", "slack");
+    assert.match(needs, /slack\/message \| needs you \| #ops ana: <@U0ME> are you on call\? \| mention/);
+    assert.match(needs, /slack\/thread \| needs you \| Ken answered: yes, ship it \| answered \| ENG-42/);
+    assert.match(
+      await hub("items", "--source", "slack"),
+      /slack\/message \| #web khai: Shipped the fix, can you look\? \| sent/,
+    );
+    assert.match(await hub("waits"), /no open waits/);
+    const auth = JSON.parse(calls.find((c) => c[0] === "http")?.[3] ?? "{}");
+    assert.equal(auth.Authorization, "Bearer xoxp-1");
+    assert.match(await hub("sources"), /slack \| last sync .* \| cursor \d{10}\.\d{6}/);
+  });
+
+  test("a Slack error answer is the source error", async () => {
+    answers.security = () => ({ code: 0, stdout: "xoxp-1\n", stderr: "" });
+    httpAnswer = () => ({ status: 200, body: JSON.stringify({ ok: false, error: "missing_scope" }) });
+    assert.match(await hub("fetch", "slack"), /^slack: slack auth.test: missing_scope$/);
   });
 });
