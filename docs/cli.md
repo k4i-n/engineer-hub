@@ -36,6 +36,7 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 | `hub step add <id> <title>`, `hub step done <id> <n> [--evidence <url>]` | appends a step, marks one done and logs it |
 | `hub item put --stdin` | stores items read from a source, one JSON object per line ([format](sources.md#items-from-connectors)) |
 | `hub item close <item>...`, `hub item snooze <item> [--for 1d|tomorrow]`, `hub item attach <item> <id>` | marks items handled, hides one for a while (a change brings it back), attaches one to a ticket; `<item>` is the `#` number or the ref |
+| `hub item ignore <item> [--repo]`, `hub item unignore <item> [--repo]` | never shows the item again, whatever changes (it stays in `hub items --all`); `--repo` ignores every review request, or every PR of yours, from its repo, now and later (config `ignoreRepos`) |
 | `hub wait <id> <who> <url> [--ping-after 1d]`, `hub wait close <wait \| url>` | records a question asked of someone, closes it when they answer |
 | `hub source <name> [--cursor <c>] [--error <text>]` | records a sync of a source |
 | `hub day set <date> (--file \| --stdin)` | stores a day plan |
@@ -73,6 +74,7 @@ Config lives in the database. `hub config` lists every key with its value:
 | `chartDays` | `14` | days the overview charts cover: 7, 14 or 30 |
 | `doneDays` | `14` | days the Done tab looks back: 7, 14 or 30 |
 | `githubReviewQuery` | `"is:pr is:open review-requested:@me archived:false"` | the GitHub search for review requests |
+| `ignoreRepos` | `{"review_request":[],"pr":[]}` | repos whose review requests or PRs of yours are ignored |
 | `laterHour` | `9` | the hour "later until tomorrow" means |
 | `stateFields`, `sections`, `trackerSyncMarkers`, `planDir`, `resumeHeading` | | markdown conventions the importer reads |
 

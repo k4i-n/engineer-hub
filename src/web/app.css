@@ -1422,6 +1422,25 @@ a.chip-btn:hover {
   flex: none;
   color: var(--muted);
 }
+.ignored {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+}
+.ignored li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+}
+.ign-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .set-control {
   display: flex;
   align-items: center;

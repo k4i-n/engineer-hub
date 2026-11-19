@@ -421,6 +421,34 @@ export const ROUTES: Route[] = [
     run: (ctx, a) => items.reopen(ctx, str(a, "key")),
   },
   {
+    name: "item_ignore",
+    method: "POST",
+    path: "/items/{key}/ignore",
+    about:
+      "Never show this item again, whatever changes; with repo, every review request or PR of its kind from its repo.",
+    body: { repo: { type: "boolean", about: "ignore the whole repo for this kind" } },
+    run: (ctx, a) => items.ignore(ctx, str(a, "key"), a.repo === true),
+  },
+  {
+    name: "item_unignore",
+    method: "POST",
+    path: "/items/{key}/unignore",
+    about: "Show an ignored item again; with repo, stop ignoring its repo.",
+    body: { repo: { type: "boolean", about: "stop ignoring the item's repo" } },
+    run: (ctx, a) => items.unignore(ctx, str(a, "key"), a.repo === true),
+  },
+  {
+    name: "repo_unignore",
+    method: "POST",
+    path: "/ignores/unignore",
+    about: "Stop ignoring review requests or PRs from a repo.",
+    body: {
+      kind: { type: "string", required: true, about: "review_request or pr" },
+      repo: { type: "string", required: true, about: "owner/repo" },
+    },
+    run: (ctx, a) => items.unignoreRepo(ctx, str(a, "kind"), str(a, "repo")),
+  },
+  {
     name: "item_attach",
     method: "POST",
     path: "/items/{key}/attach",
@@ -733,6 +761,8 @@ const HUMAN_NOTES: Record<string, (ctx: Ctx, a: Args) => Note | null> = {
   item_close: (ctx, a) => itemNote(ctx, str(a, "key"), "done"),
   item_snooze: (ctx, a) => itemNote(ctx, str(a, "key"), `later (${opt(a, "for") ?? "1d"})`),
   item_reopen: (ctx, a) => itemNote(ctx, str(a, "key"), "back in the list"),
+  item_ignore: (ctx, a) => itemNote(ctx, str(a, "key"), a.repo === true ? "ignored with its repo" : "ignored"),
+  item_unignore: (ctx, a) => itemNote(ctx, str(a, "key"), "shown again"),
   wait_close: (ctx, a) => waitNote(ctx, str(a, "wait"), "answered"),
   wait_reopen: (ctx, a) => waitNote(ctx, str(a, "wait"), "waiting again"),
   posted: (_ctx, a) => ({ ticket: str(a, "id"), text: `sent draft "${str(a, "label")}"` }),

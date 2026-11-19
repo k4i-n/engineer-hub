@@ -151,6 +151,61 @@ describe("github", () => {
     assert.equal(empty.status, 400);
   });
 
+  test("an ignored PR stays out whatever changes, hub items --all still lists it, and unignore brings it back", async () => {
+    const mine = "https://github.com/acme/web/pull/101";
+    answers.gh = graphql([], [PR(mine, { reviewDecision: "APPROVED" })]);
+    await hub("fetch", "github");
+    assert.match(await hub("item", "ignore", mine), /^#\d+ ignored$/);
+    answers.gh = graphql(
+      [],
+      [PR(mine, { commits: { nodes: [{ commit: { statusCheckRollup: { state: "FAILURE" } } }] } })],
+    );
+    await hub("fetch", "github");
+    assert.doesNotMatch(await hub("items", "--needs-me"), /pull\/101/);
+    assert.match(await hub("items", "--all"), /pull\/101 \| ignored$/m);
+    assert.doesNotMatch(await (await fetch(`${server.url}/?part=1`)).text(), /pull\/101/);
+    assert.match(
+      await (await fetch(`${server.url}/settings`)).text(),
+      /title of 101<\/span>[^<]*<button[^>]*data-act="item-unignore"/,
+    );
+    await hub("item", "unignore", mine);
+    assert.match(await hub("items", "--needs-me"), /pull\/101/);
+  });
+
+  test("ignoring a repo hides its review requests now and later, but not your PRs there, until undone", async () => {
+    const noisy = "https://github.com/acme/noisy/pull/1";
+    answers.gh = graphql(
+      [PR(noisy), PR("https://github.com/acme/web/pull/7")],
+      [PR("https://github.com/acme/noisy/pull/5", { reviewDecision: "APPROVED" })],
+    );
+    await hub("fetch", "github");
+    const page = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.match(
+      page,
+      /data-act="item-ignore" data-id="\d+" data-repo="1"><svg[\s\S]*?<span>Ignore review requests from acme\/web<\/span>/,
+    );
+    assert.match(page, /<span>Ignore my PRs from acme\/noisy<\/span>/);
+    assert.equal(await hub("item", "ignore", noisy, "--repo"), "Review requests from acme/noisy ignored");
+    assert.match(await hub("config", "ignoreRepos"), /"review_request":\["acme\/noisy"\],"pr":\[\]/);
+    answers.gh = graphql(
+      [PR(noisy), PR("https://github.com/acme/noisy/pull/2"), PR("https://github.com/acme/web/pull/7")],
+      [PR("https://github.com/acme/noisy/pull/5", { reviewDecision: "APPROVED" })],
+    );
+    await hub("fetch", "github");
+    const needs = await hub("items", "--needs-me");
+    assert.doesNotMatch(needs, /noisy\/pull\/[12]/);
+    assert.match(needs, /noisy\/pull\/5/);
+    assert.match(needs, /web\/pull\/7/);
+    const settings = await (await fetch(`${server.url}/settings`)).text();
+    assert.match(
+      settings,
+      /Review requests · acme\/noisy<\/span><button[^>]*data-act="repo-unignore" data-kind="review_request" data-repo="acme\/noisy"/,
+    );
+    await hub("item", "unignore", noisy, "--repo");
+    assert.equal((await hub("items", "--needs-me")).match(/acme\/noisy\/pull\/[12]/g)?.length, 2);
+    assert.match(await hub("config", "ignoreRepos"), /"review_request":\[\]/);
+  });
+
   test("without gh the source shows the error and Settings says how to fix it", async () => {
     assert.match(await hub("fetch"), /^github: gh is not installed$/);
     assert.match(await hub("sources"), /github \| last sync .* \| error: gh is not installed/);

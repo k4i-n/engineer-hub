@@ -14,7 +14,19 @@ import { HubError } from "./util.ts";
 
 export const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"];
 
-const NOT_TOOLS = ["find", "pin", "config", "config_set", "sync", "sync_status", "gate", "import"];
+const NOT_TOOLS = [
+  "find",
+  "pin",
+  "config",
+  "config_set",
+  "sync",
+  "sync_status",
+  "gate",
+  "import",
+  "item_ignore",
+  "item_unignore",
+  "repo_unignore",
+];
 const HUMAN_FIELDS: Record<string, string[]> = { match: ["answer"] };
 
 const INSTRUCTIONS =

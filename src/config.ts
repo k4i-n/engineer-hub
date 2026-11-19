@@ -29,6 +29,7 @@ export type Config = {
   fetch: Record<string, boolean>;
   fetchEvery: string;
   githubReviewQuery: string;
+  ignoreRepos: Record<string, string[]>;
   hiddenBlocks: string[];
   progressStyle: string;
   chartDays: number;
@@ -93,6 +94,7 @@ export const DEFAULTS: Config = {
   fetch: { github: true, linear: false, slack: false },
   fetchEvery: "1m",
   githubReviewQuery: "is:pr is:open review-requested:@me archived:false",
+  ignoreRepos: { review_request: [], pr: [] },
   hiddenBlocks: [],
   progressStyle: "ring",
   chartDays: 14,
@@ -180,6 +182,12 @@ function semanticError(key: Key, value: unknown): string | undefined {
   }
   if (key === "githubReviewQuery" && String(value).trim() === "") {
     return 'githubReviewQuery is a GitHub search, e.g. "is:pr is:open review-requested:@me archived:false"';
+  }
+  if (key === "ignoreRepos") {
+    const lists = Object.values(value as Record<string, unknown>);
+    if (lists.some((l) => !Array.isArray(l) || l.some((r) => typeof r !== "string" || !/^[\w.-]+\/[\w.-]+$/.test(r)))) {
+      return 'ignoreRepos takes owner/repo lists, e.g. {"review_request":["acme/noisy"],"pr":[]}';
+    }
   }
   if (key === "trackerSyncMarkers" && Array.isArray(value) && value.length !== 2) {
     return "trackerSyncMarkers takes exactly two strings: start and end";

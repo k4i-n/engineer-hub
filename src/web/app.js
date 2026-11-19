@@ -1,7 +1,12 @@
 const token = document.querySelector('meta[name="hub-token"]').content;
 const app = document.getElementById("app");
 const toasts = document.querySelector(".toasts");
-const UNDO = { "item-done": "item-reopen", "item-snooze": "item-reopen", "wait-close": "wait-reopen" };
+const UNDO = {
+  "item-done": "item-reopen",
+  "item-snooze": "item-reopen",
+  "wait-close": "wait-reopen",
+  "item-ignore": "item-unignore",
+};
 const LATER_TOAST = {
   "item-snooze": { "1h": "Snoozed for an hour", "4h": "Snoozed for 4 hours", tomorrow: "Snoozed until tomorrow" },
   "wait-pinged": { "1h": "Reminder in an hour", "4h": "Reminder in 4 hours", tomorrow: "Reminder tomorrow" },
@@ -12,6 +17,9 @@ const DONE_TEXT = {
   "item-reopen": "Back in the list",
   "wait-close": "Answered",
   "wait-reopen": "Back in the list",
+  "item-ignore": "Ignored",
+  "item-unignore": "Shown again",
+  "repo-unignore": "Shown again",
   sent: "Marked sent",
   match: "Saved",
   gate: "Answered",
@@ -224,6 +232,9 @@ const ROUTES = {
   "item-done": (d) => ["POST", `/items/${e(d.id)}/close`, {}],
   "item-snooze": (d) => ["POST", `/items/${e(d.id)}/snooze`, later(d)],
   "item-reopen": (d) => ["POST", `/items/${e(d.id)}/reopen`, {}],
+  "item-ignore": (d) => ["POST", `/items/${e(d.id)}/ignore`, d.repo ? { repo: true } : {}],
+  "item-unignore": (d) => ["POST", `/items/${e(d.id)}/unignore`, d.repo ? { repo: true } : {}],
+  "repo-unignore": (d) => ["POST", "/ignores/unignore", { kind: d.kind, repo: d.repo }],
   "wait-close": (d) => ["POST", `/waits/${e(d.id)}/close`, {}],
   "wait-pinged": (d) => ["POST", `/waits/${e(d.id)}/pinged`, later(d)],
   "wait-reopen": (d) => ["POST", `/waits/${e(d.id)}/reopen`, {}],
@@ -260,7 +271,7 @@ async function act(button) {
     await post(name, data);
     if (name === "sync") return;
     const undo = UNDO[name];
-    lastUndo = undo ? () => post(undo, { id: data.id }).then(() => toast(DONE_TEXT[undo])) : null;
+    lastUndo = undo ? () => post(undo, { id: data.id, repo: data.repo }).then(() => toast(DONE_TEXT[undo])) : null;
     const text =
       name === "pin" ? (data.on === "1" ? "Pinned" : "Unpinned") : (LATER_TOAST[name]?.[data.for] ?? DONE_TEXT[name]);
     toast(text ?? "Saved", {
