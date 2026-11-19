@@ -5,8 +5,9 @@ import { parseArgs } from "node:util";
 import { type Args, COMMAND_KEYS, params, ROUTES } from "./api.ts";
 import type { Ctx, Result } from "./commands.ts";
 import * as commands from "./commands.ts";
-import { dbPath, loadConfig } from "./config.ts";
+import { DEFAULTS, dbPath, loadConfig } from "./config.ts";
 import { openDb } from "./db.ts";
+import { gate, type StopInput } from "./gate.ts";
 import { addScript, removeScript } from "./scripts.ts";
 import { serve } from "./serve.ts";
 import * as service from "./service.ts";
@@ -41,6 +42,7 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         source <name> [--cursor <c>] [--error <text>] | fetch [source]
         source add <name> --every 5m -- <program> [args] | source remove <name>
         moved --as <session id> [--start] | moved --hook (reads a Claude Code hook's JSON on stdin)
+        record-gate --hook (Stop hook: blocks a session that ran a recordActions command and wrote nothing to hub after)
         step add <id> <title> | step done <id> <n> [--evidence <url>]
         day set <date> (--file <path> | --stdin) [--rev <rev>] | ticket-new <id> <title> [--dir todo]
         move <id> <dir> | order <id> <place | -> | gate <id> (yes | no) | config <key> <json>
@@ -505,6 +507,25 @@ async function hook(values: Values, io: Io): Promise<number> {
   return 0;
 }
 
+function recordActions(values: Values, io: Io): string[] {
+  const path = dbPath(values.db, io.env);
+  if (!existsSync(path)) return DEFAULTS.recordActions;
+  const db = openDb(path);
+  try {
+    return loadConfig(db).recordActions;
+  } finally {
+    db.close();
+  }
+}
+
+function recordGate(values: Values, io: Io): number {
+  try {
+    const result = gate(JSON.parse(io.readStdin()) as StopInput, recordActions(values, io));
+    if (result !== "") io.stdout(result);
+  } catch {}
+  return 0;
+}
+
 export async function run(argv: string[], io: Io): Promise<number> {
   let parsed: { values: Values; positionals: string[] };
   try {
@@ -518,6 +539,7 @@ export async function run(argv: string[], io: Io): Promise<number> {
   if (command === "service") return runService(args, parsed.values, io);
   if (command === "mcp-headers") return mcpHeaders(parsed.values, io);
   if (command === "moved" && parsed.values.hook) return hook(parsed.values, io);
+  if (command === "record-gate" && parsed.values.hook) return recordGate(parsed.values, io);
   const handler = command === undefined ? undefined : COMMANDS[command];
   if (command === undefined || handler === undefined) {
     io.stderr(USAGE);

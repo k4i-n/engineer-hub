@@ -710,6 +710,27 @@ describe("config", () => {
     assert.match((await hub("config", "theme", '"pink"')).err, /theme must be one of system, light, dark/);
     assert.match((await hub("config", "notifyNew", '"yes"')).err, /notifyNew takes a JSON boolean/);
     assert.match((await hub("config", "slackTeamId", '"acme"')).err, /workspace id/);
+    assert.match(
+      (await hub("config", "recordActions", '["deploy("]')).err,
+      /recordActions has deploy\(, which is not a valid regular expression/,
+    );
+  });
+});
+
+describe("record gate", () => {
+  test("the Stop hook blocks on the database's recordActions, and never fails the stop", async () => {
+    const path = join(dir, "session.jsonl");
+    const use = (command: string) => ({
+      type: "assistant",
+      message: { content: [{ type: "tool_use", name: "Bash", input: { command } }] },
+    });
+    writeFileSync(path, `${JSON.stringify(use("./deploy.sh prod"))}\n`);
+    stdin = JSON.stringify({ hook_event_name: "Stop", transcript_path: path });
+    assert.equal(await ok("record-gate", "--hook"), "");
+    await ok("config", "recordActions", '["deploy\\\\.sh"]');
+    assert.match(await ok("record-gate", "--hook"), /"decision":"block".*deploy\.sh prod/);
+    stdin = "not json";
+    assert.deepEqual(await hub("record-gate", "--hook"), { code: 0, out: "", err: "" });
   });
 });
 
