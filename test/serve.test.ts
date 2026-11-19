@@ -769,7 +769,9 @@ describe("mcp", () => {
   test("tools mirror the API without the dashboard's own routes or the human's answers", async () => {
     const { tools } = await result<{ tools: Tool[] }>(await rpc("tools/list"));
     const names = tools.map((t) => t.name);
-    for (const gone of ["gate", "pin", "config_set", "sync", "find"]) assert.ok(!names.includes(gone), gone);
+    for (const gone of ["gate", "pin", "config_set", "sync", "find", "ticket_delete", "ticket_merge"]) {
+      assert.ok(!names.includes(gone), gone);
+    }
     for (const kept of [
       "brief",
       "ticket",

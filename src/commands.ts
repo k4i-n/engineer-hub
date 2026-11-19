@@ -650,37 +650,119 @@ export function ticketNew(ctx: Ctx, id: string, title: string, dir: string): Res
 
 const TICKET_ROWS = ["event", "note", "draft", "item", "wait", "step"];
 
+function exec(ctx: Ctx, sql: string, ...params: (string | number)[]): void {
+  ctx.db.prepare(sql).run(...params);
+}
+
+function pointIdAt(ctx: Ctx, id: string, to: string): void {
+  exec(ctx, "UPDATE meta SET value = ? WHERE key LIKE 'moved-id:%' AND value = ?", to, id);
+  exec(ctx, "DELETE FROM meta WHERE key = ?", `moved-id:${to}`);
+  exec(
+    ctx,
+    "INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    `moved-id:${id}`,
+    to,
+  );
+}
+
+function dropPins(ctx: Ctx, id: string): void {
+  const match = `match-${id}-`;
+  exec(
+    ctx,
+    "DELETE FROM pin WHERE key IN (?, ?) OR substr(key, 1, ?) = ?",
+    `gate-${id}`,
+    `decide-${id}`,
+    match.length,
+    match,
+  );
+}
+
+function event(ctx: Ctx, id: string, text: string): void {
+  exec(
+    ctx,
+    "INSERT INTO event(ticket_id, ts, kind, text, source, created_at) VALUES (?, ?, 'log', ?, 'agent', ?)",
+    id,
+    nowTs(ctx.now, ctx.config.timezone),
+    text,
+    nowIso(ctx.now),
+  );
+}
+
 export function rename(ctx: Ctx, id: string, to: string): Result {
   getTicket(ctx.db, id);
   checkNewId(ctx, to);
-  const run = (sql: string, ...params: (string | number)[]) => ctx.db.prepare(sql).run(...params);
-  const at = nowIso(ctx.now);
-  run("UPDATE ticket SET id = ?, updated_at = ? WHERE id = ?", to, at, id);
-  for (const table of TICKET_ROWS) run(`UPDATE ${table} SET ticket_id = ? WHERE ticket_id = ?`, to, id);
-  for (const kind of ["gate", "decide"]) run("UPDATE pin SET key = ? WHERE key = ?", `${kind}-${to}`, `${kind}-${id}`);
+  exec(ctx, "UPDATE ticket SET id = ?, updated_at = ? WHERE id = ?", to, nowIso(ctx.now), id);
+  for (const table of TICKET_ROWS) exec(ctx, `UPDATE ${table} SET ticket_id = ? WHERE ticket_id = ?`, to, id);
+  for (const kind of ["gate", "decide"]) {
+    exec(ctx, "UPDATE pin SET key = ? WHERE key = ?", `${kind}-${to}`, `${kind}-${id}`);
+  }
   const match = `match-${id}-`;
-  run(
+  exec(
+    ctx,
     "UPDATE pin SET key = ? || substr(key, ?) WHERE substr(key, 1, ?) = ?",
     `match-${to}-`,
     match.length + 1,
     match.length,
     match,
   );
-  run("UPDATE meta SET value = ? WHERE key LIKE 'moved-id:%' AND value = ?", to, id);
-  run("DELETE FROM meta WHERE key = ?", `moved-id:${to}`);
-  run(
-    "INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    `moved-id:${id}`,
-    to,
-  );
-  run(
-    "INSERT INTO event(ticket_id, ts, kind, text, source, created_at) VALUES (?, ?, 'log', ?, 'agent', ?)",
-    to,
-    nowTs(ctx.now, ctx.config.timezone),
-    `renamed from ${id}`,
-    at,
-  );
+  pointIdAt(ctx, id, to);
+  event(ctx, to, `renamed from ${id}`);
   return { text: `${id} is now ${to}`, json: { id: to, from: id } };
+}
+
+export function deleteTicket(ctx: Ctx, id: string): Result {
+  getTicket(ctx.db, id);
+  for (const table of TICKET_ROWS.filter((t) => t !== "item")) {
+    exec(ctx, `DELETE FROM ${table} WHERE ticket_id = ?`, id);
+  }
+  exec(ctx, "UPDATE item SET ticket_id = NULL WHERE ticket_id = ?", id);
+  dropPins(ctx, id);
+  exec(ctx, "DELETE FROM meta WHERE key LIKE 'moved-id:%' AND value = ?", id);
+  exec(ctx, "DELETE FROM ticket WHERE id = ?", id);
+  return { text: `${id} deleted`, json: { id } };
+}
+
+export function checkMerge(ctx: Ctx, id: string, into: string): Ticket {
+  if (id === into) throw new HubError("a ticket cannot merge into itself");
+  getTicket(ctx.db, into);
+  return getTicket(ctx.db, id);
+}
+
+export function mergeTicket(ctx: Ctx, id: string, into: string): Result {
+  const from = checkMerge(ctx, id, into);
+  const suffix = ` (from ${id})`;
+  const offset = (table: string, column: string) =>
+    one<{ m: number }>(ctx.db, `SELECT coalesce(max(${column}), 0) AS m FROM ${table} WHERE ticket_id = ?`, into)?.m ??
+    0;
+  exec(
+    ctx,
+    `UPDATE note SET ticket_id = ?1, position = position + ?2,
+       title = CASE WHEN title IN (SELECT title FROM note WHERE ticket_id = ?1) THEN title || ?3 ELSE title END
+     WHERE ticket_id = ?4`,
+    into,
+    offset("note", "position") + 1,
+    suffix,
+    id,
+  );
+  exec(
+    ctx,
+    `UPDATE draft SET ticket_id = ?1,
+       label = CASE WHEN label IN (SELECT label FROM draft WHERE ticket_id = ?1) THEN label || ?2 ELSE label END
+     WHERE ticket_id = ?3`,
+    into,
+    suffix,
+    id,
+  );
+  exec(ctx, "UPDATE step SET ticket_id = ?, n = n + ? WHERE ticket_id = ?", into, offset("step", "n"), id);
+  for (const table of ["event", "item", "wait"]) {
+    exec(ctx, `UPDATE ${table} SET ticket_id = ? WHERE ticket_id = ?`, into, id);
+  }
+  dropPins(ctx, id);
+  pointIdAt(ctx, id, into);
+  exec(ctx, "DELETE FROM ticket WHERE id = ?", id);
+  exec(ctx, "UPDATE ticket SET updated_at = ? WHERE id = ?", nowIso(ctx.now), into);
+  event(ctx, into, `merged ${id}${from.title ? `: ${from.title}` : ""}`);
+  return { text: `${id} merged into ${into}`, json: { id: into, from: id } };
 }
 
 export function move(ctx: Ctx, id: string, dir: string): Result {
