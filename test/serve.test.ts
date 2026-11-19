@@ -437,11 +437,15 @@ describe("serve", () => {
     await reader.cancel();
   });
 
-  test("Sync runs the configured command once at a time with HUB_DB set, and reports failure", async () => {
+  test("Sync runs the configured command once at a time with HUB_DB and HUB_URL set, and reports failure", async () => {
     const db = new DatabaseSync(dbFile);
     const setCommand = (argv: string[]) =>
       db.prepare("INSERT OR REPLACE INTO config(key, value) VALUES ('syncCommand', ?)").run(JSON.stringify(argv));
-    setCommand(["node", "-e", "setTimeout(() => process.stdout.write(process.env.HUB_DB), 300)"]);
+    setCommand([
+      "node",
+      "-e",
+      "setTimeout(() => process.stdout.write(process.env.HUB_DB + ' ' + process.env.HUB_URL), 300)",
+    ]);
     assert.equal((await call("POST", "/sync", {})).status, 202);
     assert.equal((await call("POST", "/sync", {})).status, 409);
     assert.match(
@@ -452,7 +456,7 @@ describe("serve", () => {
       const s = await syncState();
       return s.status === "running" ? undefined : s;
     });
-    assert.deepEqual([finished.status, finished.detail], ["finished", dbFile]);
+    assert.deepEqual([finished.status, finished.detail], ["finished", `${dbFile} ${server.url}`]);
 
     setCommand(["node", "-e", "console.error('no connector'); process.exit(3)"]);
     assert.equal((await call("POST", "/sync", {})).status, 202);

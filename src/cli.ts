@@ -40,7 +40,8 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         day set <date> (--file <path> | --stdin) | ticket-new <id> <title> [--dir todo]
         move <id> <dir> | gate <id> (yes | no) | config <key> <json>
 import: import --root <dir> [--apply]
-serve:  serve [--port 7420] | service install [--port 7420] | service status | service uninstall`;
+serve:  serve [--port 7420] | service install [--port 7420] | service status | service uninstall
+        mcp-headers (the Authorization header for an MCP client's headersHelper)`;
 
 const OPTIONS = {
   json: { type: "boolean" },
@@ -413,6 +414,17 @@ async function request(call: Call, values: Values, io: Io): Promise<number> {
   return Number(response.headers.get("x-hub-exit") ?? "0");
 }
 
+function mcpHeaders(values: Values, io: Io): number {
+  const base = io.env.HUB_URL ?? DEFAULT_URL;
+  try {
+    io.stdout(JSON.stringify({ Authorization: `Bearer ${readToken(tokenPath(dbPath(values.db, io.env)), base)}` }));
+    return 0;
+  } catch (error) {
+    report(io, error);
+    return 1;
+  }
+}
+
 export async function run(argv: string[], io: Io): Promise<number> {
   let parsed: { values: Values; positionals: string[] };
   try {
@@ -424,6 +436,7 @@ export async function run(argv: string[], io: Io): Promise<number> {
   const [command, ...args] = parsed.positionals;
   if (command === "serve") return startServer(parsed.values, io);
   if (command === "service") return runService(args, parsed.values, io);
+  if (command === "mcp-headers") return mcpHeaders(parsed.values, io);
   const handler = command === undefined ? undefined : COMMANDS[command];
   if (command === undefined || handler === undefined) {
     io.stderr(USAGE);

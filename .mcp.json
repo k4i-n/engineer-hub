@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "hub": {
+      "type": "http",
+      "url": "${HUB_URL:-http://127.0.0.1:7420}/mcp",
+      "headersHelper": "node \"${CLAUDE_PLUGIN_ROOT}/src/cli.ts\" mcp-headers",
+      "alwaysLoad": true
+    }
+  }
+}

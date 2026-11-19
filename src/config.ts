@@ -76,7 +76,7 @@ export const DEFAULTS: Config = {
     "-p",
     "/engineer-hub:hub-sync",
     "--allowedTools",
-    "Bash(hub:*),Bash(gh search:*),Bash(gh pr view:*)",
+    "mcp__plugin_engineer-hub_hub,Bash(gh search:*),Bash(gh pr view:*)",
   ],
   openSlackIn: "browser",
   slackTeamId: "",

@@ -136,7 +136,7 @@ export function serve(options: ServeOptions): Promise<Server> {
       broadcast();
     };
     const proc = spawn(program, args, {
-      env: { ...options.env, HUB_DB: options.dbPath },
+      env: { ...options.env, HUB_DB: options.dbPath, HUB_URL: `http://127.0.0.1:${port}` },
       stdio: ["ignore", "pipe", "pipe"],
     });
     child = proc;

@@ -678,6 +678,11 @@ describe("client", () => {
     assert.match(errors[0] ?? "", /serves .*hub\.db, not .*elsewhere\.db: point HUB_DB or --db at it/);
   });
 
+  test("mcp-headers prints the bearer header from the token next to the database", async () => {
+    const token = readFileSync(join(dir, "token"), "utf8").trim();
+    assert.deepEqual(JSON.parse(await ok("mcp-headers")), { Authorization: `Bearer ${token}` });
+  });
+
   test("syncCommand is written from the terminal straight to the database", async () => {
     assert.match(await ok("config", "syncCommand", '["true"]'), /^syncCommand = \["true"\]$/);
     assert.equal(await ok("config", "syncCommand"), 'syncCommand = ["true"]');

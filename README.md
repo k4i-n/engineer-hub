@@ -129,16 +129,17 @@ The batch is checked whole before anything is written. An unchanged item changes
 
 ## Claude Code plugin
 
-The repository is a Claude Code plugin with two skills:
+The repository is a Claude Code plugin: the hub MCP server and two skills.
 
-- `hub-sync`: reads what is new since each source's cursor (GitHub through `gh`, Slack, the tracker and mail through the session's connectors), read only, judges it against `hub brief`, and writes items, posted drafts, closed waits and log lines with `hub`.
-- `hub-plan`: syncs, then writes the plan for today with `hub day set`.
+- `.mcp.json` connects to `${HUB_URL:-http://127.0.0.1:7420}/mcp`; its `headersHelper` runs `hub mcp-headers`, which prints the bearer header from the token next to the database (`HUB_DB`), so no token sits in a config file or the environment. `alwaysLoad` makes a headless `claude -p` wait for the hub tools before it starts.
+- `hub-sync`: reads what is new since each source's cursor (GitHub through `gh`, Slack, the tracker and mail through the session's connectors), read only, judges it against the hub `brief`, and writes items, posted drafts, closed waits and log lines through the hub tools.
+- `hub-plan`: syncs, then writes the plan for today with `day_set`.
 
 ```
 /plugin install engineer-hub --marketplace nhkhai-vn/engineer-hub
 ```
 
-The skills call `hub`, so it must be on `PATH`.
+Tools show as `mcp__plugin_engineer-hub_hub__<tool>`; allow the whole server with `mcp__plugin_engineer-hub_hub`.
 
 ## Dashboard
 
@@ -155,10 +156,10 @@ A live page on this machine only: what needs you (review requests, mentions, ale
 
 A full-width top row holds the Overview: how many things need you, split by category (a click jumps to that card), the share of steps done across open tickets as a gauge, open tickets by state as a donut, and steps done per day as a line chart with the change against the previous period (7, 14 or 30 days, switched in the card). Below it are two columns. What needs you is split into cards by what to do: Pinned, Fix now (alerts), Review, Reply (messages and sent-draft checks), My PRs, Triage, Waiting on (pings due), Decide (approve? and decide), each with a count; a click on a card title folds it and the browser remembers. The total sits next to the hub logo, and a ticket with open rows shows "2 need you" (its page lists them). Every card, Tickets, Today, Drafts and Activity can be dragged by the grip at its top right to any place in the top row or either column, or moved or hidden with the grip menu; the order is stored in the `layout` config key, and Settings shows or hides each card and has Reset. Ticket progress is a ring with the percentage by default (Settings: ring, half circle or bar). Every row ends in the same three controls: ✓ handled (done, or answered for a ping), a clock for later (snooze, or "pinged, remind me"; one click means tomorrow 09:00, Settings: 7:00 to 10:00) and ⋯ (pin to top, snooze 1 hour, 4 hours or until tomorrow, open, copy link). Questions (is this your sent draft? approve?) are answered with Yes / No under the title. Done, snoozed and answered rows stay in place, dimmed, with Undo, while the page is open; after a reload they sit in a folded "Done & snoozed" line at the end of their group until the day ends. Today shows its first 3 list items, draft bodies show one line until clicked, Activity shows the last 5, and the header names only sources that are failing or stale. Tickets has two tabs: Ongoing, and Done for tickets finished in the last 14 days (Settings: 7, 14 or 30). The tab title and icon carry the count, new rows flash, and with notifications on (Settings) a background tab raises a browser notification. Settings (`/settings`, or `,`) choose browser or app for Slack and Linear links, notifications, sound, theme, time zone and the sync command, and show the database path. Sync is the round-arrows icon in the header (it spins while a run is going; hover shows the elapsed time). Auto sync is on by default: `hub serve` starts the same run every 15 minutes after the last one (Settings → Sync: off, or 15 min, 30 min, 1 hour, 2 hours; config `autoSync`, `syncEvery`). Each run is a headless Claude session and uses plan quota. The search box in the header (`/`) finds tickets, items, steps, notes, drafts and log lines as you type; arrows pick, Enter opens, Esc clears. Keys: `j`/`k` move, `Enter` opens, `e` handled, `s` later, `y`/`n` yes or no, `p` pin, `u` undo, `/` search, `,` settings (again to go back).
 
-Sync runs `syncCommand` (default `claude -p /engineer-hub:hub-sync` with `hub` and `gh` read commands allowed), once at a time, with `HUB_DB` pointing at the served database. Each run spends Claude usage. A headless run can use only the tools it is allowed, so add each connector you sync from:
+Sync runs `syncCommand` (default `claude -p /engineer-hub:hub-sync` with the hub MCP tools and `gh` read commands allowed), once at a time, with `HUB_DB` and `HUB_URL` pointing at the serving hub. Each run spends Claude usage. A headless run can use only the tools it is allowed, so add each connector you sync from:
 
 ```sh
-hub config syncCommand '["claude","-p","/engineer-hub:hub-sync","--allowedTools","Bash(hub:*),Bash(gh search:*),Bash(gh pr view:*),mcp__claude_ai_Slack,mcp__claude_ai_Linear,mcp__claude_ai_Gmail"]'
+hub config syncCommand '["claude","-p","/engineer-hub:hub-sync","--allowedTools","mcp__plugin_engineer-hub_hub,Bash(gh search:*),Bash(gh pr view:*),mcp__claude_ai_Slack,mcp__claude_ai_Linear,mcp__claude_ai_Gmail"]'
 ```
 
 ## API
@@ -176,13 +177,13 @@ Responses are the CLI's `--json` output, or its text with `Accept: text/plain` (
 
 ## MCP
 
-`hub serve` is also an MCP server (streamable HTTP) at `http://127.0.0.1:7420/mcp`, with the same bearer token. Its tools are the API's routes for agents (`brief`, `board`, `ticket`, `ticket_set`, `log`, `item_put`, `wait_add`, `draft_save`, `posted`, `match`, `step_done`, ...), each read-only or marked when it replaces data. Tools never answer for the human: there is no gate answer, no match answer, no pin, config or Sync. Add it to any agent that speaks MCP; for Claude Code:
+`hub serve` is also an MCP server (streamable HTTP) at `http://127.0.0.1:7420/mcp`, with the same bearer token. Its tools are the API's routes for agents (`brief`, `board`, `ticket`, `ticket_set`, `log`, `item_put`, `wait_add`, `draft_save`, `posted`, `match`, `step_done`, ...), each read-only or marked when it replaces data. Tools never answer for the human: there is no gate answer, no match answer, no pin, config or Sync. The Claude Code plugin below connects it for you. For any other agent that speaks MCP:
 
 ```json
 { "mcpServers": { "hub": { "type": "http", "url": "http://127.0.0.1:7420/mcp", "headers": { "Authorization": "Bearer ${HUB_TOKEN}" } } } }
 ```
 
-with `HUB_TOKEN=$(cat ~/.hub/token)` in the environment.
+with `HUB_TOKEN=$(cat ~/.hub/token)` in the environment, or a `headersHelper` of `hub mcp-headers` where the client has one.
 
 ## Import from a markdown ticket folder
 
@@ -200,18 +201,18 @@ Every section lands in the database. Other headings become notes. A state field 
 
 ## For agents
 
-Put this in the agent's instructions:
+With the hub MCP tools connected (plugin or `/mcp`), put this in the agent's instructions; the server's MCP instructions say the same in short:
 
 ```
-Cold start for a ticket: `hub board <id>` then `hub ticket <id>`. Read a note only when the next action needs it: `hub note-show <id> "<title>"`.
-During work, in the same shell call as the work: `hub log <id> "<what changed, readings, decisions>"`, `hub set <id> next "<one action>"`, `hub set <id> gate "<decision waiting on the human, or ->"`, `hub link <id> <url>` for every PR, run, thread or doc touched.
-Waiting on someone: `hub wait <id> "<who>" <thread url> --ping-after 1d`; `hub waits --due` says whom to ping.
-Sync: read only what is new since `hub sources` shows, write it with `hub item put --stdin`, then `hub source <name> --cursor <c>`. `hub items --needs-me` is what waits on the user.
-Drafts for humans to post: `hub draft <id> "<label>" --stdin`; when posted: `hub posted <id> "<label>" --channel "<where>" --ref <permalink> --stdin` with the wording actually sent.
-Daily plan: `hub day` to resume; `hub day set <date> --file <plan.md>` after writing it.
-Longer content: `hub note <id> "<title>" --file <path>`.
-State fields are one line each; the CLI refuses more and says where the text belongs.
+Cold start for a ticket: brief, then board or ticket. Read a note only when the next action needs it (note).
+During work: log what changed, readings and decisions; ticket_set next (one action) and gate (a decision waiting on the human); link every PR, run, thread or doc touched.
+Waiting on someone: wait_add with ping_after; waits with due says whom to ping.
+Drafts for humans to post: draft_save; when posted: posted with the wording actually sent and its permalink.
+Daily plan: day to resume; day_set after writing it. Longer content: note_save.
+State fields are one line each; hub refuses more and says where the text belongs. Never answer a gate or a draft match for the human.
 ```
+
+Without MCP, the same through the CLI: `hub ticket`, `hub log`, `hub set`, `hub link`, `hub wait`, `hub draft`, `hub posted`, `hub day set`, `hub note`.
 
 ## Development
 

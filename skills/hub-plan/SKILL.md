@@ -5,22 +5,14 @@ description: Write the engineer's plan for today into the local hub record from 
 
 # hub-plan
 
-1. Run the `hub-sync` skill first, unless a sync finished in the last 30 minutes (`hub sources`).
-2. Read, in this order, and nothing else unless a ticket needs it:
+The hub MCP tools (`mcp__plugin_engineer-hub_hub__*`) are named below by their short names.
 
-   ```sh
-   hub items --needs-me
-   hub waits --due
-   hub gates
-   hub next
-   hub day
-   ```
-
+1. Run the `hub-sync` skill first, unless `sources` shows a sync in the last 30 minutes.
+2. Read, in this order, and nothing else unless a ticket needs it: `items` with `needs_me: true`, `waits` with `due: true`, `gates`, `next`, `day`.
 3. Order the day: what blocks other people first (review requests, questions asked of the engineer, alerts), then pings that are due, then decisions waiting on the engineer, then ticket work by priority. Carry over yesterday's unfinished RESUME items.
-4. Write the plan into hub, never into a file:
+4. Write the plan into hub, never into a file: `day_set` with `date` and `body`:
 
-   ```sh
-   hub day set <YYYY-MM-DD> --stdin <<'MD'
+   ```markdown
    # Plan <YYYY-MM-DD>
 
    ## RESUME
@@ -28,8 +20,7 @@ description: Write the engineer's plan for today into the local hub record from 
 
    ## Today
    - [ ] <ticket id>: <one action>
-   MD
    ```
 
-5. For each ticket worked today, keep its state in hub as the work goes: `hub set <id> next "<one action>"`, `hub step done <id> <n>` when a step finishes, `hub log <id> "<what changed>"`. When the engineer's rules say to stop and ask (merge, deploy, send a message), stop and record it: `hub set <id> gate "<the question>"`.
+5. For each ticket worked today, keep its state in hub as the work goes: `ticket_set` with `next` (one action), `step_done` when a step finishes, `log` for what changed. When the engineer's rules say to stop and ask (merge, deploy, send a message), stop and record it: `ticket_set` with `gate` (the question). Never answer a gate yourself.
 6. Reply with the RESUME block and the list, nothing else.
