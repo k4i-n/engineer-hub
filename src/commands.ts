@@ -16,6 +16,7 @@ import {
   type StepRow,
   type Ticket,
 } from "./db.ts";
+import { span } from "./horizon.ts";
 import { splitResume } from "./parse.ts";
 import { progress } from "./steps.ts";
 import { cut, HubError, nowIso, nowTs, sendTime, sinceDate, startOfDayIso, today } from "./util.ts";
@@ -71,8 +72,8 @@ export function openTickets(ctx: Ctx): Ticket[] {
 
 export function recentlyDone(ctx: Ctx): Ticket[] {
   const open = new Set(openTickets(ctx).map((t) => t.id));
-  const since = new Date(ctx.now.getTime() - ctx.config.doneDays * 86_400_000).toISOString();
-  return all<Ticket>(ctx.db, "SELECT * FROM ticket WHERE updated_at >= ? ORDER BY updated_at DESC, id", since).filter(
+  const { from } = span(ctx.config.horizon, ctx.now, ctx.config.timezone);
+  return all<Ticket>(ctx.db, "SELECT * FROM ticket WHERE updated_at >= ? ORDER BY updated_at DESC, id", from).filter(
     (t) => !open.has(t.id),
   );
 }

@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
+import { HORIZONS } from "./horizon.ts";
 import { HubError, nowIso } from "./util.ts";
 
 export type Config = {
@@ -32,8 +33,7 @@ export type Config = {
   ignoreRepos: Record<string, string[]>;
   hiddenBlocks: string[];
   progressStyle: string;
-  chartDays: number;
-  doneDays: number;
+  horizon: string;
   laterHour: number;
 };
 
@@ -97,8 +97,7 @@ export const DEFAULTS: Config = {
   ignoreRepos: { review_request: [], pr: [] },
   hiddenBlocks: [],
   progressStyle: "ring",
-  chartDays: 14,
-  doneDays: 14,
+  horizon: "14d",
   laterHour: 9,
 };
 
@@ -109,8 +108,7 @@ const CHOICES: Partial<Record<keyof Config, string[]>> = {
   syncEvery: ["15m", "30m", "1h", "2h", "4h"],
   fetchEvery: ["1m", "5m", "15m", "30m"],
   progressStyle: ["ring", "half", "bar"],
-  chartDays: ["7", "14", "30"],
-  doneDays: ["7", "14", "30"],
+  horizon: HORIZONS,
 };
 
 type Key = keyof Config;
