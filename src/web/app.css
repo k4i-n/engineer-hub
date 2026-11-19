@@ -1336,7 +1336,13 @@ a.chip-btn:hover {
   background: var(--panel);
   box-shadow: 0 12px 32px rgb(0 0 0 / 18%);
 }
+.hit-row {
+  display: flex;
+  align-items: center;
+}
 .hit {
+  flex: 1;
+  min-width: 0;
   display: grid;
   grid-template-columns: 76px minmax(0, 1fr) auto;
   align-items: center;
@@ -1388,6 +1394,21 @@ a.chip-btn:hover {
   font-size: 12px;
   font-weight: 600;
   color: var(--accent);
+}
+.hit-out {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  color: var(--muted);
+  text-decoration: none;
+}
+.hit-out:hover {
+  background: var(--sunk);
+  color: var(--accent);
+  text-decoration: none;
 }
 .hit-none {
   padding: 10px;
