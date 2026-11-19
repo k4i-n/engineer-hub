@@ -384,6 +384,7 @@ describe("linear", () => {
           },
         ],
       },
+      comments: { nodes: [] },
     },
   };
 
@@ -406,6 +407,59 @@ describe("linear", () => {
       needs,
       /linear\/message \| needs you \| ENG-42 Yui mentioned you: can you check the cookie path\? \| mention \| ENG-42/,
     );
+  });
+
+  test("new comments from others on my issues and tickets are Reply items on the ticket timeline", async () => {
+    await hub("config", "fetch", '{"github":false,"linear":true}');
+    answers.security = () => ({ code: 0, stdout: "lin_api_x\n", stderr: "" });
+    const issue = (id: string) => ({ identifier: id, title: "t", url: `https://linear.app/acme/issue/${id}` });
+    const withComments = {
+      data: {
+        ...LINEAR.data,
+        comments: {
+          nodes: [
+            {
+              url: "https://linear.app/acme/issue/ENG-42#comment-2",
+              body: "rebased,\nplease re-check",
+              user: { name: "Ana" },
+              issue: issue("ENG-42"),
+            },
+            {
+              url: "https://linear.app/acme/issue/ENG-42#comment-1",
+              body: "can you check the cookie path?",
+              user: { name: "Yui" },
+              issue: issue("ENG-42"),
+            },
+            {
+              url: "https://linear.app/acme/issue/ENG-63#comment-3",
+              body: "repro attached",
+              user: null,
+              issue: issue("ENG-63"),
+            },
+          ],
+        },
+      },
+    };
+    httpAnswer = (_url, body) => {
+      const sent = JSON.parse(body) as { query: string; variables: { tickets: string[] } };
+      assert.deepEqual(sent.variables.tickets, ["ENG-42"]);
+      assert.match(
+        sent.query,
+        /comments\(\s*filter: \{\s*createdAt: \{ gt: \$since \}\s*user: \{ isMe: \{ eq: false \} \}/,
+      );
+      return { status: 200, body: JSON.stringify(withComments) };
+    };
+    assert.match(await hub("fetch"), /^linear: items: 6 new/);
+    const needs = await hub("items", "--needs-me", "--source", "linear");
+    assert.match(
+      needs,
+      /linear\/message \| needs you \| ENG-42 Ana commented: rebased, please re-check \| comment \| ENG-42/,
+    );
+    assert.match(needs, /linear\/message \| needs you \| ENG-63 someone commented: repro attached \| comment/);
+    assert.equal(needs.match(/cookie path/g)?.length, 1);
+    assert.match(await hub("events", "ENG-42"), /\[sync\] New .*Ana commented: rebased/);
+    const page = await (await fetch(server.url)).text();
+    assert.match(page, /Reply[\s\S]*Ana commented: rebased/);
   });
 
   test("an issue that is a ticket fills the ticket's tracker fields, once per change", async () => {
