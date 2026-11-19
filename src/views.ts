@@ -975,6 +975,7 @@ function size(bytes: number): string {
 export type Fetching = {
   name: string;
   on: boolean;
+  script: string | null;
   how: string | null;
   ok: boolean | null;
   fixes: string[];
@@ -986,7 +987,10 @@ function sourceRows(ctx: Ctx, list: Fetching[]): string {
   const next = (name: string, on: boolean) => JSON.stringify({ ...ctx.config.fetch, [name]: on });
   return list
     .map((f) => {
-      const swtch = `<button type="button" role="switch" aria-checked="${f.on}" class="switch${f.on ? " on" : ""}" data-config="fetch" data-value="${esc(next(f.name, !f.on))}"><span class="knob"></span></button>`;
+      const swtch =
+        f.script !== null
+          ? `<code class="src-script">${esc(f.script)}</code>`
+          : `<button type="button" role="switch" aria-checked="${f.on}" class="switch${f.on ? " on" : ""}" data-config="fetch" data-value="${esc(next(f.name, !f.on))}"><span class="knob"></span></button>`;
       const state =
         f.error !== null
           ? `<span class="src-state tone-red">${esc(f.error)}</span>`
@@ -994,7 +998,7 @@ function sourceRows(ctx: Ctx, list: Fetching[]): string {
             ? `<span class="src-state">${esc(f.how ?? "ok")} · ${esc(ago(ctx, f.last) === "now" ? "just now" : `${ago(ctx, f.last)} ago`)}</span>`
             : `<span class="src-state">${f.on ? "not fetched yet" : "off"}</span>`;
       const fixes =
-        f.ok === true && f.error === null
+        f.script === null && f.ok === true && f.error === null
           ? ""
           : f.fixes.map((cmd) => `<pre class="text code">${esc(cmd)}</pre>`).join("");
       return row(f.name, `${swtch}${state}${fixes}`);

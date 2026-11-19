@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
@@ -344,5 +344,98 @@ describe("slack", () => {
     answers.security = () => ({ code: 0, stdout: "xoxp-1\n", stderr: "" });
     httpAnswer = () => ({ status: 200, body: JSON.stringify({ ok: false, error: "missing_scope" }) });
     assert.match(await hub("fetch", "slack"), /^slack: slack auth.test: missing_scope$/);
+  });
+});
+
+describe("script sources", () => {
+  async function fails(...argv: string[]): Promise<string> {
+    let err = "";
+    const io: Io = {
+      stdout: () => {},
+      stderr: (t) => {
+        err += t;
+      },
+      readStdin: () => "",
+      env: { HUB_DB: dbFile, HUB_URL: server.url },
+      now: () => new Date(),
+    };
+    assert.equal(await run(argv, io), 1);
+    return err;
+  }
+
+  test("added from the terminal, run with HUB_SINCE, their lines become items under the script's name", async () => {
+    assert.match(
+      await hub("source", "add", "pagerduty", "--every", "5m", "--", "pd-items", "--team", "web"),
+      /^script source pagerduty: pd-items --team web, every 5m$/,
+    );
+    const seen: string[][] = [];
+    answers["pd-items"] = (args) => {
+      seen.push(args);
+      return {
+        code: 0,
+        stdout:
+          '{"kind":"alert","ref":"PD-1","title":"API down","needs_me":true}\n\n{"source":"pd","kind":"alert","ref":"PD-2","title":"disk"}\n',
+        stderr: "",
+      };
+    };
+    assert.match(await hub("fetch", "pagerduty"), /^pagerduty: items: 2 new/);
+    assert.deepEqual(seen[0], ["--team", "web"]);
+    assert.match(await hub("items", "--needs-me"), /pagerduty\/alert \| needs you \| API down/);
+    assert.match(await hub("items", "--source", "pd"), /pd\/alert \| disk/);
+    assert.match(await hub("sources"), /script pagerduty: pd-items --team web \| every 5m/);
+    const settings = await (await fetch(`${server.url}/settings?part=1`)).text();
+    assert.match(settings, /pd-items --team web · every 5m[\s\S]*?hub source remove pagerduty/);
+    assert.match(await hub("source", "remove", "pagerduty"), /removed/);
+    assert.match(await fails("fetch", "pagerduty"), /no source pagerduty to fetch/);
+  });
+
+  test("a failing run or a bad line writes nothing and is the source error", async () => {
+    await hub("source", "add", "cf", "--every", "1m", "--", "cf-items");
+    answers["cf-items"] = () => ({
+      code: 0,
+      stdout: '{"kind":"alert","ref":"a","title":"ok"}\n{"kind":"nope","ref":"b"}\n',
+      stderr: "",
+    });
+    assert.match(await hub("fetch", "cf"), /^cf: line 2: kind must be one of/);
+    assert.match(await hub("items", "--all", "--source", "cf"), /no items/);
+    answers["cf-items"] = () => ({ code: 3, stdout: "", stderr: "warming up\nunauthorized: check the key\n" });
+    assert.match(await hub("fetch", "cf"), /^cf: exit 3: unauthorized: check the key$/);
+    assert.match(await hub("sources"), /cf \| last sync .* \| error: exit 3: unauthorized: check the key/);
+  });
+
+  test("names of built-ins are taken, an interval and a program are required, and the API cannot add one", async () => {
+    assert.match(await fails("source", "add", "github", "--every", "5m", "--", "x"), /github, linear, slack are taken/);
+    assert.match(await fails("source", "add", "cf", "--", "x"), /usage: hub source add/);
+    assert.match(await fails("source", "add", "cf", "--every", "soon", "--", "x"), /--every takes a duration/);
+    assert.match(await fails("source", "add", "cf", "--every", "5m"), /give the program after --/);
+    const r = await fetch(`${server.url}/api/v1/sources/cf`, {
+      method: "PUT",
+      headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ argv: ["sh", "-c", "id"] }),
+    });
+    assert.equal(r.status, 400);
+  });
+
+  test("the real runner passes argv with no shell and HUB_SINCE from the last good run", async () => {
+    await server.close();
+    server = await serve({
+      dbPath: dbFile,
+      port: 0,
+      now: () => new Date(),
+      env: {},
+      fetchers: [],
+      fetchCheckMs: 3_600_000,
+    });
+    const script = join(dir, "echo-items.mjs");
+    writeFileSync(
+      script,
+      'process.stdout.write(JSON.stringify({kind:"other",ref:"since-"+(process.env.HUB_SINCE||"none"),title:process.argv.slice(2).join("|")})+"\\n")',
+    );
+    await hub("source", "add", "echo", "--every", "1m", "--", process.execPath, script, "a b", "$(id)");
+    await hub("fetch", "echo");
+    assert.match(await hub("items", "--source", "echo"), /echo\/other \| a b\|\$\(id\) \| since-none/);
+    const cursor = (await hub("sources")).match(/echo \| last sync .* \| cursor (\S+)/)?.[1] ?? "";
+    await hub("fetch", "echo");
+    assert.match(await hub("items", "--source", "echo"), new RegExp(`since-${cursor.replaceAll(".", "\\.")}`));
   });
 });

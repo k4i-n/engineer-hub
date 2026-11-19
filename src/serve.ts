@@ -92,15 +92,16 @@ async function readBody(req: IncomingMessage): Promise<Args> {
 }
 
 function fetching(c: Ctx, runner: Runner): Fetching[] {
-  return runner.fetchers.map((f) => {
+  return runner.fetchers(c).map((f) => {
     const row = one<SourceRow>(c.db, "SELECT * FROM source WHERE name = ?", f.name);
     const state = runner.status.get(f.name);
     return {
       name: f.name,
-      on: c.config.fetch[f.name] === true,
+      on: f.argv !== undefined || c.config.fetch[f.name] === true,
+      script: f.argv === undefined ? null : `${f.argv.join(" ")} · every ${f.every ?? ""}`,
       how: state?.check?.how ?? null,
       ok: state?.check?.ok ?? null,
-      fixes: runner.fixes(f.name),
+      fixes: runner.fixes(f),
       last: row?.last_sync ?? null,
       error: row?.last_error ?? null,
     };

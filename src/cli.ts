@@ -3,10 +3,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { type Args, COMMAND_KEYS, params, ROUTES } from "./api.ts";
-import type { Result } from "./commands.ts";
+import type { Ctx, Result } from "./commands.ts";
 import * as commands from "./commands.ts";
 import { dbPath, loadConfig } from "./config.ts";
 import { openDb } from "./db.ts";
+import { addScript, removeScript } from "./scripts.ts";
 import { serve } from "./serve.ts";
 import * as service from "./service.ts";
 import { tokenPath } from "./token.ts";
@@ -36,7 +37,8 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         link <id> <url> [--kind <k>] [--title <t>]
         item put --stdin | item close <item>... | item snooze <item> [--for 1d|tomorrow] | item reopen <item> | item attach <item> <id>
         wait <id> <who> <url> [--ping-after 1d] | wait close <wait | url> | wait pinged <wait> [--for 1d|tomorrow] | wait reopen <wait>
-        source <name> [--cursor <c>] [--error <text>] | fetch [github|linear|slack]
+        source <name> [--cursor <c>] [--error <text>] | fetch [source]
+        source add <name> --every 5m -- <program> [args] | source remove <name>
         step add <id> <title> | step done <id> <n> [--evidence <url>]
         day set <date> (--file <path> | --stdin) | ticket-new <id> <title> [--dir todo]
         move <id> <dir> | gate <id> (yes | no) | config <key> <json>
@@ -64,6 +66,7 @@ const OPTIONS = {
   ticket: { type: "string" },
   "ping-after": { type: "string" },
   "send-at": { type: "string" },
+  every: { type: "string" },
   due: { type: "boolean" },
   cursor: { type: "string" },
   error: { type: "string" },
@@ -95,6 +98,7 @@ type Values = {
   ticket?: string;
   "ping-after"?: string;
   "send-at"?: string;
+  every?: string;
   due?: boolean;
   cursor?: string;
   error?: string;
@@ -372,13 +376,30 @@ function readToken(file: string, base: string): string {
   }
 }
 
-function localConfig(key: string, raw: string, values: Values, io: Io): Result {
+function local(values: Values, io: Io, work: (ctx: Ctx) => Result): Result {
   const db = openDb(dbPath(values.db, io.env));
   try {
-    return commands.config({ db, config: loadConfig(db), now: io.now() }, key, raw);
+    return work({ db, config: loadConfig(db), now: io.now() });
   } finally {
     db.close();
   }
+}
+
+function localWrite(command: string, args: string[], values: Values, io: Io): Result | null {
+  const [first, second, third] = args;
+  if (command === "config" && first !== undefined && second !== undefined && COMMAND_KEYS.includes(first)) {
+    return local(values, io, (ctx) => commands.config(ctx, first, second));
+  }
+  if (command === "source" && first === "add") {
+    const usage = "usage: hub source add <name> --every 5m -- <program> [args]";
+    if (second === undefined || values.every === undefined) throw new HubError(usage);
+    return local(values, io, (ctx) => addScript(ctx, second, values.every as string, args.slice(2)));
+  }
+  if (command === "source" && first === "remove") {
+    if (second === undefined || third !== undefined) throw new HubError("usage: hub source remove <name>");
+    return local(values, io, (ctx) => removeScript(ctx, second));
+  }
+  return null;
 }
 
 async function request(call: Call, values: Values, io: Io): Promise<number> {
@@ -452,10 +473,9 @@ export async function run(argv: string[], io: Io): Promise<number> {
     return 2;
   }
   try {
-    const key = args[1] === undefined ? undefined : args[0];
-    if (command === "config" && key !== undefined && COMMAND_KEYS.includes(key)) {
-      const result = localConfig(key, args[1] as string, parsed.values, io);
-      io.stdout(parsed.values.json ? JSON.stringify(result.json) : result.text);
+    const written = localWrite(command, args, parsed.values, io);
+    if (written !== null) {
+      io.stdout(parsed.values.json ? JSON.stringify(written.json) : written.text);
       return 0;
     }
     return await request(handler(args, parsed.values, io), parsed.values, io);
