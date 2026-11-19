@@ -836,3 +836,87 @@ describe("send later", () => {
     assert.match(again, /from you since [\d-]+ [\d:]+: none$/);
   });
 });
+
+describe("backups", () => {
+  test("hub backs up at start and on demand, restores in place, and shows a failed backup", async () => {
+    const own = mkdtempSync(join(tmpdir(), "hub-backups-"));
+    let clock = new Date("2026-11-19T00:00:00Z");
+    const s = await serve({ dbPath: join(own, "hub.db"), port: 0, now: () => clock, env: process.env, fetchers: [] });
+    const req = (method: string, path: string, body?: unknown) =>
+      fetch(`${s.url}/api/v1${path}`, {
+        method,
+        headers: { authorization: `Bearer ${s.token}` },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+    const names = async () => ((await (await req("GET", "/backups")).json()) as { name: string }[]).map((b) => b.name);
+    try {
+      assert.deepEqual(await names(), ["hub-20261119-000000.db"]);
+      assert.ok((await req("POST", "/tickets", { id: "ENG-1", title: "after the backup" })).ok);
+      clock = new Date("2026-11-19T00:00:05Z");
+      assert.ok((await req("POST", "/backups")).ok);
+      assert.deepEqual(await names(), ["hub-20261119-000005.db", "hub-20261119-000000.db"]);
+
+      clock = new Date("2026-11-19T00:00:10Z");
+      const restored = await req("POST", "/backups/restore", { name: "hub-20261119-000000.db" });
+      assert.deepEqual(await restored.json(), {
+        restored: "hub-20261119-000000.db",
+        saved: "hub-20261119-000010-before-restore.db",
+      });
+      assert.equal((await req("GET", "/tickets/ENG-1")).ok, false);
+      clock = new Date("2026-11-19T00:00:15Z");
+      assert.ok((await req("POST", "/backups/restore", { name: "hub-20261119-000010-before-restore.db" })).ok);
+      assert.ok((await req("GET", "/tickets/ENG-1")).ok);
+      assert.equal((await req("POST", "/backups/restore", { name: "../hub.db" })).status, 400);
+
+      const settings = await (await fetch(`${s.url}/settings?part=1`)).text();
+      assert.match(settings, /data-config-input="backupDir" value="" placeholder="[^"]*\/backups"/);
+      assert.match(settings, /hub-20261119-000015-before-restore\.db · /);
+      assert.equal((await req("PUT", "/config/backupDir", { value: "relative/dir" })).status, 400);
+      assert.ok((await req("PUT", "/config/backupDir", { value: join(own, "hub.db") })).ok);
+      clock = new Date("2026-11-19T00:00:20Z");
+      assert.equal((await req("POST", "/backups")).ok, false);
+      assert.match(
+        await (await fetch(`${s.url}/?part=1`)).text(),
+        /<a class="src src-bad" href="\/settings" title="[^"]+"><i><\/i>backup<small>failed<\/small><\/a>/,
+      );
+    } finally {
+      await s.close();
+      rmSync(own, { recursive: true, force: true });
+    }
+  });
+  test("the schedule backs up when the newest backup is older than backupEvery, unless switched off", async () => {
+    const own = mkdtempSync(join(tmpdir(), "hub-backups-"));
+    let clock = new Date("2026-11-19T00:00:00Z");
+    const s = await serve({
+      dbPath: join(own, "hub.db"),
+      port: 0,
+      now: () => clock,
+      env: process.env,
+      fetchers: [],
+      backupCheckMs: 10,
+    });
+    const req = (method: string, path: string, body?: unknown) =>
+      fetch(`${s.url}/api/v1${path}`, {
+        method,
+        headers: { authorization: `Bearer ${s.token}` },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+    const count = async () => ((await (await req("GET", "/backups")).json()) as unknown[]).length;
+    const settle = () => new Promise((r) => setTimeout(r, 60));
+    try {
+      assert.ok((await req("PUT", "/config/backupEvery", { value: "1h" })).ok);
+      clock = new Date("2026-11-19T00:30:00Z");
+      await settle();
+      assert.equal(await count(), 1);
+      clock = new Date("2026-11-19T01:30:00Z");
+      await waitFor(async () => ((await count()) === 2 ? true : undefined));
+      assert.ok((await req("PUT", "/config/autoBackup", { value: false })).ok);
+      clock = new Date("2026-11-19T05:00:00Z");
+      await settle();
+      assert.equal(await count(), 2);
+    } finally {
+      await s.close();
+      rmSync(own, { recursive: true, force: true });
+    }
+  });
+});

@@ -21,6 +21,9 @@ export type Hooks = {
   syncStatus: () => unknown;
   startSync: () => { started: boolean; status: unknown };
   fetchNow: (source: string | null) => Promise<Result>;
+  backupNow: () => Result;
+  backups: () => Result;
+  restore: (name: string) => Result;
 };
 
 export type Route = {
@@ -605,6 +608,28 @@ export const ROUTES: Route[] = [
       return { text: r.started ? "sync started" : "a sync is running", json: r.status, exitCode: r.started ? 0 : 1 };
     },
     status: (result) => (result.exitCode === 1 ? 409 : 202),
+  },
+  {
+    name: "backup",
+    method: "POST",
+    path: "/backups",
+    about: "Back up the database now into the backup folder.",
+    run: (_ctx, _a, hooks) => hooks.backupNow(),
+  },
+  {
+    name: "backups",
+    method: "GET",
+    path: "/backups",
+    about: "Backups in the backup folder, newest first.",
+    run: (_ctx, _a, hooks) => hooks.backups(),
+  },
+  {
+    name: "restore",
+    method: "POST",
+    path: "/backups/restore",
+    about: "Replace the database with a backup, after backing up the current one.",
+    body: { name: { type: "string", required: true, about: "backup file name, from hub backups" } },
+    run: (_ctx, a, hooks) => hooks.restore(str(a, "name")),
   },
 ];
 
