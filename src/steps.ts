@@ -21,26 +21,81 @@ export function stepLine(s: StepRow): string {
   return `${s.n} [${s.done_at === null ? " " : "x"}] ${s.title}${s.evidence ? ` | ${s.evidence}` : ""}`;
 }
 
-export function add(ctx: Ctx, id: string, title: string): Result {
+function checkTitle(title: string): void {
   if (!title.trim()) throw new HubError("step title is empty");
   if (title.length > MAX_TITLE) throw new HubError(`step title is ${title.length} chars (max ${MAX_TITLE})`);
+}
+
+function getStep(ctx: Ctx, id: string, n: string): StepRow {
   getTicket(ctx.db, id);
-  const n = (one<{ n: number | null }>(ctx.db, "SELECT max(n) AS n FROM step WHERE ticket_id = ?", id)?.n ?? 0) + 1;
-  const at = nowIso(ctx.now);
+  const step = one<StepRow>(ctx.db, "SELECT * FROM step WHERE ticket_id = ? AND n = ?", id, Number(n));
+  if (!step) throw new HubError(`no step ${n} on ${id} (hub steps ${id} lists them)`);
+  return step;
+}
+
+function shift(ctx: Ctx, id: string, from: number, by: number): void {
+  ctx.db.prepare("UPDATE step SET n = -(n + ?) WHERE ticket_id = ? AND n >= ?").run(by, id, from);
+  ctx.db.prepare("UPDATE step SET n = -n WHERE ticket_id = ? AND n < 0").run(id);
+}
+
+function touch(ctx: Ctx, id: string): void {
+  ctx.db.prepare("UPDATE ticket SET updated_at = ? WHERE id = ?").run(nowIso(ctx.now), id);
+}
+
+export function add(ctx: Ctx, id: string, title: string, place: number | null = null): Result {
+  checkTitle(title);
+  getTicket(ctx.db, id);
+  const last = one<{ n: number | null }>(ctx.db, "SELECT max(n) AS n FROM step WHERE ticket_id = ?", id)?.n ?? 0;
+  if (place !== null && !(Number.isInteger(place) && place >= 1)) throw new HubError("--at takes a step number from 1");
+  const n = place === null ? last + 1 : Math.min(place, last + 1);
   transaction(ctx.db, () => {
-    ctx.db.prepare("INSERT INTO step(ticket_id, n, title, created_at) VALUES (?, ?, ?, ?)").run(id, n, title, at);
-    ctx.db.prepare("UPDATE ticket SET updated_at = ? WHERE id = ?").run(at, id);
+    shift(ctx, id, n, 1);
+    ctx.db
+      .prepare("INSERT INTO step(ticket_id, n, title, created_at) VALUES (?, ?, ?, ?)")
+      .run(id, n, title, nowIso(ctx.now));
+    touch(ctx, id);
   });
   return { text: `${id} step ${n} added`, json: { ticket_id: id, n, title } };
+}
+
+export function edit(ctx: Ctx, id: string, n: string, title: string): Result {
+  checkTitle(title);
+  const step = getStep(ctx, id, n);
+  transaction(ctx.db, () => {
+    ctx.db.prepare("UPDATE step SET title = ? WHERE id = ?").run(title, step.id);
+    touch(ctx, id);
+  });
+  return { text: `${id} step ${step.n} changed`, json: { ticket_id: id, n: step.n, title } };
+}
+
+export function undo(ctx: Ctx, id: string, n: string): Result {
+  const step = getStep(ctx, id, n);
+  if (step.done_at === null) throw new HubError(`step ${n} on ${id} is not done`);
+  transaction(ctx.db, () => {
+    ctx.db.prepare("UPDATE step SET done_at = NULL, evidence = NULL WHERE id = ?").run(step.id);
+    ctx.db
+      .prepare("INSERT INTO event(ticket_id, ts, kind, text, source, created_at) VALUES (?, ?, 'step', ?, 'agent', ?)")
+      .run(id, nowTs(ctx.now, ctx.config.timezone), `step ${step.n} not done: ${step.title}`, nowIso(ctx.now));
+    touch(ctx, id);
+  });
+  return { text: `${id} step ${step.n} not done`, json: { ticket_id: id, n: step.n } };
+}
+
+export function remove(ctx: Ctx, id: string, n: string): Result {
+  const step = getStep(ctx, id, n);
+  transaction(ctx.db, () => {
+    ctx.db.prepare("DELETE FROM step WHERE id = ?").run(step.id);
+    shift(ctx, id, step.n + 1, -1);
+    touch(ctx, id);
+  });
+  return { text: `${id} step ${step.n} removed`, json: { ticket_id: id, n: step.n } };
 }
 
 export function done(ctx: Ctx, id: string, n: string, evidence: string | null): Result {
   if (evidence !== null && evidence.length > MAX_EVIDENCE) {
     throw new HubError(`--evidence is ${evidence.length} chars (max ${MAX_EVIDENCE})`);
   }
-  getTicket(ctx.db, id);
-  const step = one<StepRow>(ctx.db, "SELECT * FROM step WHERE ticket_id = ? AND n = ?", id, Number(n));
-  if (!step) throw new HubError(`no step ${n} on ${id} (hub steps ${id} lists them)`);
+  const step = getStep(ctx, id, n);
   if (step.done_at !== null) throw new HubError(`step ${n} on ${id} is already done`);
   const at = nowIso(ctx.now);
   transaction(ctx.db, () => {
