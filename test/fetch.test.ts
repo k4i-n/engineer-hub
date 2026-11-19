@@ -440,13 +440,24 @@ describe("linear", () => {
         },
       },
     };
+    await hub("ticket-new", "ENG-7", "Same team");
+    await hub("ticket-new", "PLF-3793", "Other team");
+    await hub("ticket-new", "NEW-agent-token-diet", "Local");
+    await hub("ticket-new", "DRAFT-12", "Local with a number");
     httpAnswer = (_url, body) => {
-      const sent = JSON.parse(body) as { query: string; variables: { tickets: string[] } };
-      assert.deepEqual(sent.variables.tickets, ["ENG-42"]);
-      assert.match(
-        sent.query,
-        /comments\(\s*filter: \{\s*createdAt: \{ gt: \$since \}\s*user: \{ isMe: \{ eq: false \} \}/,
-      );
+      const sent = JSON.parse(body) as { query: string; variables: { since: string; comments: unknown } };
+      assert.match(sent.query, /comments\(filter: \$comments, first: 50\)/);
+      assert.deepEqual(sent.variables.comments, {
+        createdAt: { gt: sent.variables.since },
+        user: { isMe: { eq: false } },
+        issue: {
+          or: [
+            { assignee: { isMe: { eq: true } } },
+            { team: { key: { eq: "ENG" } }, number: { in: [42, 7] } },
+            { team: { key: { eq: "PLF" } }, number: { in: [3793] } },
+          ],
+        },
+      });
       return { status: 200, body: JSON.stringify(withComments) };
     };
     assert.match(await hub("fetch"), /^linear: items: 6 new/);
