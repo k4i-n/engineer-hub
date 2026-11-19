@@ -2097,3 +2097,13 @@ kbd {
 .text.invalid {
   border-color: var(--red);
 }
+.note-actions {
+  float: right;
+  margin-left: 8px;
+}
+.steps .ic-more,
+.note-actions .ic-more,
+.d-actions .ic-more {
+  width: 26px;
+  height: 26px;
+}

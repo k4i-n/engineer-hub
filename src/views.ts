@@ -167,6 +167,10 @@ const ICON: Record<string, string> = {
   grip: '<circle cx="9" cy="6" r="1.2"/><circle cx="15" cy="6" r="1.2"/><circle cx="9" cy="12" r="1.2"/><circle cx="15" cy="12" r="1.2"/><circle cx="9" cy="18" r="1.2"/><circle cx="15" cy="18" r="1.2"/>',
   ignore:
     '<path d="m3 3 18 18"/><path d="M10.6 5.1A10 10 0 0 1 12 5c5 0 9 4.5 10 7a13 13 0 0 1-3 4.2"/><path d="M6.6 6.6A13 13 0 0 0 2 12c1 2.5 5 7 10 7a9.6 9.6 0 0 0 5.4-1.6"/>',
+  edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
+  trash: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/>',
+  merge:
+    '<circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="12" r="2"/><path d="M6 7v10"/><path d="M8 5c5 0 8 2.5 8 7"/>',
   link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
 };
 
@@ -198,6 +202,10 @@ function iconButton(name: string, label: string, key: string, data: Data | null)
 
 function menuItem(icon: string, label: string, data: Data, key = ""): string {
   return `<button type="button"${dataAttrs(data)}>${svg(icon)}<span>${esc(label)}</span>${key ? `<span class="key">${esc(key)}</span>` : ""}</button>`;
+}
+
+function moreMenu(key: string, items: string[]): string {
+  return `<details class="menu" data-key="${esc(key)}"><summary class="ic ic-more" title="More" aria-label="More">${svg("more")}</summary><div class="menu-pop">${items.join("")}</div></details>`;
 }
 
 function rail(n: Need, pinned: boolean, target: string | null): string {
@@ -974,7 +982,19 @@ export function ticketBody(ctx: Ctx, id: string, sync: SyncState): string {
   const p = progress(ctx.db, id);
   const priority = (t.tracker_priority ?? "").trim();
 
-  const head = `<div class="page-head">${ticketLink(t.id)}<h1>${line(ctx, t.title ?? "")}</h1>${priority ? pill(priority, PRIORITY_TONE[priority.toLowerCase()] ?? "grey") : ""}${pill(DIR_LABEL[t.dir ?? ""] ?? t.dir ?? "", DIR_TONE[t.dir ?? ""] ?? "grey")}${t.tracker_state ? pill(t.tracker_state, "violet") : ""}${link(t.tracker_url, "tracker ↗", "head-link")}</div>`;
+  const ticketMenu = moreMenu("menu-ticket", [
+    menuItem("edit", "Edit title", { act: "ticket-title", ticket: t.id, ask: "Title", "ask-value": t.title ?? "" }),
+    menuItem("edit", "Change id", {
+      act: "ticket-rename",
+      ticket: t.id,
+      ask: "New id",
+      "ask-value": t.id,
+      go: "/t/{value}",
+    }),
+    menuItem("merge", "Merge into…", { act: "ticket-merge", ticket: t.id, ask: "Merge into", go: "/t/{value}" }),
+    menuItem("trash", "Delete", { act: "ticket-delete", ticket: t.id, confirm: `Delete ${t.id}?`, go: "/" }),
+  ]);
+  const head = `<div class="page-head">${ticketLink(t.id)}<h1>${line(ctx, t.title ?? "")}</h1>${ticketMenu}${priority ? pill(priority, PRIORITY_TONE[priority.toLowerCase()] ?? "grey") : ""}${pill(DIR_LABEL[t.dir ?? ""] ?? t.dir ?? "", DIR_TONE[t.dir ?? ""] ?? "grey")}${t.tracker_state ? pill(t.tracker_state, "violet") : ""}${link(t.tracker_url, "tracker ↗", "head-link")}</div>`;
   const state = `<dl class="state">${field(ctx, "Status", t.status)}${field(ctx, "Next", t.next, "blue")}${field(ctx, "Approve?", t.gate, "amber")}${field(ctx, "Decide", t.decide, "amber")}${field(ctx, "Repo", [t.repo, t.branch].filter(Boolean).join(" · "))}${field(ctx, "PRs", t.prs)}${field(ctx, "Owner", t.owner)}</dl>`;
   const stepList =
     steps.length === 0
@@ -982,12 +1002,32 @@ export function ticketBody(ctx: Ctx, id: string, sync: SyncState): string {
       : `${progressView(ctx.config.progressStyle, p.done, p.total, true)}<ol class="steps">${steps
           .map(
             (s) =>
-              `<li class="${s.done_at === null ? (p.next?.n === s.n ? "next" : "") : "done"}"><span class="check"></span><span class="s-title">${line(ctx, s.title)}</span>${s.evidence ? link(s.evidence, "↗", "e-ref") : ""}</li>`,
+              `<li class="${s.done_at === null ? (p.next?.n === s.n ? "next" : "") : "done"}"><span class="check"></span><span class="s-title">${line(ctx, s.title)}</span>${s.evidence ? link(s.evidence, "↗", "e-ref") : ""}${moreMenu(
+                `menu-step-${s.n}`,
+                [
+                  menuItem("edit", "Edit", {
+                    act: "step-edit",
+                    ticket: t.id,
+                    n: s.n,
+                    ask: "Step",
+                    "ask-value": s.title,
+                  }),
+                  ...(s.done_at === null
+                    ? []
+                    : [menuItem("undo", "Not done", { act: "step-undo", ticket: t.id, n: s.n })]),
+                  menuItem("trash", "Remove", {
+                    act: "step-remove",
+                    ticket: t.id,
+                    n: s.n,
+                    confirm: `Remove step ${s.n}?`,
+                  }),
+                ],
+              )}</li>`,
           )
           .join("")}</ol>`;
   const itemRows = items.map((i) => {
     const v = itemVerb(i);
-    return `<li class="need tone-${v.tone}${i.closed_at ? " is-dim" : ""}" data-key="ti-${i.id}"><span class="verb">${esc(v.verb)}</span><span class="need-main">${link(i.url ?? (/^https?:/.test(i.ref) ? i.ref : null), i.title ?? i.ref, "need-title")}<span class="need-sub">${sourceLine([githubRef(i.url) ?? i.source, i.state, i.ignored ? "ignored" : i.closed_at ? "closed" : null])}</span></span></li>`;
+    return `<li class="need tone-${v.tone}${i.closed_at ? " is-dim" : ""}" data-key="ti-${i.id}"><span class="verb">${esc(v.verb)}</span><span class="need-main">${link(i.url ?? (/^https?:/.test(i.ref) ? i.ref : null), i.title ?? i.ref, "need-title")}<span class="need-sub">${sourceLine([githubRef(i.url) ?? i.source, i.state, i.ignored ? "ignored" : i.closed_at ? "closed" : null])}</span></span>${moreMenu(`menu-ti-${i.id}`, [menuItem("ignore", "Detach", { act: "item-detach", id: i.id })])}</li>`;
   });
   const pinned = pins(ctx.db);
   const waitRows = waits.map((w) => {
@@ -996,7 +1036,28 @@ export function ticketBody(ctx: Ctx, id: string, sync: SyncState): string {
   });
   const draftRows = drafts.map(
     (d) =>
-      `<li class="draft" data-key="td-${esc(d.label)}"><div class="d-head"><span class="d-label">${line(ctx, d.label)}</span>${pill(d.status, d.status === "draft" ? "blue" : "green")}${d.channel ? pill(d.channel, "teal") : ""}<span class="d-actions">${button("Copy", { copy: d.sent_text ?? d.body })}</span></div><div class="d-body md">${markdown(ctx, d.sent_text ?? d.body)}</div></li>`,
+      `<li class="draft" data-key="td-${esc(d.label)}"><div class="d-head"><span class="d-label">${line(ctx, d.label)}</span>${pill(d.status, d.status === "draft" ? "blue" : "green")}${d.channel ? pill(d.channel, "teal") : ""}<span class="d-actions">${button("Copy", { copy: d.sent_text ?? d.body })}${moreMenu(
+        `menu-td-${d.label}`,
+        [
+          menuItem("edit", "Rename", {
+            act: "draft-rename",
+            ticket: t.id,
+            label: d.label,
+            ask: "Label",
+            "ask-value": d.label,
+          }),
+          ...(d.status === "draft"
+            ? [
+                menuItem("trash", "Remove", {
+                  act: "draft-remove",
+                  ticket: t.id,
+                  label: d.label,
+                  confirm: `Remove draft "${d.label}"?`,
+                }),
+              ]
+            : []),
+        ],
+      )}</span></div><div class="d-body md">${markdown(ctx, d.sent_text ?? d.body)}</div></li>`,
   );
   const own = needs(ctx, [t]).filter((n) => n.ticket === t.id && n.dim === null && !n.key.startsWith("wait-"));
   const ticketNeeds =
@@ -1010,7 +1071,24 @@ export function ticketBody(ctx: Ctx, id: string, sync: SyncState): string {
         );
   const noteRows = notes.map(
     (n) =>
-      `<details data-key="note-${esc(n.title)}"><summary>${line(ctx, n.title)}</summary><div class="md">${markdown(ctx, n.body)}</div></details>`,
+      `<details data-key="note-${esc(n.title)}"><summary>${line(ctx, n.title)}</summary><div class="note-actions">${moreMenu(
+        `menu-note-${n.title}`,
+        [
+          menuItem("edit", "Rename", {
+            act: "note-rename",
+            ticket: t.id,
+            title: n.title,
+            ask: "Title",
+            "ask-value": n.title,
+          }),
+          menuItem("trash", "Remove", {
+            act: "note-remove",
+            ticket: t.id,
+            title: n.title,
+            confirm: `Remove "${n.title}"?`,
+          }),
+        ],
+      )}</div><div class="md">${markdown(ctx, n.body)}</div></details>`,
   );
   return `${header(ctx, sync, "ticket")}
 ${head}
