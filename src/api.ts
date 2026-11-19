@@ -20,7 +20,7 @@ export type Method = "GET" | "POST" | "PUT" | "PATCH";
 export type Hooks = {
   version: string;
   syncStatus: () => unknown;
-  startSync: () => { started: boolean; status: unknown };
+  startSync: (what: string) => { started: boolean; status: unknown };
   fetchNow: (source: string | null) => Promise<Result>;
   backupNow: () => Result;
   backupBefore: (what: "delete" | "merge") => string;
@@ -795,9 +795,10 @@ export const ROUTES: Route[] = [
     method: "POST",
     path: "/sync",
     about:
-      "Start a Sync unless one is running: fetch the sources hub fetches itself, then run syncCommand when claudeSync is on.",
-    run: (_ctx, _a, hooks) => {
-      const r = hooks.startSync();
+      "Start a Sync unless one is running: sources fetches the sources hub fetches itself, agent runs syncCommand, all does both in that order.",
+    body: { what: { type: "string", about: "sources (default), agent or all" } },
+    run: (_ctx, a, hooks) => {
+      const r = hooks.startSync(typeof a.what === "string" ? a.what : "sources");
       return { text: r.started ? "sync started" : "a sync is running", json: r.status, exitCode: r.started ? 0 : 1 };
     },
     status: (result) => (result.exitCode === 1 ? 409 : 202),

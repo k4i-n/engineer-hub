@@ -478,7 +478,7 @@ describe("serve", () => {
     assert.match(page, /<summary>about <strong>limits<\/strong><\/summary>/);
   });
 
-  test("the page shows each thing once: no ticket id twice, no Sent? draft in Drafts, only unhealthy sources", async () => {
+  test("the page shows each thing once: no ticket id twice, no Sent? draft in Drafts", async () => {
     await hub(
       ["item", "put", "--stdin"],
       JSON.stringify({
@@ -500,10 +500,7 @@ describe("serve", () => {
     assert.match(html, />banner<\/a>/);
     const drafts = /<section class="drafts">[\s\S]*?<\/section>/.exec(html)?.[0] ?? "";
     assert.doesNotMatch(drafts, /ask product/);
-    assert.match(html, /<div class="sources"><span class="src src-bad"[^>]*><i><\/i>slack/);
-    assert.match(html, /class="ic ic-sync sync-btn" data-act="sync" title="Sync · synced just now/);
     assert.doesNotMatch(html, /class="live"/);
-    assert.doesNotMatch(html, /class="src src-ok"/);
   });
 
   test("blocks render in the saved layout, a bad layout is refused, and tickets show what needs you", async () => {
@@ -856,7 +853,7 @@ describe("serve", () => {
     await reader.cancel();
   });
 
-  test("Sync with no source on and Claude off fails and names the setting", async () => {
+  test("Sync of sources with no source on fails and names the setting", async () => {
     assert.equal((await call("POST", "/sync", {})).status, 202);
     const failed = await waitFor(async () => {
       const s = await syncState();
@@ -866,13 +863,13 @@ describe("serve", () => {
     const html = await (await fetch(`${server.url}/?part=1`)).text();
     assert.match(
       html,
-      /<div class="sync"><button type="button" class="ic ic-sync sync-btn bad" data-act="sync" title="Sync[^"]*\nFailed: no source is on \(hub config fetch\)"/,
+      /<div class="sync"><button type="button" class="ic ic-sync sync-btn bad" data-act="sync" data-what="sources" title="Sync sources\nFailed: no source is on \(hub config fetch\)"/,
     );
+    assert.equal((await call("POST", "/sync", { what: "everything" })).status, 400);
   });
 
-  test("Sync with Claude on runs the configured command once at a time with HUB_DB and HUB_URL set, and reports failure", async () => {
+  test("Sync of the agent runs the configured command once at a time with HUB_DB and HUB_URL set, and reports failure", async () => {
     const db = new DatabaseSync(dbFile);
-    db.prepare("INSERT OR REPLACE INTO config(key, value) VALUES ('claudeSync', 'true')").run();
     const setCommand = (argv: string[]) =>
       db.prepare("INSERT OR REPLACE INTO config(key, value) VALUES ('syncCommand', ?)").run(JSON.stringify(argv));
     setCommand([
@@ -880,12 +877,15 @@ describe("serve", () => {
       "-e",
       "setTimeout(() => process.stdout.write(process.env.HUB_DB + ' ' + process.env.HUB_URL), 300)",
     ]);
-    assert.equal((await call("POST", "/sync", {})).status, 202);
+    assert.equal((await call("POST", "/sync", { what: "agent" })).status, 202);
     assert.equal((await call("POST", "/sync", {})).status, 409);
+    const running = await (await fetch(`${server.url}/?part=1`)).text();
     assert.match(
-      await (await fetch(`${server.url}/?part=1`)).text(),
-      /class="ic ic-sync sync-btn" data-act="sync" title="Syncing" aria-label="Syncing" disabled>/,
+      running,
+      /class="ic ic-sync sync-btn" data-act="sync" data-what="sources" title="Syncing" aria-label="Syncing" disabled>/,
     );
+    assert.match(running, /<button type="button" data-act="sync" data-what="all" disabled>/);
+    assert.match(running, /<span class="src src-busy" title="started [^"]*"><i><\/i>Agent<\/span>/);
     const finished = await waitFor(async () => {
       const s = await syncState();
       return s.status === "running" ? undefined : s;
@@ -893,27 +893,31 @@ describe("serve", () => {
     assert.deepEqual([finished.status, finished.detail], ["finished", `${dbFile} ${server.url}`]);
     assert.match(
       await (await fetch(`${server.url}/?part=1`)).text(),
-      /<div class="sync"><button type="button" class="ic ic-sync sync-btn" data-act="sync" title="Sync[^"]*\n[^"]+"/,
+      /<div class="sync"><button type="button" class="ic ic-sync sync-btn" data-act="sync" data-what="sources" title="Sync sources\n[^"]+"/,
     );
 
     setCommand(["node", "-e", "console.error('no connector'); process.exit(3)"]);
-    assert.equal((await call("POST", "/sync", {})).status, 202);
+    assert.equal((await call("POST", "/sync", { what: "agent" })).status, 202);
     const failed = await waitFor(async () => {
       const s = await syncState();
       return s.status === "running" ? undefined : s;
     });
     db.close();
     assert.deepEqual([failed.status, failed.detail], ["failed", "exit 3: no connector"]);
+    assert.match(
+      await (await fetch(`${server.url}/?part=1`)).text(),
+      /<span class="src src-bad" title="last run [^"]*\nauto sync off\nexit 3: no connector"><i><\/i>Agent<\/span>/,
+    );
   });
 
-  test("auto sync runs Claude once the interval passes, and not when auto sync or Claude is off", async () => {
+  test("auto sync runs the agent once the interval passes, and not when auto sync is off", async () => {
     await server.close();
     let clock = new Date("2026-11-18T09:00:00Z");
     const db = new DatabaseSync(dbFile);
     db.prepare("INSERT OR REPLACE INTO config(key, value) VALUES ('syncCommand', ?)").run(
       JSON.stringify(["node", "-e", "process.stdout.write('auto')"]),
     );
-    db.prepare("INSERT OR REPLACE INTO config(key, value) VALUES ('claudeSync', 'true')").run();
+    db.prepare("INSERT OR REPLACE INTO config(key, value) VALUES ('autoSync', 'true')").run();
     db.close();
     server = await serve({
       dbPath: dbFile,
@@ -934,12 +938,6 @@ describe("serve", () => {
 
     await hub(["config", "autoSync", "false"]);
     clock = new Date("2026-11-18T18:00:00Z");
-    await new Promise((r) => setTimeout(r, 80));
-    assert.equal((await syncState()).at, ran.at);
-
-    await hub(["config", "claudeSync", "false"]);
-    await hub(["config", "autoSync", "true"]);
-    clock = new Date("2026-11-18T23:00:00Z");
     await new Promise((r) => setTimeout(r, 80));
     assert.equal((await syncState()).at, ran.at);
     assert.equal((await setConfigKey("syncEvery", '"5m"')).status, 400);
@@ -1240,7 +1238,7 @@ describe("backups", () => {
       assert.equal((await req("POST", "/backups")).ok, false);
       assert.match(
         await (await fetch(`${s.url}/?part=1`)).text(),
-        /<a class="src src-bad" href="\/settings" title="[^"]+"><i><\/i>backup<small>failed<\/small><\/a>/,
+        /<a class="src src-bad" href="\/settings" title="[^"]+"><i><\/i>Backup<\/a>/,
       );
     } finally {
       await s.close();

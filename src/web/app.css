@@ -182,19 +182,26 @@ a:hover {
   font-size: 12px;
   cursor: default;
 }
-.src small {
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
 .src i {
   width: 7px;
   height: 7px;
   border-radius: 50%;
   background: var(--green);
 }
-.src-stale i,
+.src-idle i {
+  background: var(--grey);
+}
 .src-warn i {
   background: var(--amber);
+}
+.src-busy i {
+  background: #eab308;
+  animation: pulse 1s ease-in-out infinite alternate;
+}
+@keyframes pulse {
+  to {
+    opacity: 0.35;
+  }
 }
 .src-bad {
   border-color: color-mix(in srgb, var(--red) 40%, var(--line));
@@ -205,7 +212,6 @@ a:hover {
 .sync {
   display: flex;
   align-items: center;
-  gap: 10px;
   min-width: 0;
 }
 body.offline .top::after {
@@ -1724,8 +1730,19 @@ kbd {
   opacity: 1;
   cursor: progress;
 }
+.sync-more {
+  width: 20px;
+  height: 38px;
+}
+.sync-more svg {
+  width: 14px;
+  height: 14px;
+}
 .sync-btn:disabled svg {
   animation: spin 0.9s linear infinite;
+}
+.sync-menu .menu-pop {
+  min-width: 140px;
 }
 /* overview */
 .overview .sec-head .seg {
