@@ -144,6 +144,45 @@ describe("serve", () => {
     assert.match(await (await fetch(`${server.url}/?part=1`)).text(), /<span class="dim-label">yes<\/span>/);
   });
 
+  test("My PRs lists every open PR with its status; ones waiting on others do not count as needing you", async () => {
+    const before = Number(/data-needs-count="(\d+)"/.exec(await (await fetch(`${server.url}/?part=1`)).text())?.[1]);
+    const pr = (n: number, state: string, needs_me: boolean) =>
+      JSON.stringify({
+        source: "github",
+        kind: "pr",
+        url: `https://github.com/acme/web/pull/${n}`,
+        title: `pr ${n}`,
+        state,
+        needs_me,
+      });
+    await hub(
+      ["item", "put", "--stdin"],
+      [
+        pr(301, "draft", false),
+        pr(302, "in review", false),
+        pr(303, "commented", true),
+        pr(304, "changes requested", true),
+        pr(305, "approved", true),
+        pr(306, "merged", false),
+      ].join("\n"),
+    );
+    const html = await (await fetch(`${server.url}/?part=1`)).text();
+    const card = /data-group="prs"[\s\S]*?<\/section>/.exec(html)?.[0] ?? "";
+    const row = (n: number) =>
+      new RegExp(
+        `<li class="need tone-([a-z]+)"[^>]*>\\s*<span class="need-main"><span class="need-line"><span class="verb verb-inline">([^<]+)</span><a[^>]*>pr ${n}<`,
+      )
+        .exec(card)
+        ?.slice(1, 3);
+    assert.deepEqual(row(301), ["grey", "Draft"]);
+    assert.deepEqual(row(302), ["blue", "In review"]);
+    assert.deepEqual(row(303), ["teal", "Comments"]);
+    assert.deepEqual(row(304), ["orange", "Fix PR"]);
+    assert.deepEqual(row(305), ["green", "Approved"]);
+    assert.doesNotMatch(card, /pr 306</);
+    assert.match(html, new RegExp(`data-needs-count="${before + 3}"`));
+  });
+
   test("every needs row has the same three controls, and a pinned row moves to the top", async () => {
     await hub(
       ["item", "put", "--stdin"],

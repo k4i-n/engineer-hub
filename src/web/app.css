@@ -453,6 +453,9 @@ a.chip:hover {
   border-radius: 5px;
   padding: 2px 7px;
 }
+.verb-inline {
+  flex: none;
+}
 .need-main {
   display: flex;
   flex-direction: column;

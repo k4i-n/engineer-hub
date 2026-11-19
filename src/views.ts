@@ -49,6 +49,7 @@ type Need = {
   undo: Data | null;
   later: Later | null;
   ignore?: { id: number; kind: string; repo: string | null };
+  fyi?: boolean;
 };
 
 const MAX_ACTIVITY = 40;
@@ -296,10 +297,12 @@ function githubRef(url: string | null): string | null {
 function prTone(state: string | null): { verb: string; tone: Tone } {
   const s = (state ?? "").toLowerCase();
   if (s.includes("change") || s.includes("fail")) return { verb: "Fix PR", tone: "orange" };
-  if (s.includes("approved")) return { verb: "Merge?", tone: "green" };
+  if (s.includes("approved")) return { verb: "Approved", tone: "green" };
+  if (s.includes("comment")) return { verb: "Comments", tone: "teal" };
+  if (s.includes("draft")) return { verb: "Draft", tone: "grey" };
   if (s.includes("merged")) return { verb: "Merged", tone: "violet" };
   if (s.includes("closed")) return { verb: "Closed", tone: "grey" };
-  return { verb: "PR", tone: "blue" };
+  return { verb: "In review", tone: "blue" };
 }
 
 function itemVerb(i: ItemRow): { verb: string; tone: Tone; rank: number } {
@@ -330,7 +333,7 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
   const dayStart = startOfToday(ctx);
   const items = all<ItemRow>(
     ctx.db,
-    "SELECT * FROM item WHERE needs_me = 1 AND ignored IS NULL AND (closed_at IS NULL OR closed_at >= ?)",
+    "SELECT * FROM item WHERE (needs_me = 1 OR (kind = 'pr' AND coalesce(state, '') NOT IN ('merged', 'closed'))) AND ignored IS NULL AND (closed_at IS NULL OR closed_at >= ?)",
     dayStart,
   );
   const waits = all<WaitRow>(
@@ -375,6 +378,7 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
       ...(i.kind === "review_request" || i.kind === "pr"
         ? { ignore: { id: i.id, kind: i.kind, repo: repoOf(i) } }
         : {}),
+      ...(i.needs_me === 0 ? { fyi: true } : {}),
     });
   }
   for (const d of matches) {
@@ -514,7 +518,7 @@ function waitNeed(ctx: Ctx, w: WaitRow): Need {
   };
 }
 
-function needRow(ctx: Ctx, n: Need, pinned: boolean, showVerb = true): string {
+function needRow(ctx: Ctx, n: Need, pinned: boolean, showVerb: boolean | "inline" = true): string {
   const target = n.href === null ? null : appHref(ctx, n.href).href;
   const href = target === null ? "" : ` data-href="${esc(target)}"`;
   const dim = n.dim === null ? "" : `<span class="dim-label">${esc(n.dim)}</span>${n.sub === "" ? "" : " · "}`;
@@ -522,8 +526,8 @@ function needRow(ctx: Ctx, n: Need, pinned: boolean, showVerb = true): string {
   const pin = pinned ? `<span class="pinmark" title="Pinned">${svg("pin")}</span>` : "";
   const cls = `need tone-${n.tone}${n.dim === null ? "" : " is-dim"}${finished ? " is-done" : ""}${pinned ? " pinned" : ""}`;
   return `<li class="${cls}" data-key="${esc(n.key)}"${href}>
-${showVerb ? `<span class="verb">${esc(n.verb)}</span>` : ""}
-<span class="need-main"><span class="need-line">${pin}${n.title}</span><span class="need-sub">${dim}${n.sub}</span>${n.ask}</span>
+${showVerb === true ? `<span class="verb">${esc(n.verb)}</span>` : ""}
+<span class="need-main"><span class="need-line">${pin}${showVerb === "inline" ? `<span class="verb verb-inline">${esc(n.verb)}</span>` : ""}${n.title}</span><span class="need-sub">${dim}${n.sub}</span>${n.ask}</span>
 <span class="need-ticket">${ticketLink(n.ticket)}</span>
 <span class="need-age">${esc(ago(ctx, n.since))}</span>
 ${rail(n, pinned, target)}
@@ -536,7 +540,12 @@ const GROUPS: Group[] = [
   { key: "fix", label: "Fix now", tone: "red", verbs: ["Alert"] },
   { key: "review", label: "Review", tone: "violet", verbs: ["Review"] },
   { key: "reply", label: "Reply", tone: "teal", verbs: ["Reply", "Send", "Sent?"] },
-  { key: "prs", label: "My PRs", tone: "orange", verbs: ["Fix PR", "Merge?", "Merged", "Closed", "PR"] },
+  {
+    key: "prs",
+    label: "My PRs",
+    tone: "orange",
+    verbs: ["Fix PR", "Approved", "Comments", "In review", "Draft", "Merged", "Closed"],
+  },
   { key: "triage", label: "Triage", tone: "blue", verbs: ["Triage"] },
   { key: "waiting", label: "Waiting on", tone: "orange", verbs: ["Ping"] },
   { key: "decide", label: "Decide", tone: "amber", verbs: ["Approve?", "Decide"] },
@@ -546,8 +555,12 @@ const OTHER_GROUP: Group = { key: "other", label: "Other", tone: "grey", verbs: 
 
 function needsCard(ctx: Ctx, g: Group, rows: Need[], pinned: Set<string>): string {
   const active = rows.filter((n) => n.dim === null).length;
-  const list = rows.map((n) => needRow(ctx, n, pinned.has(n.key), false)).join("");
+  const list = rows.map((n) => needRow(ctx, n, pinned.has(n.key), g.key === "prs" ? "inline" : false)).join("");
   return `<section class="ncard tone-${g.tone}"><details class="ngroup" data-key="group-${g.key}" data-group="${g.key}" open><summary><span class="g-label">${esc(g.label)}</span><span class="g-count">${active}</span></summary><ul class="rows needs-list">${list}</ul></details></section>`;
+}
+
+function needsYou(n: Need): boolean {
+  return n.dim === null && n.fyi !== true;
 }
 
 function groupFor(n: Need): Group {
@@ -568,7 +581,7 @@ function needsCards(ctx: Ctx, list: Need[]): Record<string, string> {
 function needCounts(list: Need[]): Map<string, Need[]> {
   const byTicket = new Map<string, Need[]>();
   for (const n of list) {
-    if (n.dim !== null || n.ticket === null) continue;
+    if (!needsYou(n) || n.ticket === null) continue;
     byTicket.set(n.ticket, [...(byTicket.get(n.ticket) ?? []), n]);
   }
   return byTicket;
@@ -689,7 +702,7 @@ function rangeControl(c: Config): string {
 
 function overviewSection(ctx: Ctx, tickets: Ticket[], list: Need[]): string {
   const c = ctx.config;
-  const active = list.filter((n) => n.dim === null);
+  const active = list.filter(needsYou);
   const dayStart = startOfToday(ctx);
   const fresh = active.filter((n) => n.since >= dayStart).length;
   const needSlices: Slice[] = [...GROUPS, OTHER_GROUP].map((g) => ({
@@ -981,7 +994,7 @@ export function indexBody(ctx: Ctx, sync: SyncState): string {
     (a, b) => order.indexOf(a.dir ?? "") - order.indexOf(b.dir ?? "") || byOrder(a, b),
   );
   const list = needs(ctx, tickets);
-  const active = list.filter((n) => n.dim === null).length;
+  const active = list.filter(needsYou).length;
   const blocks: Record<string, string> = {
     overview: overviewSection(ctx, tickets, list),
     ...needsCards(ctx, list),
@@ -1108,7 +1121,7 @@ export function ticketBody(ctx: Ctx, id: string, sync: SyncState): string {
         ],
       )}</span></div><div class="d-body md">${markdown(ctx, d.sent_text ?? d.body)}</div></li>`,
   );
-  const own = needs(ctx, [t]).filter((n) => n.ticket === t.id && n.dim === null && !n.key.startsWith("wait-"));
+  const own = needs(ctx, [t]).filter((n) => n.ticket === t.id && needsYou(n) && !n.key.startsWith("wait-"));
   const ticketNeeds =
     own.length === 0
       ? ""
