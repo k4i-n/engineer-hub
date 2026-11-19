@@ -963,7 +963,7 @@ function draftsSection(ctx: Ctx): string {
             ? pill(`send ${when(ctx, d.send_at ?? "")}`, "grey")
             : "";
     return `<li class="draft${sent || later ? " is-dim" : ""}" data-key="d-${esc(d.ticket_id)}-${esc(d.label)}"${draftPanel(d)}>
-<div class="d-head">${ticketLink(d.ticket_id)}<span class="d-label">${line(ctx, d.label)}</span>${d.channel ? pill(d.channel, "teal") : ""}${state}<span class="d-actions">${button("Copy", { copy: d.body })}${button(sent ? "Sent" : "Sent", { act: "sent", ticket: d.ticket_id, label: d.label }, { cls: sent ? "" : "primary", disabled: sent || d.match_ref !== null })}</span></div>
+<div class="d-head">${ticketLink(d.ticket_id)}<span class="d-label">${line(ctx, d.label)}</span>${d.channel ? pill(d.channel, "teal") : ""}${state}<span class="d-actions">${button("Copy", { copy: d.body })}${sent ? button("Not sent", { act: "draft-unsent", ticket: d.ticket_id, label: d.label }) : button("Sent", { act: "sent", ticket: d.ticket_id, label: d.label }, { cls: "primary", disabled: d.match_ref !== null })}</span></div>
 <details class="d-fold" data-key="dfold-${esc(d.ticket_id)}-${esc(d.label)}"><summary><span class="d-line">${line(ctx, d.body)}</span><div class="d-body md">${markdown(ctx, d.body)}</div></summary></details>
 </li>`;
   });
@@ -1211,16 +1211,14 @@ export function ticketBody(ctx: Ctx, id: string, sync: SyncState): string {
             ask: "Label",
             "ask-value": d.label,
           }),
-          ...(d.status === "draft"
-            ? [
-                menuItem("trash", "Remove", {
-                  act: "draft-remove",
-                  ticket: t.id,
-                  label: d.label,
-                  confirm: `Remove draft "${d.label}"?`,
-                }),
-              ]
-            : []),
+          d.status === "draft"
+            ? menuItem("trash", "Remove", {
+                act: "draft-remove",
+                ticket: t.id,
+                label: d.label,
+                confirm: `Remove draft "${d.label}"?`,
+              })
+            : menuItem("undo", "Not sent", { act: "draft-unsent", ticket: t.id, label: d.label }),
         ],
       )}</span></div><div class="d-body md">${markdown(ctx, d.sent_text ?? d.body)}</div></li>`,
   );

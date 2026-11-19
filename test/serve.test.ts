@@ -438,6 +438,13 @@ describe("serve", () => {
     const pageAfter = await counts("/t/ENG-7?part=1");
     assert.deepEqual([homeAfter.open, homeAfter.all], [home.open, home.all + 1]);
     assert.deepEqual([pageAfter.open, pageAfter.all], [page.open, page.all + 1]);
+    assert.match(homeAfter.html, /data-act="draft-unsent" data-ticket="ENG-7" data-label="tell qa">Not sent</);
+    assert.match(
+      pageAfter.html,
+      /data-act="draft-unsent" data-ticket="ENG-7" data-label="tell qa">[\s\S]*?<span>Not sent<\/span>/,
+    );
+    assert.equal((await call("POST", "/tickets/ENG-7/drafts/tell%20qa/unposted", {})).status, 200);
+    assert.deepEqual(await counts("/?part=1").then((c) => [c.open, c.all]), [home.open + 1, home.all + 1]);
     assert.match(homeAfter.html, /data-key="d-ENG-7-tell qa" data-tab-panel="all" hidden>[\s\S]*?wording pending/);
     assert.match(pageAfter.html, /data-key="td-tell qa" data-tab-panel="all" hidden>/);
     assert.match(homeAfter.html, /data-key="d-[^"]+" data-tab-panel="open all">/);
