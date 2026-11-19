@@ -1,5 +1,6 @@
+import { area, bar, donut, half, legend, percent, ring, type Slice, stack } from "./charts.ts";
 import { byPriorityThenRecent, type Ctx, has, openTickets, recentlyDone } from "./commands.ts";
-import { BLOCKS, DEFAULT_LAYOUT, type Layout } from "./config.ts";
+import { BLOCKS, type Config, DEFAULT_LAYOUT, type Layout } from "./config.ts";
 import {
   all,
   type DayRow,
@@ -18,7 +19,7 @@ import { KIND_NAME } from "./items.ts";
 import { esc, renderMarkdown } from "./markdown.ts";
 import { pins } from "./pins.ts";
 import { progress } from "./steps.ts";
-import { cut, nowIso, nowTs, sinceDate, startOfDayIso, today } from "./util.ts";
+import { cut, nowIso, nowTs, shiftDate, sinceDate, startOfDayIso, today } from "./util.ts";
 
 export type SyncState = {
   status: "idle" | "running" | "finished" | "failed";
@@ -464,10 +465,13 @@ function needsCard(ctx: Ctx, g: Group, rows: Need[], pinned: Set<string>): strin
   return `<section class="ncard tone-${g.tone}"><details class="ngroup" data-key="group-${g.key}" data-group="${g.key}" open><summary><span class="g-label">${esc(g.label)}</span><span class="g-count">${active}</span></summary><ul class="rows needs-list">${list}</ul></details></section>`;
 }
 
+function groupFor(n: Need): Group {
+  return GROUPS.find((g) => g.verbs.includes(n.verb)) ?? OTHER_GROUP;
+}
+
 function needsCards(ctx: Ctx, list: Need[]): Record<string, string> {
   const pinned = new Set(pins(ctx.db).keys());
-  const groupOf = (n: Need) =>
-    pinned.has(n.key) ? PINNED_GROUP : (GROUPS.find((g) => g.verbs.includes(n.verb)) ?? OTHER_GROUP);
+  const groupOf = (n: Need) => (pinned.has(n.key) ? PINNED_GROUP : groupFor(n));
   const cards: Record<string, string> = {};
   for (const g of [PINNED_GROUP, ...GROUPS, OTHER_GROUP]) {
     const rows = list.filter((n) => groupOf(n) === g);
@@ -486,6 +490,7 @@ function needCounts(list: Need[]): Map<string, Need[]> {
 }
 
 const BLOCK_NAME: Record<string, string> = {
+  overview: "Overview",
   pinned: "Pinned",
   fix: "Fix now",
   review: "Review",
@@ -501,23 +506,133 @@ const BLOCK_NAME: Record<string, string> = {
   activity: "Activity",
 };
 
-function block(id: string, html: string): string {
-  if (html === "") return `<div class="block" data-block="${id}" hidden></div>`;
+type Col = keyof Layout;
+
+const COL_MOVE: Record<Col, string> = {
+  top: "Move to top row",
+  left: "Move to left column",
+  right: "Move to right column",
+};
+
+function block(id: string, html: string, col: Col, hidden: string[]): string {
+  if (html === "" || hidden.includes(id)) return `<div class="block" data-block="${id}" id="b-${id}" hidden></div>`;
   const move = (dir: string, label: string) => `<button type="button" data-move="${dir}">${esc(label)}</button>`;
-  const grip = `<details class="menu grip-menu" data-key="grip-${id}"><summary class="grip" draggable="true" title="Drag to move" aria-label="Move ${esc(BLOCK_NAME[id] ?? id)}">${svg("grip")}</summary><div class="menu-pop">${move("up", "Move up")}${move("down", "Move down")}${move("other", "Move to the other column")}</div></details>`;
-  return `<div class="block" data-block="${id}">${grip}${html}</div>`;
+  const others = (Object.keys(COL_MOVE) as Col[]).filter((c) => c !== col).map((c) => move(c, COL_MOVE[c]));
+  const hide = `<button type="button" data-config="hiddenBlocks" data-value="${esc(JSON.stringify([...hidden, id]))}">Hide</button>`;
+  const grip = `<details class="menu grip-menu" data-key="grip-${id}"><summary class="grip" draggable="true" title="Drag to move" aria-label="Move ${esc(BLOCK_NAME[id] ?? id)}">${svg("grip")}</summary><div class="menu-pop">${move("up", "Move up")}${move("down", "Move down")}${others.join("")}${hide}</div></details>`;
+  return `<div class="block" data-block="${id}" id="b-${id}">${grip}${html}</div>`;
 }
 
-function columns(layout: Layout): [string[], string[]] {
-  const known = (ids: string[]) => ids.filter((id) => BLOCKS.includes(id));
-  const left = known(layout.left);
-  const right = known(layout.right).filter((id) => !left.includes(id));
-  const placed = new Set([...left, ...right]);
+function columns(layout: Layout): Record<Col, string[]> {
+  const placed = new Set<string>();
+  const take = (ids: string[] | undefined) =>
+    (ids ?? []).filter((id) => {
+      if (!BLOCKS.includes(id) || placed.has(id)) return false;
+      placed.add(id);
+      return true;
+    });
+  const cols: Record<Col, string[]> = { top: take(layout.top), left: take(layout.left), right: take(layout.right) };
   for (const id of BLOCKS) {
     if (placed.has(id)) continue;
-    (DEFAULT_LAYOUT.right.includes(id) ? right : left).push(id);
+    const home = (Object.keys(cols) as Col[]).find((c) => DEFAULT_LAYOUT[c].includes(id)) ?? "left";
+    cols[home].push(id);
   }
-  return [left, right];
+  return cols;
+}
+
+function progressView(style: string, done: number, total: number, big: boolean): string {
+  const pct = percent(done, total);
+  const complete = total > 0 && done === total;
+  const graphic =
+    style === "bar"
+      ? bar(pct)
+      : style === "half"
+        ? big
+          ? half(pct, 112, 10, complete)
+          : half(pct, 30, 4, complete)
+        : big
+          ? ring(pct, 56, 6, complete)
+          : ring(pct, 20, 3.5, complete);
+  const text =
+    total === 0
+      ? `<span class="frac">–</span>`
+      : `<span class="pct">${pct}%</span><span class="frac">${done}/${total}</span>`;
+  return `<span class="t-progress style-${esc(style)}${big ? " big" : ""}${complete ? " complete" : ""}">${graphic}<span class="p-text">${text}</span></span>`;
+}
+
+const DIR_SLICE_TONE: Record<string, string> = {
+  inprogress: "blue",
+  todo: "violet",
+  triage: "amber",
+  backlog: "grey",
+  unfiled: "teal",
+};
+
+function stepsDone(ctx: Ctx, from: string, to: string | null): string[] {
+  const rows = all<{ done_at: string }>(
+    ctx.db,
+    to === null
+      ? "SELECT done_at FROM step WHERE done_at >= ?"
+      : "SELECT done_at FROM step WHERE done_at >= ? AND done_at < ?",
+    ...(to === null ? [from] : [from, to]),
+  );
+  return rows.map((r) => today(new Date(r.done_at), ctx.config.timezone));
+}
+
+function delta(now: number, before: number): string {
+  if (before === 0 || now === before) return "";
+  const change = Math.round(((now - before) / before) * 100);
+  const up = change > 0;
+  return `<span class="delta ${up ? "up" : "down"}" title="vs previous ${before}">${up ? "↑" : "↓"} ${Math.abs(change)}%</span>`;
+}
+
+function rangeControl(c: Config): string {
+  return segmented(
+    "chartDays",
+    c.chartDays,
+    [7, 14, 30].map((d) => [d, `${d}d`]),
+  );
+}
+
+function overviewSection(ctx: Ctx, tickets: Ticket[], list: Need[]): string {
+  const c = ctx.config;
+  const active = list.filter((n) => n.dim === null);
+  const dayStart = startOfToday(ctx);
+  const fresh = active.filter((n) => n.since >= dayStart).length;
+  const needSlices: Slice[] = [...GROUPS, OTHER_GROUP].map((g) => ({
+    label: g.label,
+    value: active.filter((n) => groupFor(n) === g).length,
+    tone: g.tone,
+    href: `#b-${g.key}`,
+  }));
+  const needsTile = `<div class="tile"><div class="tile-head"><span class="tile-title">Needs you</span>${fresh > 0 ? `<span class="delta new">+${fresh} today</span>` : ""}</div><div class="hero">${active.length}</div>${stack(needSlices)}${legend(needSlices)}</div>`;
+
+  const sums = tickets.map((t) => progress(ctx.db, t.id));
+  const done = sums.reduce((n, p) => n + p.done, 0);
+  const total = sums.reduce((n, p) => n + p.total, 0);
+  const pct = percent(done, total);
+  const progressTile = `<div class="tile"><div class="tile-head"><span class="tile-title">Progress</span></div><div class="gauge">${half(pct, 150, 14, total > 0 && done === total)}<span class="gauge-value"><b>${total === 0 ? "–" : `${pct}%`}</b><small>${done} of ${total} steps</small></span></div></div>`;
+
+  const dirSlices: Slice[] = c.openDirs.map((d) => ({
+    label: DIR_LABEL[d] ?? d,
+    value: tickets.filter((t) => t.dir === d).length,
+    tone: DIR_SLICE_TONE[d] ?? "grey",
+  }));
+  const finished = recentlyDone(ctx).length;
+  const ticketsTile = `<div class="tile"><div class="tile-head"><span class="tile-title">Tickets</span>${finished > 0 ? `<span class="delta up" title="done in the last ${c.doneDays} days">${finished} done</span>` : ""}</div><div class="donut-row"><span class="donut-wrap">${donut(dirSlices, 92, 12)}<b>${tickets.length}</b></span>${legend(dirSlices)}</div></div>`;
+
+  const todayDate = today(ctx.now, c.timezone);
+  const first = shiftDate(todayDate, 1 - c.chartDays);
+  const from = startOfDayIso(first, c.timezone);
+  const recent = stepsDone(ctx, from, null);
+  const before = stepsDone(ctx, startOfDayIso(shiftDate(first, -c.chartDays), c.timezone), from).length;
+  const days = Array.from({ length: c.chartDays }, (_, i) => {
+    const day = shiftDate(first, i);
+    return { day, n: recent.filter((d) => d === day).length };
+  });
+  const doneTile = `<div class="tile"><div class="tile-head"><span class="tile-title">Steps done</span>${delta(recent.length, before)}</div><div class="hero">${recent.length}</div>${area(days, recent.length === 1 ? "step" : "steps")}</div>`;
+
+  return `<section class="overview"><div class="sec-head"><h2>Overview</h2>${rangeControl(c)}</div><div class="tiles">${needsTile}${progressTile}${ticketsTile}${doneTile}</div></section>`;
 }
 
 function prChip(ctx: Ctx, i: ItemRow): string {
@@ -554,7 +669,6 @@ function ticketRow(ctx: Ctx, t: Ticket, done = false, needing: Need[] = []): str
     has(t.gate) ? `<span class="chip tone-amber">approve?</span>` : "",
     has(t.decide) ? `<span class="chip tone-amber">decide</span>` : "",
   ].join("");
-  const pct = p.total === 0 ? 0 : Math.round((p.done / p.total) * 100);
   const next = done
     ? `done ${doneDay(ctx, t.updated_at ?? nowIso(ctx.now))}`
     : p.next
@@ -563,7 +677,7 @@ function ticketRow(ctx: Ctx, t: Ticket, done = false, needing: Need[] = []): str
   const priority = (t.tracker_priority ?? "").trim();
   return `<li class="ticket${done ? " is-closed" : ""}" data-key="t-${esc(t.id)}" data-href="/t/${encodeURIComponent(t.id)}">
 <div class="t-top">${ticketLink(t.id)}<span class="t-title">${esc(t.title)}</span>${needPill(needing)}${priority ? pill(priority, PRIORITY_TONE[priority.toLowerCase()] ?? "grey") : ""}${pill(DIR_LABEL[t.dir ?? ""] ?? t.dir ?? "", DIR_TONE[t.dir ?? ""] ?? "grey")}</div>
-<div class="t-meta"><span class="t-progress${p.total > 0 && p.done === p.total ? " complete" : ""}"><span class="bar"><span style="width:${pct}%"></span></span><span class="frac">${p.total === 0 ? "–" : `${p.done}/${p.total}`}</span></span><span class="t-next">${esc(cut(next || "–", 160))}</span><span class="chips">${chips}</span></div>
+<div class="t-meta">${progressView(ctx.config.progressStyle, p.done, p.total, false)}<span class="t-next">${esc(cut(next || "–", 160))}</span><span class="chips">${chips}</span></div>
 </li>`;
 }
 
@@ -695,19 +809,21 @@ export function indexBody(ctx: Ctx, sync: SyncState): string {
   const list = needs(ctx, tickets);
   const active = list.filter((n) => n.dim === null).length;
   const blocks: Record<string, string> = {
+    overview: overviewSection(ctx, tickets, list),
     ...needsCards(ctx, list),
     tickets: ticketsSection(ctx, tickets, needCounts(list)),
     today: todaySection(ctx),
     drafts: draftsSection(ctx),
     activity: activitySection(ctx),
   };
-  const [left, right] = columns(ctx.config.layout);
-  const col = (name: string, ids: string[]) =>
-    `<div class="col" data-col="${name}">${ids.map((id) => block(id, blocks[id] ?? "")).join("")}</div>`;
+  const cols = columns(ctx.config.layout);
+  const col = (name: Col) =>
+    `<div class="col" data-col="${name}">${cols[name].map((id) => block(id, blocks[id] ?? "", name, ctx.config.hiddenBlocks)).join("")}</div>`;
   return `${header(ctx, sync, "home", active)}
 <main class="grid" data-needs-count="${active}">
-${col("left", left)}
-${col("right", right)}
+${col("top")}
+${col("left")}
+${col("right")}
 </main>`;
 }
 
@@ -741,14 +857,13 @@ export function ticketBody(ctx: Ctx, id: string, sync: SyncState): string {
   const notes = all<NoteRow>(ctx.db, "SELECT * FROM note WHERE ticket_id = ? ORDER BY position, id", id);
   const p = progress(ctx.db, id);
   const priority = (t.tracker_priority ?? "").trim();
-  const pct = p.total === 0 ? 0 : Math.round((p.done / p.total) * 100);
 
   const head = `<div class="page-head">${ticketLink(t.id)}<h1>${esc(t.title)}</h1>${priority ? pill(priority, PRIORITY_TONE[priority.toLowerCase()] ?? "grey") : ""}${pill(DIR_LABEL[t.dir ?? ""] ?? t.dir ?? "", DIR_TONE[t.dir ?? ""] ?? "grey")}${t.tracker_state ? pill(t.tracker_state, "violet") : ""}${link(t.tracker_url, "tracker ↗", "head-link")}</div>`;
   const state = `<dl class="state">${field("Status", t.status)}${field("Next", t.next, "blue")}${field("Approve?", t.gate, "amber")}${field("Decide", t.decide, "amber")}${field("Repo", [t.repo, t.branch].filter(Boolean).join(" · "))}${field("PRs", t.prs)}${field("Owner", t.owner)}</dl>`;
   const stepList =
     steps.length === 0
       ? empty()
-      : `<div class="t-progress${p.done === p.total ? " complete" : ""}"><span class="bar"><span style="width:${pct}%"></span></span><span class="frac">${p.done}/${p.total}</span></div><ol class="steps">${steps
+      : `${progressView(ctx.config.progressStyle, p.done, p.total, true)}<ol class="steps">${steps
           .map(
             (s) =>
               `<li class="${s.done_at === null ? (p.next?.n === s.n ? "next" : "") : "done"}"><span class="check"></span><span class="s-title">${esc(s.title)}</span>${s.evidence ? link(s.evidence, "↗", "e-ref") : ""}</li>`,
@@ -789,13 +904,23 @@ ${head}
 </main>`;
 }
 
-function segmented(key: string, value: string, options: [string, string][]): string {
+type Option = [string | number, string, string?];
+
+function segmented(key: string, value: string | number, options: Option[]): string {
   return `<div class="seg" role="radiogroup">${options
     .map(
-      ([v, label]) =>
-        `<button type="button" role="radio" aria-checked="${v === value}" class="${v === value ? "on" : ""}" data-config="${esc(key)}" data-value="${esc(JSON.stringify(v))}">${esc(label)}</button>`,
+      ([v, label, icon]) =>
+        `<button type="button" role="radio" aria-checked="${v === value}" class="${v === value ? "on" : ""}${icon ? " has-icon" : ""}" data-config="${esc(key)}" data-value="${esc(JSON.stringify(v))}">${icon ?? ""}${esc(label)}</button>`,
     )
     .join("")}</div>`;
+}
+
+function blockChips(hidden: string[]): string {
+  return `<div class="block-chips">${BLOCKS.map((id) => {
+    const on = !hidden.includes(id);
+    const next = on ? [...hidden, id] : hidden.filter((h) => h !== id);
+    return `<button type="button" class="chip-toggle${on ? " on" : ""}" aria-pressed="${on}" data-config="hiddenBlocks" data-value="${esc(JSON.stringify(next))}">${esc(BLOCK_NAME[id] ?? id)}</button>`;
+  }).join("")}</div>`;
 }
 
 function toggle(key: string, on: boolean): string {
@@ -831,6 +956,49 @@ export function settingsBody(ctx: Ctx, sync: SyncState, db: DbInfo): string {
 <main class="grid settings">
 <div class="col">
 ${section(
+  "Dashboard",
+  null,
+  row(
+    "Progress",
+    segmented("progressStyle", c.progressStyle, [
+      ["ring", "Ring", ring(65, 16, 3, false)],
+      ["half", "Half", half(65, 22, 3.5, false)],
+      ["bar", "Bar", bar(65)],
+    ]),
+  ) +
+    row(
+      "Charts",
+      segmented(
+        "chartDays",
+        c.chartDays,
+        [7, 14, 30].map((d) => [d, `${d} days`]),
+      ),
+    ) +
+    row(
+      "Done tab",
+      segmented(
+        "doneDays",
+        c.doneDays,
+        [7, 14, 30].map((d) => [d, `${d} days`]),
+      ),
+    ) +
+    row(
+      "Later until",
+      segmented(
+        "laterHour",
+        c.laterHour,
+        [7, 8, 9, 10].map((h) => [h, `${h}:00`]),
+      ),
+    ) +
+    row("Blocks", blockChips(c.hiddenBlocks)) +
+    row(
+      "Layout",
+      button("Reset", { config: "layout", value: JSON.stringify(DEFAULT_LAYOUT) }) +
+        button("Show all", { config: "hiddenBlocks", value: "[]" }, { disabled: c.hiddenBlocks.length === 0 }),
+    ),
+  "set-sec",
+)}
+${section(
   "Open links",
   null,
   row(
@@ -854,6 +1022,8 @@ ${section(
   "set-sec",
 )}
 ${section("Notifications", null, row("New items", toggle("notifyNew", c.notifyNew)) + row("Sound", toggle("notifySound", c.notifySound)), "set-sec")}
+</div>
+<div class="col">
 ${section(
   "Appearance",
   null,
@@ -865,15 +1035,9 @@ ${section(
       ["dark", "Dark"],
     ]),
   ) +
-    row(
-      "Time zone",
-      `<input class="text" data-config-input="timezone" value="${esc(c.timezone)}" spellcheck="false">`,
-    ) +
-    row("Layout", button("Reset", { config: "layout", value: JSON.stringify(DEFAULT_LAYOUT) })),
+    row("Time zone", `<input class="text" data-config-input="timezone" value="${esc(c.timezone)}" spellcheck="false">`),
   "set-sec",
 )}
-</div>
-<div class="col">
 ${section(
   "Sync",
   null,

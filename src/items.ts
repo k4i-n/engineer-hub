@@ -226,7 +226,7 @@ export function close(ctx: Ctx, keys: string[]): Result {
 
 export function snooze(ctx: Ctx, key: string, duration: string): Result {
   const item = findItem(ctx.db, key);
-  const until = laterTime(ctx.now, duration, ctx.config.timezone, "--for");
+  const until = laterTime(ctx.now, duration, ctx.config.timezone, ctx.config.laterHour, "--for");
   ctx.db.prepare("UPDATE item SET snoozed_until = ? WHERE id = ?").run(until, item.id);
   return {
     text: `#${item.id} snoozed until ${nowTs(new Date(until), ctx.config.timezone)}`,

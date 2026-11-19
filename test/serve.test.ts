@@ -88,7 +88,7 @@ describe("serve", () => {
     assert.match(html, /^<!doctype html>/);
     assert.match(
       html,
-      /<div class="col" data-col="left"><div class="block" data-block="today">[\s\S]*?<div class="block" data-block="tickets">[\s\S]*?<div class="block" data-block="activity">[\s\S]*?<div class="col" data-col="right">/,
+      /<div class="col" data-col="left"><div class="block" data-block="today"[^>]*>[\s\S]*?<div class="block" data-block="tickets"[^>]*>[\s\S]*?<div class="block" data-block="activity"[^>]*>[\s\S]*?<div class="col" data-col="right">/,
     );
     assert.match(html, /href="\/t\/ENG-42">ENG-42<\/a><span class="t-title">Sync login sessions across devices/);
     assert.match(html, /waiting on design review/);
@@ -250,6 +250,54 @@ describe("serve", () => {
     assert.equal(bad.status, 400);
     assert.match(await bad.text(), /layout lists a block twice/);
     assert.equal((await post("/api/config", { key: "layout", value: '{"left":["nope"],"right":[]}' })).status, 400);
+  });
+
+  test("the overview sits in the top row and counts needs, steps, tickets and steps done per day", async () => {
+    hub(["step", "add", "ENG-42", "write the migration"]);
+    hub(["step", "add", "ENG-42", "ship it"]);
+    hub(["step", "done", "ENG-42", "1"]);
+    const html = await (await fetch(`${server.url}/?part=1`)).text();
+    const top = /data-col="top">([\s\S]*?)<\/div>\s*<div class="col" data-col="left">/.exec(html)?.[1] ?? "";
+    assert.match(top, /data-block="overview"/);
+    assert.match(top, /<span class="tile-title">Needs you<\/span>[\s\S]*?<div class="hero">2<\/div>/);
+    assert.match(top, /<b>50%<\/b><small>1 of 2 steps<\/small>/);
+    assert.match(top, /<title>In progress 1<\/title>/);
+    assert.match(top, /<span class="tile-title">Steps done<\/span><\/div><div class="hero">1<\/div>/);
+    assert.equal([...top.matchAll(/data-tip="/g)].length, 14);
+    assert.match(
+      html,
+      /data-key="t-ENG-42"[\s\S]*?<span class="t-progress style-ring"><svg class="ring"[\s\S]*?<span class="pct">50%<\/span>/,
+    );
+
+    assert.equal((await post("/api/config", { key: "chartDays", value: "7" })).status, 200);
+    assert.equal((await post("/api/config", { key: "progressStyle", value: '"half"' })).status, 200);
+    const after = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.equal([...after.matchAll(/data-tip="/g)].length, 7);
+    assert.match(after, /<span class="t-progress style-half"><svg class="half"/);
+    const ticket = await (await fetch(`${server.url}/t/ENG-42?part=1`)).text();
+    assert.match(ticket, /<span class="t-progress style-half big">/);
+    assert.equal((await post("/api/config", { key: "chartDays", value: "9" })).status, 400);
+    assert.equal((await post("/api/config", { key: "progressStyle", value: '"pie"' })).status, 400);
+  });
+
+  test("a card can move to the top row or be hidden, and settings can show it again", async () => {
+    const layout = { top: ["tickets"], left: ["today"], right: ["overview"] };
+    assert.equal((await post("/api/config", { key: "layout", value: JSON.stringify(layout) })).status, 200);
+    assert.equal((await post("/api/config", { key: "hiddenBlocks", value: '["activity"]' })).status, 200);
+    const html = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.match(html, /data-col="top"><div class="block" data-block="tickets" id="b-tickets">/);
+    assert.match(html, /<div class="block" data-block="activity" id="b-activity" hidden><\/div>/);
+    assert.match(html, /data-col="right"><div class="block" data-block="overview" id="b-overview"><details/);
+    const settings = await (await fetch(`${server.url}/settings?part=1`)).text();
+    assert.match(
+      settings,
+      /class="chip-toggle" aria-pressed="false" data-config="hiddenBlocks" data-value="\[\]">Activity</,
+    );
+    const bad = await post("/api/config", { key: "hiddenBlocks", value: '["nope"]' });
+    assert.equal(bad.status, 400);
+    assert.match(await bad.text(), /hiddenBlocks has an unknown block nope/);
+    const twice = await post("/api/config", { key: "layout", value: '{"top":["today"],"left":["today"],"right":[]}' });
+    assert.equal(twice.status, 400);
   });
 
   test("search finds tickets, items, steps and notes from one box", async () => {

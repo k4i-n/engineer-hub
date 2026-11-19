@@ -26,11 +26,17 @@ export type Config = {
   layout: Layout;
   autoSync: boolean;
   syncEvery: string;
+  hiddenBlocks: string[];
+  progressStyle: string;
+  chartDays: number;
+  doneDays: number;
+  laterHour: number;
 };
 
-export type Layout = { left: string[]; right: string[] };
+export type Layout = { top: string[]; left: string[]; right: string[] };
 
 export const BLOCKS = [
+  "overview",
   "pinned",
   "fix",
   "review",
@@ -47,6 +53,7 @@ export const BLOCKS = [
 ];
 
 export const DEFAULT_LAYOUT: Layout = {
+  top: ["overview"],
   left: ["today", "tickets", "activity"],
   right: ["pinned", "fix", "review", "reply", "prs", "triage", "waiting", "decide", "other", "drafts"],
 };
@@ -80,6 +87,11 @@ export const DEFAULTS: Config = {
   layout: DEFAULT_LAYOUT,
   autoSync: true,
   syncEvery: "15m",
+  hiddenBlocks: [],
+  progressStyle: "ring",
+  chartDays: 14,
+  doneDays: 14,
+  laterHour: 9,
 };
 
 const CHOICES: Partial<Record<keyof Config, string[]>> = {
@@ -87,6 +99,9 @@ const CHOICES: Partial<Record<keyof Config, string[]>> = {
   openLinearIn: ["browser", "app"],
   theme: ["system", "light", "dark"],
   syncEvery: ["15m", "30m", "1h", "2h"],
+  progressStyle: ["ring", "half", "bar"],
+  chartDays: ["7", "14", "30"],
+  doneDays: ["7", "14", "30"],
 };
 
 type Key = keyof Config;
@@ -148,6 +163,13 @@ function semanticError(key: Key, value: unknown): string | undefined {
     const unknown = ids.find((id) => !BLOCKS.includes(String(id)));
     if (unknown !== undefined) return `layout has an unknown block ${String(unknown)} (${BLOCKS.join(", ")})`;
     if (new Set(ids).size !== ids.length) return "layout lists a block twice";
+  }
+  if (key === "hiddenBlocks") {
+    const unknown = (value as string[]).find((id) => !BLOCKS.includes(id));
+    if (unknown !== undefined) return `hiddenBlocks has an unknown block ${unknown} (${BLOCKS.join(", ")})`;
+  }
+  if (key === "laterHour" && !(Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 23)) {
+    return "laterHour is an hour from 0 to 23";
   }
   if (key === "trackerSyncMarkers" && Array.isArray(value) && value.length !== 2) {
     return "trackerSyncMarkers takes exactly two strings: start and end";

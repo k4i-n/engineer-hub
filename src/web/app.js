@@ -467,7 +467,7 @@ document.addEventListener("click", async (e) => {
 
 function layoutFromDom() {
   const ids = (col) => [...app.querySelectorAll(`.col[data-col="${col}"] > .block`)].map((b) => b.dataset.block);
-  return { left: ids("left"), right: ids("right") };
+  return { top: ids("top"), left: ids("left"), right: ids("right") };
 }
 
 async function saveLayout() {
@@ -482,9 +482,10 @@ async function saveLayout() {
 function moveBlock(block, dir) {
   if (!block) return;
   const col = block.parentElement;
-  if (dir === "other") {
-    const other = col.dataset.col === "left" ? "right" : "left";
-    app.querySelector(`.col[data-col="${other}"]`)?.prepend(block);
+  const column = app.querySelector(`.col[data-col="${dir}"]`);
+  if (column) {
+    if (dir === "top") column.append(block);
+    else column.prepend(block);
   } else {
     const shown = [...col.children].filter((b) => !b.hidden);
     const target = shown[shown.indexOf(block) + (dir === "up" ? -1 : 1)];
@@ -517,6 +518,7 @@ document.addEventListener("dragstart", (e) => {
   if (!grip) return;
   closeMenus();
   dragging = grip.closest(".block");
+  document.body.classList.add("is-dragging");
   e.dataTransfer.effectAllowed = "move";
   e.dataTransfer.setData("text/plain", dragging.dataset.block);
   e.dataTransfer.setDragImage(dragging, 24, 24);
@@ -547,6 +549,7 @@ document.addEventListener("drop", (e) => {
 document.addEventListener("dragend", () => {
   dragging?.classList.remove("dragging");
   dragging = null;
+  document.body.classList.remove("is-dragging");
   clearDrop();
   if (refreshAfterDrag) {
     refreshAfterDrag = false;
