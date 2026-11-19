@@ -25,7 +25,7 @@ export type Io = {
 const USAGE = `usage: hub <command> [args] [--json] [--db <path>]
 read:   ticket <id> | board [regex] | next | gates | changed --since <YYYY-MM-DD|yesterday|today>
         search <query> [-n 10] | events <id> [-n 20] [--full] | notes <id> | note-show <id> <title>
-        drafts [id] | draft-show <id> <label> | day [date] | lint | config [key]
+        drafts [id] | draft-show <id> <label> | day [date] [--full] | lint | config [key]
         items [--needs-me] [--source <s>] [--ticket <id>] [--all] | waits [--due] | sources | brief
         steps <id>
 write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent] [--ref <url>]
@@ -42,7 +42,7 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         source add <name> --every 5m -- <program> [args] | source remove <name>
         moved --as <session id> [--start] | moved --hook (reads a Claude Code hook's JSON on stdin)
         step add <id> <title> | step done <id> <n> [--evidence <url>]
-        day set <date> (--file <path> | --stdin) | ticket-new <id> <title> [--dir todo]
+        day set <date> (--file <path> | --stdin) [--rev <rev>] | ticket-new <id> <title> [--dir todo]
         move <id> <dir> | order <id> <place | -> | gate <id> (yes | no) | config <key> <json>
 backup: backup | backups | restore <name>
 import: import --root <dir> [--apply]
@@ -59,6 +59,7 @@ const OPTIONS = {
   kind: { type: "string" },
   source: { type: "string" },
   ref: { type: "string" },
+  rev: { type: "string" },
   file: { type: "string" },
   channel: { type: "string" },
   at: { type: "string" },
@@ -95,6 +96,7 @@ type Values = {
   kind?: string;
   source?: string;
   ref?: string;
+  rev?: string;
   file?: string;
   channel?: string;
   at?: string;
@@ -196,8 +198,12 @@ const COMMANDS: Record<string, Handler> = {
       ...(v.ticket === undefined ? {} : { ticket: v.ticket }),
     }),
   day: (a, v, io) => {
-    if (a[0] !== "set") return c("day", a[0] === undefined ? {} : { date: a[0] });
-    return c("day_set", { date: arg(a, 1, "day set <date> (--file <path> | --stdin)"), body: body(v, io) });
+    if (a[0] !== "set") return c("day", { ...(a[0] === undefined ? {} : { date: a[0] }), full: v.full === true });
+    return c("day_set", {
+      date: arg(a, 1, "day set <date> (--file <path> | --stdin) [--rev <rev>]"),
+      body: body(v, io),
+      ...(v.rev === undefined ? {} : { rev: v.rev }),
+    });
   },
   lint: () => c("lint"),
   config: (a) => {

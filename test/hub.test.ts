@@ -302,8 +302,11 @@ describe("writes", () => {
 
     const file = join(dir, "plan.md");
     writeFileSync(file, "# Plan\n\n## RESUME\nstart with ENG-7\n\n## Later\n- other\n");
-    await ok("day", "set", "2026-11-14", "--file", file);
-    assert.equal(await ok("day", "2026-11-14"), "2026-11-14\nstart with ENG-7");
+    assert.equal(
+      await ok("day", "set", "2026-11-14", "--file", file),
+      "day 2026-11-14 saved, rev: 2026-11-13T05:20:00.000Z",
+    );
+    assert.equal(await ok("day", "2026-11-14"), "2026-11-14\nrev: 2026-11-13T05:20:00.000Z\nstart with ENG-7");
   });
 
   test("posted keeps the wording actually sent, and Sent without it is pending until a sync fills it", async () => {
@@ -626,10 +629,45 @@ describe("reads", () => {
 
   test("day returns the RESUME block of the plan, by date or the latest", async () => {
     await imported();
-    const resume = "2026-11-13\nContinue ENG-42: write the migration for the sessions table.";
+    const resume =
+      "2026-11-13\nrev: 2026-11-13T05:20:00.000Z\nContinue ENG-42: write the migration for the sessions table.";
     assert.equal(await ok("day", "2026-11-13"), resume);
     now = new Date("2026-11-20T00:00:00Z");
     assert.equal(await ok("day"), resume);
+  });
+
+  test("day --full returns the whole plan, and the rev in JSON", async () => {
+    stdin = "# Plan\n\n## RESUME\nstart with ENG-7\n\n## Later\n- other\n";
+    await ok("day", "set", "2026-11-14", "--stdin");
+    assert.equal(
+      await ok("day", "2026-11-14", "--full"),
+      "2026-11-14\nrev: 2026-11-13T05:20:00.000Z\n# Plan\n\n## RESUME\nstart with ENG-7\n\n## Later\n- other\n",
+    );
+    const row = await json<{ rev: string; body: string }>("day", "2026-11-14");
+    assert.equal(row.rev, "2026-11-13T05:20:00.000Z");
+  });
+
+  test("day set refuses to replace a plan without the current rev", async () => {
+    stdin = "## RESUME\nfirst";
+    await ok("day", "set", "2026-11-14", "--stdin");
+    now = new Date("2026-11-13T06:00:00Z");
+    stdin = "## RESUME\nsecond";
+    assert.equal(
+      (await hub("day", "set", "2026-11-14", "--stdin")).err,
+      "plan for 2026-11-14 already exists (rev 2026-11-13T05:20:00.000Z); read it with day 2026-11-14 (full), merge, then day_set with rev 2026-11-13T05:20:00.000Z",
+    );
+    assert.equal(
+      (await hub("day", "set", "2026-11-14", "--stdin", "--rev", "2026-11-12T00:00:00.000Z")).err,
+      "plan for 2026-11-14 changed since you read it (rev 2026-11-13T05:20:00.000Z, yours 2026-11-12T00:00:00.000Z); read it with day 2026-11-14 (full), merge, then retry with rev 2026-11-13T05:20:00.000Z",
+    );
+    assert.match(await ok("day", "2026-11-14"), /first$/);
+
+    await ok("day", "set", "2026-11-14", "--stdin", "--rev", "2026-11-13T05:20:00.000Z");
+    assert.equal(await ok("day", "2026-11-14"), "2026-11-14\nrev: 2026-11-13T06:00:00.000Z\nsecond");
+    assert.match(
+      (await hub("day", "set", "2026-11-14", "--stdin", "--rev", "2026-11-13T05:20:00.000Z")).err,
+      /changed since you read it/,
+    );
   });
 
   test("lint reports missing and oversize fields and exits 1", async () => {

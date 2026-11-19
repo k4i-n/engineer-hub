@@ -391,14 +391,19 @@ export function draftShow(ctx: Ctx, id: string, label: string): Result {
   };
 }
 
-export function day(ctx: Ctx, date: string | undefined): Result {
+function rev(row: DayRow): string {
+  return row.updated_at ?? "none";
+}
+
+export function day(ctx: Ctx, date: string | undefined, full: boolean): Result {
   const row = date
     ? one<DayRow>(ctx.db, "SELECT * FROM day WHERE date = ?", date)
     : (one<DayRow>(ctx.db, "SELECT * FROM day WHERE date = ?", today(ctx.now, ctx.config.timezone)) ??
       one<DayRow>(ctx.db, "SELECT * FROM day ORDER BY date DESC LIMIT 1"));
   if (!row)
     throw new HubError(date ? `no day plan for ${date}` : "no day plan yet (hub day set <date> --file <plan.md>)");
-  return { text: `${row.date}\n${row.resume ?? `(no ## ${ctx.config.resumeHeading} block)`}`, json: row };
+  const shown = full ? row.body : (row.resume ?? `(no ## ${ctx.config.resumeHeading} block)`);
+  return { text: `${row.date}\nrev: ${rev(row)}\n${shown}`, json: { ...row, rev: rev(row) } };
 }
 
 export function lint(ctx: Ctx): Result {
@@ -589,18 +594,32 @@ export function posted(ctx: Ctx, id: string, label: string, options: PostedOptio
   return { text: `${id} draft "${label}" ${status}${pending}`, json: { ticket_id: id, label, status, posted_at: at } };
 }
 
-export function daySet(ctx: Ctx, date: string, body: string): Result {
+export function daySet(ctx: Ctx, date: string, body: string, expected: string | null): Result {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new HubError(`day date must be YYYY-MM-DD, not ${date}`);
   const resume = splitResume(body, ctx.config.resumeHeading);
-  ctx.db
+  const at = nowIso(ctx.now);
+  const { changes } = ctx.db
     .prepare(
-      `INSERT INTO day(date, resume, body, updated_at) VALUES (?, ?, ?, ?)
-       ON CONFLICT(date) DO UPDATE SET resume = excluded.resume, body = excluded.body, updated_at = excluded.updated_at`,
+      `INSERT INTO day(date, resume, body, updated_at) VALUES (:date, :resume, :body, :at)
+       ON CONFLICT(date) DO UPDATE SET resume = excluded.resume, body = excluded.body, updated_at = excluded.updated_at
+       WHERE coalesce(day.updated_at, 'none') = :rev`,
     )
-    .run(date, resume, body, nowIso(ctx.now));
+    .run({ date, resume, body, at, rev: expected ?? "" });
+  if (changes === 0) {
+    const current = rev(one<DayRow>(ctx.db, "SELECT * FROM day WHERE date = ?", date) as DayRow);
+    const merge = `read it with day ${date} (full), merge`;
+    if (expected === null) {
+      throw new HubError(
+        `plan for ${date} already exists (rev ${current}); ${merge}, then day_set with rev ${current}`,
+      );
+    }
+    throw new HubError(
+      `plan for ${date} changed since you read it (rev ${current}, yours ${expected}); ${merge}, then retry with rev ${current}`,
+    );
+  }
   return {
-    text: `day ${date} saved${resume ? "" : ` (no ## ${ctx.config.resumeHeading} block)`}`,
-    json: { date, resume },
+    text: `day ${date} saved, rev: ${at}${resume ? "" : ` (no ## ${ctx.config.resumeHeading} block)`}`,
+    json: { date, resume, rev: at },
   };
 }
 
