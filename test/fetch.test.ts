@@ -863,9 +863,46 @@ describe("script sources", () => {
     assert.match(await hub("items", "--source", "pd"), /pd\/alert \| disk/);
     assert.match(await hub("sources"), /script pagerduty: pd-items --team web \| every 5m/);
     const settings = await (await fetch(`${server.url}/settings?part=1`)).text();
-    assert.match(settings, /pd-items --team web · every 5m[\s\S]*?hub source remove pagerduty/);
+    assert.match(settings, /data-act="source-set" data-name="pagerduty" data-on="0"[\s\S]*?pd-items --team web/);
+    assert.match(settings, /data-source-every="pagerduty" value="5m"/);
+    assert.doesNotMatch(settings, /hub source remove pagerduty/);
     assert.match(await hub("source", "remove", "pagerduty"), /removed/);
     assert.match(await fails("fetch", "pagerduty"), /no source pagerduty to fetch/);
+  });
+
+  test("the dashboard turns a script source off and on, changes its interval and removes it, never its command", async () => {
+    await hub("source", "add", "inc", "--every", "5m", "--", "inc-items");
+    let runs = 0;
+    answers["inc-items"] = () => {
+      runs += 1;
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const api = (method: string, path: string, body: object) =>
+      fetch(`${server.url}/api/v1${path}`, {
+        method,
+        headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    assert.equal((await api("PATCH", "/sources/inc", { on: false })).status, 200);
+    assert.match(await hub("fetch"), /^github:/);
+    assert.equal(runs, 0);
+    const settings = await (await fetch(`${server.url}/settings?part=1`)).text();
+    assert.match(settings, /data-act="source-set" data-name="inc" data-on="1"/);
+    assert.match(await hub("fetch", "inc"), /^inc: nothing new/);
+    assert.equal(runs, 1);
+    assert.match(await hub("source", "set", "inc", "--on", "--every", "2h"), /^script source inc: on, every 2h$/);
+    assert.equal((await api("PATCH", "/sources/inc", { every: "soon" })).status, 400);
+    assert.equal((await api("PATCH", "/sources/inc", { argv: ["sh", "-c", "id"] })).status, 400);
+    assert.equal((await api("PATCH", "/sources/nope", { on: true })).status, 400);
+    assert.match(await hub("sources"), /script inc: inc-items \| every 2h/);
+    assert.match(await fails("source", "set", "inc"), /usage: hub source set/);
+    assert.equal((await api("POST", "/sources/inc/remove", {})).status, 200);
+    assert.match(await fails("fetch", "inc"), /no source inc to fetch/);
+  });
+
+  test("Settings builds the add command for the terminal", async () => {
+    const settings = await (await fetch(`${server.url}/settings?part=1`)).text();
+    assert.match(settings, /data-source-form[\s\S]*?hub source add &lt;name&gt; --every 5m -- &lt;program&gt;/);
   });
 
   test("a failing run or a bad line writes nothing and is the source error", async () => {

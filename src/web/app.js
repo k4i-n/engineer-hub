@@ -24,6 +24,8 @@ const DONE_TEXT = {
   sent: "Marked sent",
   match: "Saved",
   gate: "Answered",
+  "source-fetch": "Fetched",
+  "source-remove": "Removed",
 };
 
 let seen = null;
@@ -176,7 +178,17 @@ async function refresh() {
     const boxFocused = document.activeElement === box;
     const caret = box?.selectionStart ?? null;
     const focusKey = document.activeElement?.closest?.("[data-key]")?.dataset.key;
+    const kept = new Map([...app.querySelectorAll("[data-keep]")].map((el) => [el.dataset.keep, el.value]));
+    const keptFocus = document.activeElement?.dataset?.keep;
+    const keptCaret = document.activeElement?.selectionStart ?? null;
     app.innerHTML = html;
+    for (const el of app.querySelectorAll("[data-keep]")) el.value = kept.get(el.dataset.keep) ?? "";
+    const refocus = keptFocus ? app.querySelector(`[data-keep="${keptFocus}"]`) : null;
+    if (refocus) {
+      refocus.focus();
+      if (keptCaret !== null) refocus.setSelectionRange(keptCaret, keptCaret);
+    }
+    sourceLine();
     for (const d of app.querySelectorAll("details[data-key]")) if (open.has(d.dataset.key)) d.open = true;
     for (const e of app.querySelectorAll("[data-keep-scroll][data-key]")) e.scrollTop = scroll.get(e.dataset.key) ?? 0;
     const newBox = app.querySelector("[data-search-box]");
@@ -252,6 +264,9 @@ const ROUTES = {
   "draft-rename": (d) => ["POST", `/tickets/${e(d.ticket)}/drafts/${e(d.label)}/rename`, { to: d.value }],
   "draft-remove": (d) => ["POST", `/tickets/${e(d.ticket)}/drafts/${e(d.label)}/remove`, {}],
   "item-detach": (d) => ["POST", `/items/${e(d.id)}/detach`, {}],
+  "source-set": (d) => ["PATCH", `/sources/${e(d.name)}`, d.every ? { every: d.every } : { on: d.on === "1" }],
+  "source-fetch": (d) => ["POST", "/fetch", { source: d.name }],
+  "source-remove": (d) => ["POST", `/sources/${e(d.name)}/remove`, {}],
   sync: () => ["POST", "/sync", {}],
   backup: () => ["POST", "/backups", {}],
 };
@@ -673,6 +688,35 @@ document.addEventListener(
   },
   true,
 );
+
+function sourceLine() {
+  const form = app.querySelector("[data-source-form]");
+  if (!form) return;
+  const value = (name) => form.querySelector(`[name="${name}"]`).value.trim();
+  const [name, every, command] = [value("name"), value("every"), value("command")];
+  const line = `hub source add ${name || "<name>"} --every ${every || "5m"} -- ${command || "<program>"}`;
+  const row = form.closest(".set-control");
+  row.querySelector("[data-source-line]").textContent = line;
+  const copy = row.querySelector("button[data-copy]");
+  copy.dataset.copy = line;
+  copy.disabled = name === "" || command === "";
+}
+
+document.addEventListener("input", (e) => {
+  if (e.target.closest("[data-source-form]")) sourceLine();
+});
+
+document.addEventListener("change", async (e) => {
+  const el = e.target.closest("[data-source-every]");
+  if (!el) return;
+  try {
+    await post("source-set", { name: el.dataset.sourceEvery, every: el.value.trim() });
+    toast("Saved");
+  } catch (error) {
+    toast(error.message, { bad: true });
+    el.classList.add("invalid");
+  }
+});
 
 document.addEventListener("change", (e) => {
   const el = e.target.closest("[data-config-input]");

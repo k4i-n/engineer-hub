@@ -46,6 +46,7 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 | `hub wait <id> <who> <url> [--ping-after 1d]`, `hub wait close <wait \| url>` | records a question asked of someone, closes it when they answer |
 | `hub wait edit <wait> [--who <w>] [--ping-after 1d]` | changes who an open wait is on, or when to ping |
 | `hub source <name> [--cursor <c>] [--error <text>]` | records a sync of a source |
+| `hub source add <name> --every 5m -- <program> [args]`, `hub source set <name> [--on \| --off] [--every 5m]`, `hub source remove <name>` | adds a [script source](sources.md#script-sources) (terminal only), turns one off or on or changes its interval, removes one |
 | `hub day set <date> (--file \| --stdin) [--rev <rev>]` | stores a day plan; replacing one needs the rev `hub day` showed, and a stale rev is refused |
 | `hub ticket-new <id> <title> [--dir todo]`, `hub move <id> <dir>` | creates a ticket, moves it between dirs (a move drops its place in the order) |
 | `hub backup`, `hub backups` | backs up the database now, lists the backups newest first |

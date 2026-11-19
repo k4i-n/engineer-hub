@@ -212,7 +212,7 @@ describe("serve", () => {
   test("settings show the database and save config through the same checks as the CLI", async () => {
     const html = await (await fetch(`${server.url}/settings`)).text();
     assert.ok(html.includes(dbFile));
-    assert.match(html, /Schema<\/span><div class="set-control">v8/);
+    assert.match(html, /Schema<\/span><div class="set-control">v9/);
     assert.equal((await setConfigKey("openLinearIn", '"app"')).status, 200);
     const command = await setConfigKey("syncCommand", '["sh","-c","touch /tmp/x"]');
     assert.equal(command.status, 400);
@@ -888,7 +888,17 @@ describe("mcp", () => {
   test("tools mirror the API without the dashboard's own routes or the human's answers", async () => {
     const { tools } = await result<{ tools: Tool[] }>(await rpc("tools/list"));
     const names = tools.map((t) => t.name);
-    for (const gone of ["gate", "pin", "config_set", "sync", "find", "ticket_delete", "ticket_merge"]) {
+    for (const gone of [
+      "gate",
+      "pin",
+      "config_set",
+      "sync",
+      "find",
+      "ticket_delete",
+      "ticket_merge",
+      "source_set",
+      "source_remove",
+    ]) {
       assert.ok(!names.includes(gone), gone);
     }
     for (const kept of [

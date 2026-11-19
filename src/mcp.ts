@@ -27,6 +27,8 @@ const NOT_TOOLS = [
   "item_unignore",
   "repo_unignore",
   "restore",
+  "source_remove",
+  "source_set",
   "ticket_delete",
   "ticket_merge",
 ];

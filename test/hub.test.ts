@@ -1007,14 +1007,14 @@ describe("db", () => {
     db.close();
     assert.throws(
       () => serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] }),
-      /has schema v1, this hub needs v8: move the file aside and re-import/,
+      /has schema v1, this hub needs v9: move the file aside and re-import/,
     );
     server = await serve({ dbPath: join(dir, "other.db"), port: 0, now: () => now, env: {}, fetchers: [] });
   });
 });
 
 describe("schema upgrade", () => {
-  test("a v2 database gains draft.send_at, the script table, ticket.position and item.ignored, source.warning, item.detached, and becomes v8, when hub serve opens it", async () => {
+  test("a v2 database gains draft.send_at, the script table, ticket.position and item.ignored, source.warning, item.detached, script_source.enabled, and becomes v9, when hub serve opens it", async () => {
     await imported();
     await server.close();
     const db = new DatabaseSync(dbFile);
@@ -1023,7 +1023,8 @@ describe("schema upgrade", () => {
     );
     db.close();
     server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] });
-    assert.equal(sql<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'")[0]?.value, "8");
+    assert.equal(sql<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'")[0]?.value, "9");
+    assert.equal(sql<{ n: number }>("SELECT count(*) AS n FROM script_source WHERE enabled = 1")[0]?.n, 0);
     assert.equal(sql<{ n: number }>("SELECT count(*) AS n FROM item WHERE detached = 0")[0]?.n, EXPECTED.links);
     assert.equal(sql<{ n: number }>("SELECT count(*) AS n FROM source WHERE warning IS NOT NULL")[0]?.n, 0);
     assert.equal(sql<{ n: number }>("SELECT count(*) AS n FROM script_source")[0]?.n, 0);

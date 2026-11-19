@@ -6,7 +6,7 @@ import { SOURCE_NAME } from "./sources.ts";
 import { afterDuration, HubError, nowIso } from "./util.ts";
 
 const SCRIPT_TIMEOUT_MS = 2 * 60_000;
-const RESERVED = ["add", "remove", "github", "linear", "slack"];
+const RESERVED = ["add", "remove", "set", "github", "linear", "slack"];
 
 export function addScript(ctx: Ctx, name: string, every: string, argv: string[]): Result {
   if (!SOURCE_NAME.test(name) || RESERVED.includes(name)) {
@@ -32,6 +32,16 @@ export function removeScript(ctx: Ctx, name: string): Result {
   return { text: `script source ${name} removed`, json: { name } };
 }
 
+export function setScript(ctx: Ctx, name: string, change: { on: boolean | null; every: string | null }): Result {
+  const row = one<ScriptRow>(ctx.db, "SELECT * FROM script_source WHERE name = ?", name);
+  if (row === undefined) throw new HubError(`no script source ${name} (hub sources lists them)`);
+  if (change.every !== null) afterDuration(new Date(0), change.every, "every");
+  const on = change.on ?? row.enabled === 1;
+  const every = change.every ?? row.every;
+  ctx.db.prepare("UPDATE script_source SET enabled = ?, every = ? WHERE name = ?").run(on ? 1 : 0, every, name);
+  return { text: `script source ${name}: ${on ? "on" : "off"}, every ${every}`, json: { name, on, every } };
+}
+
 export function scripts(ctx: Ctx): ScriptRow[] {
   return all<ScriptRow>(ctx.db, "SELECT * FROM script_source ORDER BY name");
 }
@@ -44,6 +54,7 @@ export function scriptFetcher(row: ScriptRow): Fetcher {
     key: null,
     every: row.every,
     argv,
+    on: row.enabled === 1,
     check: async () => ({ ok: true, how: `runs ${argv.join(" ")}`, fix: [] }),
     fetch: async (sys, ctx, cursor) => {
       const started = ctx.now.toISOString();
