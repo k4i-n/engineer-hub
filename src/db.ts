@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { HubError } from "./util.ts";
 
-export const SCHEMA_VERSION = "5";
+export const SCHEMA_VERSION = "6";
 
 export type Ticket = {
   id: string;
@@ -73,6 +73,7 @@ export type ItemRow = {
   changed_at: string;
   closed_at: string | null;
   snoozed_until: string | null;
+  ignored: string | null;
 };
 export type WaitRow = {
   id: number;
@@ -141,7 +142,7 @@ CREATE TABLE draft(id INTEGER PRIMARY KEY, ticket_id TEXT, label TEXT, body TEXT
   created_at TEXT, updated_at TEXT, UNIQUE(ticket_id, label));
 CREATE TABLE item(id INTEGER PRIMARY KEY, source TEXT NOT NULL, ref TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, title TEXT,
   url TEXT, state TEXT, author TEXT, ticket_id TEXT, needs_me INTEGER NOT NULL DEFAULT 0,
-  first_seen TEXT NOT NULL, changed_at TEXT NOT NULL, closed_at TEXT, snoozed_until TEXT);
+  first_seen TEXT NOT NULL, changed_at TEXT NOT NULL, closed_at TEXT, snoozed_until TEXT, ignored TEXT);
 CREATE INDEX item_ticket ON item(ticket_id);
 CREATE TABLE wait(id INTEGER PRIMARY KEY, ticket_id TEXT NOT NULL, who TEXT NOT NULL, url TEXT NOT NULL,
   asked_at TEXT NOT NULL, ping_after TEXT, pinged_at TEXT, closed_at TEXT);
@@ -167,6 +168,7 @@ const UPGRADES: Record<string, { to: string; sql: string }> = {
     sql: "CREATE TABLE script_source(name TEXT PRIMARY KEY, argv TEXT NOT NULL, every TEXT NOT NULL, created_at TEXT NOT NULL);",
   },
   "4": { to: "5", sql: "ALTER TABLE ticket ADD COLUMN position INTEGER;" },
+  "5": { to: "6", sql: "ALTER TABLE item ADD COLUMN ignored TEXT;" },
 };
 
 export function openDb(path: string): DatabaseSync {

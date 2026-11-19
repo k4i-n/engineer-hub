@@ -273,7 +273,7 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
   const dayStart = startOfToday(ctx);
   const items = all<ItemRow>(
     ctx.db,
-    "SELECT * FROM item WHERE needs_me = 1 AND (closed_at IS NULL OR closed_at >= ?)",
+    "SELECT * FROM item WHERE needs_me = 1 AND ignored IS NULL AND (closed_at IS NULL OR closed_at >= ?)",
     dayStart,
   );
   const waits = all<WaitRow>(
@@ -907,7 +907,7 @@ export function ticketBody(ctx: Ctx, id: string, sync: SyncState): string {
           .join("")}</ol>`;
   const itemRows = items.map((i) => {
     const v = itemVerb(i);
-    return `<li class="need tone-${v.tone}${i.closed_at ? " is-dim" : ""}" data-key="ti-${i.id}"><span class="verb">${esc(v.verb)}</span><span class="need-main">${link(i.url ?? (/^https?:/.test(i.ref) ? i.ref : null), i.title ?? i.ref, "need-title")}<span class="need-sub">${sourceLine([githubRef(i.url) ?? i.source, i.state, i.closed_at ? "closed" : null])}</span></span></li>`;
+    return `<li class="need tone-${v.tone}${i.closed_at ? " is-dim" : ""}" data-key="ti-${i.id}"><span class="verb">${esc(v.verb)}</span><span class="need-main">${link(i.url ?? (/^https?:/.test(i.ref) ? i.ref : null), i.title ?? i.ref, "need-title")}<span class="need-sub">${sourceLine([githubRef(i.url) ?? i.source, i.state, i.ignored ? "ignored" : i.closed_at ? "closed" : null])}</span></span></li>`;
   });
   const pinned = pins(ctx.db);
   const waitRows = waits.map((w) => {

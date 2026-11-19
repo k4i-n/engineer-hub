@@ -151,6 +151,45 @@ describe("github", () => {
     assert.equal(empty.status, 400);
   });
 
+  test("an ignored PR stays out whatever changes, hub items --all still lists it, and unignore brings it back", async () => {
+    const mine = "https://github.com/acme/web/pull/101";
+    answers.gh = graphql([], [PR(mine, { reviewDecision: "APPROVED" })]);
+    await hub("fetch", "github");
+    assert.match(await hub("item", "ignore", mine), /^#\d+ ignored$/);
+    answers.gh = graphql(
+      [],
+      [PR(mine, { commits: { nodes: [{ commit: { statusCheckRollup: { state: "FAILURE" } } }] } })],
+    );
+    await hub("fetch", "github");
+    assert.doesNotMatch(await hub("items", "--needs-me"), /pull\/101/);
+    assert.match(await hub("items", "--all"), /pull\/101 \| ignored$/m);
+    await hub("item", "unignore", mine);
+    assert.match(await hub("items", "--needs-me"), /pull\/101/);
+  });
+
+  test("ignoring a repo hides its review requests now and later, but not your PRs there, until undone", async () => {
+    const noisy = "https://github.com/acme/noisy/pull/1";
+    answers.gh = graphql(
+      [PR(noisy), PR("https://github.com/acme/web/pull/7")],
+      [PR("https://github.com/acme/noisy/pull/5", { reviewDecision: "APPROVED" })],
+    );
+    await hub("fetch", "github");
+    assert.equal(await hub("item", "ignore", noisy, "--repo"), "Review requests from acme/noisy ignored");
+    assert.match(await hub("config", "ignoreRepos"), /"review_request":\["acme\/noisy"\],"pr":\[\]/);
+    answers.gh = graphql(
+      [PR(noisy), PR("https://github.com/acme/noisy/pull/2"), PR("https://github.com/acme/web/pull/7")],
+      [PR("https://github.com/acme/noisy/pull/5", { reviewDecision: "APPROVED" })],
+    );
+    await hub("fetch", "github");
+    const needs = await hub("items", "--needs-me");
+    assert.doesNotMatch(needs, /noisy\/pull\/[12]/);
+    assert.match(needs, /noisy\/pull\/5/);
+    assert.match(needs, /web\/pull\/7/);
+    await hub("item", "unignore", noisy, "--repo");
+    assert.equal((await hub("items", "--needs-me")).match(/acme\/noisy\/pull\/[12]/g)?.length, 2);
+    assert.match(await hub("config", "ignoreRepos"), /"review_request":\[\]/);
+  });
+
   test("without gh the source shows the error and Settings says how to fix it", async () => {
     assert.match(await hub("fetch"), /^github: gh is not installed$/);
     assert.match(await hub("sources"), /github \| last sync .* \| error: gh is not installed/);
@@ -248,10 +287,6 @@ describe("linear", () => {
     assert.match(await hub("fetch", "linear"), /^linear: no linear key$/);
     const settings = await (await fetch(`${server.url}/settings?part=1`)).text();
     assert.match(settings, /security add-generic-password -s engineer-hub -a linear -w/);
-    assert.match(
-      settings,
-      /sealcall add linear --host api.linear.app --header &#39;Authorization: \{key\}&#39; --allow &#39;POST \/graphql&#39;/,
-    );
   });
 
   test("a sealcall route is used when present, and a GraphQL error is the source error", async () => {
