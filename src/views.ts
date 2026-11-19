@@ -24,10 +24,18 @@ import { sections } from "./scripts.ts";
 import { progress } from "./steps.ts";
 import { cut, nowIso, nowTs, sinceDate, startOfDayIso, today } from "./util.ts";
 
+export const BRAND = "EngineerHub";
+
 export type SyncState = {
   status: "idle" | "running" | "finished" | "failed";
   at: string | null;
   detail: string | null;
+};
+export type Live = {
+  sync: SyncState;
+  agent: SyncState;
+  agentBusy: boolean;
+  sources: { name: string; running: boolean }[];
 };
 export type DbInfo = { path: string; size: number; schema: string; backupFolder: string; backups: Backup[] };
 
@@ -177,6 +185,8 @@ const ICON: Record<string, string> = {
   merge:
     '<circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="12" r="2"/><path d="M6 7v10"/><path d="M8 5c5 0 8 2.5 8 7"/>',
   link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
+  down: '<path d="m6 9 6 6 6-6"/>',
+  logo: '<path d="M12 9.4V6.8M14.24 13.31l2.71 1.58M9.76 13.31l-2.71 1.58"/><circle cx="12" cy="12" r="2.6" class="core"/><circle cx="12" cy="5" r="1.8"/><circle cx="18.5" cy="15.8" r="1.8"/><circle cx="5.5" cy="15.8" r="1.8"/>',
   gear: '<path d="M12.2 2h-.4a2 2 0 0 0-2 2v.2a2 2 0 0 1-1 1.7l-.4.3a2 2 0 0 1-2 0l-.2-.1a2 2 0 0 0-2.7.7l-.2.4a2 2 0 0 0 .7 2.7l.2.1a2 2 0 0 1 1 1.7v.5a2 2 0 0 1-1 1.8l-.2.1a2 2 0 0 0-.7 2.7l.2.4a2 2 0 0 0 2.7.7l.2-.1a2 2 0 0 1 2 0l.4.3a2 2 0 0 1 1 1.7v.2a2 2 0 0 0 2 2h.4a2 2 0 0 0 2-2v-.2a2 2 0 0 1 1-1.7l.4-.3a2 2 0 0 1 2 0l.2.1a2 2 0 0 0 2.7-.7l.2-.4a2 2 0 0 0-.7-2.7l-.2-.1a2 2 0 0 1-1-1.7v-.5a2 2 0 0 1 1-1.8l.2-.1a2 2 0 0 0 .7-2.7l-.2-.4a2 2 0 0 0-2.7-.7l-.2.1a2 2 0 0 1-2 0l-.4-.3a2 2 0 0 1-1-1.7V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
 };
 
@@ -1018,36 +1028,26 @@ function activitySection(ctx: Ctx): string {
   return section("Activity", null, body, "activity", tabs);
 }
 
-function sourceState(ctx: Ctx, s: SourceRow): "ok" | "stale" | "bad" | "warn" {
-  if (s.last_error !== null) return "bad";
-  if (ctx.now.getTime() - new Date(s.last_sync).getTime() > STALE_MS) return "stale";
-  return s.warning === null ? "ok" : "warn";
-}
+type ChipState = "ok" | "warn" | "bad" | "busy" | "idle";
 
-function sourceProblems(ctx: Ctx, sources: SourceRow[]): string {
-  return sources
-    .filter((s) => sourceState(ctx, s) !== "ok")
-    .map((s) => sourceChip(ctx, s))
-    .join("");
+const AGENT_STATE: Record<SyncState["status"], ChipState> = {
+  idle: "idle",
+  running: "busy",
+  finished: "ok",
+  failed: "bad",
+};
+
+function sourceState(ctx: Ctx, s: SourceRow | undefined, running: boolean): ChipState {
+  if (running) return "busy";
+  if (s === undefined) return "idle";
+  if (s.last_error !== null) return "bad";
+  if (ctx.now.getTime() - new Date(s.last_sync).getTime() > STALE_MS || s.warning !== null) return "warn";
+  return "ok";
 }
 
 function agoText(ctx: Ctx, iso: string): string {
   const age = ago(ctx, iso);
   return age === "now" ? "just now" : `${age} ago`;
-}
-
-function syncTitle(ctx: Ctx, sources: SourceRow[]): string {
-  const latest = sources
-    .map((s) => s.last_sync)
-    .sort()
-    .at(-1);
-  return [
-    "Sync",
-    latest === undefined ? null : `synced ${agoText(ctx, latest)}`,
-    ctx.config.claudeSync && ctx.config.autoSync ? `Claude every ${ctx.config.syncEvery}` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
 }
 
 function backupState(ctx: Ctx): BackupState | null {
@@ -1058,35 +1058,65 @@ function backupState(ctx: Ctx): BackupState | null {
 function backupProblem(ctx: Ctx): string {
   const state = backupState(ctx);
   if (state?.error == null) return "";
-  return `<a class="src src-bad" href="/settings" title="${esc(state.error)}"><i></i>backup<small>failed</small></a>`;
+  return `<a class="src src-bad" href="/settings" title="${esc(state.error)}"><i></i>Backup</a>`;
 }
 
-function sourceChip(ctx: Ctx, s: SourceRow): string {
-  const state = sourceState(ctx, s);
-  const title = [`last sync ${when(ctx, s.last_sync)}`, s.cursor ? `cursor ${s.cursor}` : null, s.last_error, s.warning]
+function chip(name: string, state: ChipState, title: string): string {
+  return `<span class="src src-${state}" title="${esc(title)}"><i></i>${esc(name)}</span>`;
+}
+
+function sourceChip(ctx: Ctx, name: string, running: boolean): string {
+  const s = one<SourceRow>(ctx.db, "SELECT * FROM source WHERE name = ?", name);
+  const title = [
+    running ? "syncing" : null,
+    s === undefined ? "not synced yet" : `last sync ${when(ctx, s.last_sync)}`,
+    s?.last_error,
+    s?.warning,
+  ]
     .filter(Boolean)
     .join("\n");
-  return `<span class="src src-${state}" title="${esc(title)}"><i></i>${esc(s.name)}<small>${esc(when(ctx, s.last_sync))}</small></span>`;
+  return chip(SOURCE_NAME[name] ?? name, sourceState(ctx, s, running), title);
 }
 
-function header(ctx: Ctx, sync: SyncState, active: "home" | "settings" | "ticket", needCount = 0): string {
-  const sources = all<SourceRow>(ctx.db, "SELECT * FROM source ORDER BY name");
+function agentChip(ctx: Ctx, live: Live): string {
+  const a = live.agent;
+  const title = [
+    a.at === null ? "not run yet" : `${a.status === "running" ? "started" : "last run"} ${when(ctx, a.at)}`,
+    ctx.config.autoSync ? `auto sync every ${ctx.config.syncEvery}` : "auto sync off",
+    a.status === "failed" ? a.detail : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return chip("Agent", live.agentBusy ? "busy" : AGENT_STATE[a.status], title);
+}
+
+function statusChips(ctx: Ctx, live: Live): string {
+  return `${live.sources.map((s) => sourceChip(ctx, s.name, s.running)).join("")}${agentChip(ctx, live)}${backupProblem(ctx)}`;
+}
+
+function syncControl(sync: SyncState): string {
   const running = sync.status === "running";
   const failed = sync.status === "failed";
   const last = failed ? `Failed: ${sync.detail ?? ""}` : sync.status === "finished" ? sync.detail : null;
-  const title = running ? "Syncing" : [syncTitle(ctx, sources), last].filter(Boolean).join("\n");
+  const title = running ? "Syncing" : ["Sync sources", last].filter(Boolean).join("\n");
   const started = running && sync.at ? ` data-started="${esc(sync.at)}"` : "";
-  return `<header class="top${running ? " syncing" : ""}">
-<a class="brand" href="/"><span class="logo"></span>hub${needCount > 0 ? `<span class="count hot" title="needs you">${needCount}</span>` : ""}</a>
-<div class="sources">${sourceProblems(ctx, sources)}${backupProblem(ctx)}</div>
+  const off = running ? " disabled" : "";
+  const item = (what: string, label: string) =>
+    `<button type="button" data-act="sync" data-what="${what}"${off}><span>${label}</span></button>`;
+  return `<div class="sync"${started}><button type="button" class="ic ic-sync sync-btn${failed ? " bad" : ""}" data-act="sync" data-what="sources" title="${esc(title)}" aria-label="${running ? "Syncing" : "Sync sources"}"${off}>${svg("sync")}</button><details class="menu sync-menu" data-key="sync-menu"><summary class="ic sync-more" title="Sync" aria-label="Sync options">${svg("down")}</summary><div class="menu-pop">${item("sources", "Sources")}${item("agent", "Agent")}${item("all", "All")}</div></details></div>`;
+}
+
+function header(ctx: Ctx, live: Live, active: "home" | "settings" | "ticket", needCount = 0): string {
+  return `<header class="top">
+<a class="brand" href="/"><span class="logo">${svg("logo")}</span>${BRAND}${needCount > 0 ? `<span class="count hot" title="needs you">${needCount}</span>` : ""}</a>
+<div class="sources">${statusChips(ctx, live)}</div>
 <div class="search" role="search"><input type="search" data-search-box placeholder="Search" aria-label="Search everything" autocomplete="off" spellcheck="false"><div class="search-pop" role="listbox" hidden></div></div>
-<div class="sync"${started}><button type="button" class="ic ic-sync sync-btn${failed ? " bad" : ""}" data-act="sync" title="${esc(title)}" aria-label="${running ? "Syncing" : "Sync"}"${running ? " disabled" : ""}>${svg("sync")}</button></div>
+${syncControl(live.sync)}
 <a class="gear${active === "settings" ? " on" : ""}" href="${active === "settings" ? "/" : "/settings"}" title="Settings" aria-label="Settings">${svg("gear")}</a>
-<div class="strip"></div>
 </header>`;
 }
 
-export function indexBody(ctx: Ctx, sync: SyncState): string {
+export function indexBody(ctx: Ctx, live: Live): string {
   const order = ctx.config.openDirs;
   const tickets = openTickets(ctx).sort(
     (a, b) => order.indexOf(a.dir ?? "") - order.indexOf(b.dir ?? "") || byOrder(a, b),
@@ -1109,7 +1139,7 @@ export function indexBody(ctx: Ctx, sync: SyncState): string {
   );
   const col = (name: Col) =>
     `<div class="col" data-col="${name}">${cols[name].map((id) => block(id, names[id] ?? id, blocks[id] ?? "", name, ctx.config.hiddenBlocks)).join("")}</div>`;
-  return `${header(ctx, sync, "home", active)}
+  return `${header(ctx, live, "home", active)}
 <main class="grid" data-needs-count="${active}">
 ${col("top")}
 ${col("left")}
@@ -1123,7 +1153,7 @@ function field(ctx: Ctx, label: string, value: string | null, tone: Tone | null 
   return `<dt>${esc(label)}</dt><dd class="md${tone ? ` tone-text-${tone}` : ""}">${markdown(ctx, v)}</dd>`;
 }
 
-export function ticketBody(ctx: Ctx, id: string, sync: SyncState): string {
+export function ticketBody(ctx: Ctx, id: string, live: Live): string {
   const link = linker(ctx);
   const t = getTicket(ctx.db, id);
   const steps = all<StepRow>(ctx.db, "SELECT * FROM step WHERE ticket_id = ? ORDER BY n", id);
@@ -1261,7 +1291,7 @@ export function ticketBody(ctx: Ctx, id: string, sync: SyncState): string {
         ],
       )}</div><div class="md">${markdown(ctx, n.body)}</div></details>`,
   );
-  return `${header(ctx, sync, "ticket")}
+  return `${header(ctx, live, "ticket")}
 ${head}
 <main class="grid">
 <div class="col">${ticketNeeds}${section("State", null, state, "state-sec")}${section("Steps", null, stepList, "steps-sec", openTabs("steps", openSteps, steps.length))}${section("Timeline", null, timeline, "timeline", timelineTabs)}</div>
@@ -1337,7 +1367,8 @@ function fetchStatus(ctx: Ctx, f: Fetching): string {
 }
 
 function scriptControls(f: Fetching): string {
-  return `<input class="text src-every" data-source="${esc(f.name)}" data-field="every" value="${esc(f.every ?? "")}" aria-label="Every" spellcheck="false"><input class="text src-section" data-source="${esc(f.name)}" data-field="section" value="${esc(f.section ?? "")}" placeholder="Section" aria-label="Section" spellcheck="false">${button("Fetch now", { act: "source-fetch", name: f.name })}${button("Remove", { act: "source-remove", name: f.name, confirm: `Remove ${f.name}?` })}`;
+  const off = f.on ? "" : " disabled";
+  return `<input class="text src-every" data-source="${esc(f.name)}" data-field="every" value="${esc(f.every ?? "")}" aria-label="Every" spellcheck="false"${off}><input class="text src-section" data-source="${esc(f.name)}" data-field="section" value="${esc(f.section ?? "")}" placeholder="Section" aria-label="Section" spellcheck="false"${off}>${button("Fetch now", { act: "source-fetch", name: f.name }, { disabled: !f.on })}${button("Remove", { act: "source-remove", name: f.name, confirm: `Remove ${f.name}?` })}`;
 }
 
 function sourceRows(ctx: Ctx, list: Fetching[]): string {
@@ -1365,11 +1396,7 @@ function sourceRows(ctx: Ctx, list: Fetching[]): string {
 }
 
 function addSourceRow(): string {
-  const line = "hub source add <name> --every 5m -- <program>";
-  return row(
-    "Add",
-    `<div class="src-add" data-source-form><input class="text" data-keep="src-name" name="name" placeholder="name" aria-label="Name" spellcheck="false"><input class="text src-every" data-keep="src-every" name="every" placeholder="5m" aria-label="Every" spellcheck="false"><input class="text src-cmd" data-keep="src-cmd" name="command" placeholder="program args" aria-label="Command" spellcheck="false"></div><div class="md code-block"><pre><code data-source-line>${esc(line)}</code></pre></div>${button("Copy", { copy: line }, { disabled: true })}`,
-  );
+  return row("Add", codeBlock("hub source add <name> --every 5m -- <program>"));
 }
 
 const IGNORED_KIND: Record<string, string> = { review_request: "Review requests", pr: "My PRs" };
@@ -1399,7 +1426,7 @@ function lastBackup(ctx: Ctx, newest: Backup | undefined): string {
   return `<span class="src-state" title="${esc(newest.path)}">${esc(newest.name)} · ${esc(agoText(ctx, newest.at))}</span>`;
 }
 
-export function settingsBody(ctx: Ctx, sync: SyncState, db: DbInfo, fetching: Fetching[] = []): string {
+export function settingsBody(ctx: Ctx, live: Live, db: DbInfo, fetching: Fetching[] = []): string {
   const c = ctx.config;
   const shortcuts: [string, string][] = [
     ["j / k", "next / previous row"],
@@ -1413,7 +1440,7 @@ export function settingsBody(ctx: Ctx, sync: SyncState, db: DbInfo, fetching: Fe
     [",", "settings"],
     ["Esc", "back"],
   ];
-  return `${header(ctx, sync, "settings")}
+  return `${header(ctx, live, "settings")}
 <div class="page-head"><h1>Settings</h1></div>
 <main class="grid settings">
 <div class="col">
@@ -1458,6 +1485,7 @@ ${section(
     row(
       "Slack team ID",
       `<input class="text" data-config-input="slackTeamId" value="${esc(c.slackTeamId)}" placeholder="T01ABCDEF" spellcheck="false">`,
+      c.openSlackIn !== "app",
     ) +
     row(
       "Linear",
@@ -1487,10 +1515,9 @@ ${section("Keyboard", null, `<dl class="keys">${shortcuts.map(([k, v]) => `<dt><
 </div>
 <div class="col">
 ${section(
-  "Sync",
+  "Agent",
   null,
-  row("Run Claude", toggle("claudeSync", c.claudeSync)) +
-    row("Auto sync", toggle("autoSync", c.autoSync), !c.claudeSync) +
+  row("Auto sync", toggle("autoSync", c.autoSync)) +
     row(
       "Every",
       segmented("syncEvery", c.syncEvery, [
@@ -1500,9 +1527,9 @@ ${section(
         ["2h", "2 hours"],
         ["4h", "4 hours"],
       ]),
-      !c.claudeSync,
+      !c.autoSync,
     ) +
-    row("Command", codeBlock(JSON.stringify(c.syncCommand)), !c.claudeSync),
+    row("Command", codeBlock(JSON.stringify(c.syncCommand))),
   "set-sec",
 )}
 ${section(
@@ -1513,10 +1540,12 @@ ${section(
     row(
       "Review requests",
       `<input class="text" data-config-input="githubReviewQuery" value="${esc(c.githubReviewQuery)}" spellcheck="false">`,
+      c.fetch.github !== true,
     ) +
     row(
       "Alert channels",
       `<input class="text" data-config-input="slackAlertChannels" data-list value="${esc(c.slackAlertChannels.map((n) => `#${n.replace(/^#/, "")}`).join(", "))}" spellcheck="false">`,
+      c.fetch.slack !== true,
     ) +
     ignoredRows(ctx) +
     row(
@@ -1527,6 +1556,7 @@ ${section(
         ["15m", "15 min"],
         ["30m", "30 min"],
       ]),
+      !fetching.some((f) => f.script === null && f.on),
     ),
   "set-sec",
 )}
@@ -1546,6 +1576,7 @@ ${section(
         ["1d", "1 day"],
         ["7d", "7 days"],
       ]),
+      !c.autoBackup,
     ) +
     row(
       "Keep",
@@ -1554,6 +1585,7 @@ ${section(
         c.backupKeep,
         [7, 14, 30].map((n) => [n, String(n)]),
       ),
+      !c.autoBackup,
     ) +
     row(
       "Folder",

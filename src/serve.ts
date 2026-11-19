@@ -15,7 +15,7 @@ import { type System, system } from "./keys.ts";
 import { handleRpc } from "./mcp.ts";
 import { loadToken, tokenPath } from "./token.ts";
 import { afterDuration, HubError, nowIso } from "./util.ts";
-import { type Fetching, indexBody, page, type SyncState, settingsBody, ticketBody } from "./views.ts";
+import { BRAND, type Fetching, indexBody, type Live, page, type SyncState, settingsBody, ticketBody } from "./views.ts";
 
 export type ServeOptions = {
   dbPath: string;
@@ -30,6 +30,10 @@ export type ServeOptions = {
 };
 export type Server = { url: string; token: string; close: () => Promise<void> };
 type SyncEnd = { ok: boolean; detail: string };
+type SyncWhat = "sources" | "agent" | "all";
+
+const SYNC_WHAT: SyncWhat[] = ["sources", "agent", "all"];
+const IDLE: SyncState = { status: "idle", at: null, detail: null };
 
 const WATCH_MS = 250;
 const KEEPALIVE_MS = 20_000;
@@ -120,7 +124,9 @@ export function serve(options: ServeOptions): Promise<Server> {
   let db = openDb(options.dbPath);
   let watch = openDb(options.dbPath);
   const clients = new Set<ServerResponse>();
-  let sync: SyncState = { status: "idle", at: null, detail: null };
+  let sync: SyncState = IDLE;
+  let syncWhat: SyncWhat | null = null;
+  let agent: SyncState = IDLE;
   let child: ChildProcess | null = null;
   let port = options.port;
 
@@ -139,13 +145,13 @@ export function serve(options: ServeOptions): Promise<Server> {
   const startedAt = options.now().getTime();
   const autoSync = setInterval(() => {
     const c = ctx();
-    if (!c.config.claudeSync || !c.config.autoSync || sync.status === "running") return;
+    if (!c.config.autoSync || sync.status === "running") return;
     const every = Date.parse(afterDuration(new Date(0), c.config.syncEvery, "syncEvery"));
-    const last = sync.at === null ? startedAt : Date.parse(sync.at);
-    if (options.now().getTime() - last >= every) startSync();
+    const last = agent.at === null ? startedAt : Date.parse(agent.at);
+    if (options.now().getTime() - last >= every) startSync("agent");
   }, options.autoSyncCheckMs ?? AUTO_SYNC_CHECK_MS);
   autoSync.unref();
-  const runner = new Runner(options.fetchers ?? FETCHERS, options.system ?? system(options.env), ctx);
+  const runner = new Runner(options.fetchers ?? FETCHERS, options.system ?? system(options.env), ctx, broadcast);
   const fetchTimer = setInterval(() => {
     runner.tick().catch(() => {});
   }, options.fetchCheckMs ?? FETCH_CHECK_MS);
@@ -208,7 +214,7 @@ export function serve(options: ServeOptions): Promise<Server> {
     for (const client of clients) client.write(": keepalive\n\n");
   }, KEEPALIVE_MS);
 
-  function runClaude(program: string, args: string[]): Promise<SyncEnd> {
+  function runCommand(program: string, args: string[]): Promise<SyncEnd> {
     return new Promise((done) => {
       let output = "";
       const keep = (chunk: Buffer) => {
@@ -241,21 +247,31 @@ export function serve(options: ServeOptions): Promise<Server> {
     return { ok: true, detail: lines.join("; ") };
   }
 
-  async function runSync(claude: string[] | null): Promise<SyncEnd> {
-    if (claude === null) return fetchSources();
-    if (runner.enabled(ctx()).length > 0) await fetchSources();
-    const [program = "", ...args] = claude;
-    return runClaude(program, args);
+  async function runAgent(command: string[]): Promise<SyncEnd> {
+    agent = { status: "running", at: nowIso(options.now()), detail: null };
+    broadcast();
+    const [program = "", ...args] = command;
+    const end = await runCommand(program, args);
+    agent = { status: end.ok ? "finished" : "failed", at: nowIso(options.now()), detail: end.detail };
+    return end;
   }
 
-  function startSync(): boolean {
+  async function runSync(what: SyncWhat, command: string[]): Promise<SyncEnd> {
+    if (what === "sources") return fetchSources();
+    if (what === "all" && runner.enabled(ctx()).length > 0) await fetchSources();
+    return runAgent(command);
+  }
+
+  function startSync(asked: string): boolean {
+    const what = SYNC_WHAT.find((w) => w === asked);
+    if (what === undefined) throw new HubError(`what must be one of ${SYNC_WHAT.join(", ")}`);
     if (sync.status === "running") return false;
-    const config = ctx().config;
-    if (config.claudeSync && config.syncCommand.length === 0)
-      throw new HubError("syncCommand is empty (hub config syncCommand)");
+    const command = ctx().config.syncCommand;
+    if (what !== "sources" && command.length === 0) throw new HubError("syncCommand is empty (hub config syncCommand)");
     sync = { status: "running", at: nowIso(options.now()), detail: null };
+    syncWhat = what;
     broadcast();
-    runSync(config.claudeSync ? config.syncCommand : null)
+    runSync(what, command)
       .catch(
         (error: unknown): SyncEnd => ({ ok: false, detail: error instanceof Error ? error.message : String(error) }),
       )
@@ -264,6 +280,15 @@ export function serve(options: ServeOptions): Promise<Server> {
         broadcast();
       });
     return true;
+  }
+
+  function live(c: Ctx): Live {
+    return {
+      sync,
+      agent,
+      agentBusy: sync.status === "running" && syncWhat !== "sources",
+      sources: runner.enabled(c).map((f) => ({ name: f.name, running: runner.state(f.name).running })),
+    };
   }
 
   function authorized(req: IncomingMessage): boolean {
@@ -345,7 +370,7 @@ export function serve(options: ServeOptions): Promise<Server> {
   const hooks = {
     version: VERSION,
     syncStatus: () => sync,
-    startSync: () => ({ started: startSync(), status: sync }),
+    startSync: (what: string) => ({ started: startSync(what), status: sync }),
     fetchNow: (source: string | null) => runner.now(source),
     backupBefore: (what: "delete" | "merge") =>
       backup(db, folder(), options.now(), Number.POSITIVE_INFINITY, `-before-${what}`).name,
@@ -394,15 +419,15 @@ export function serve(options: ServeOptions): Promise<Server> {
     ) {
       const c = ctx();
       let body: string;
-      let title = "hub";
+      let title = BRAND;
       try {
-        if (url.pathname === "/") body = indexBody(c, sync);
+        if (url.pathname === "/") body = indexBody(c, live(c));
         else if (url.pathname === "/settings") {
-          title = "Settings · hub";
+          title = `Settings · ${BRAND}`;
           const schema = one<{ value: string }>(db, "SELECT value FROM meta WHERE key = 'schema_version'")?.value;
           body = settingsBody(
             c,
-            sync,
+            live(c),
             {
               path: options.dbPath,
               size: statSync(options.dbPath).size,
@@ -414,8 +439,8 @@ export function serve(options: ServeOptions): Promise<Server> {
           );
         } else {
           const id = decodeURIComponent(url.pathname.slice(3));
-          title = `${id} · hub`;
-          body = ticketBody(c, id, sync);
+          title = `${id} · ${BRAND}`;
+          body = ticketBody(c, id, live(c));
         }
       } catch (error) {
         if (!(error instanceof HubError)) throw error;

@@ -159,10 +159,22 @@ a:hover {
   text-decoration: none;
 }
 .logo {
-  width: 18px;
-  height: 18px;
-  border-radius: 5px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
+}
+.logo svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.8;
+}
+.logo .core {
+  fill: #fff;
 }
 .sources {
   display: flex;
@@ -182,19 +194,26 @@ a:hover {
   font-size: 12px;
   cursor: default;
 }
-.src small {
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
 .src i {
   width: 7px;
   height: 7px;
   border-radius: 50%;
   background: var(--green);
 }
-.src-stale i,
+.src-idle i {
+  background: var(--grey);
+}
 .src-warn i {
   background: var(--amber);
+}
+.src-busy i {
+  background: #eab308;
+  animation: pulse 1s ease-in-out infinite alternate;
+}
+@keyframes pulse {
+  to {
+    opacity: 0.35;
+  }
 }
 .src-bad {
   border-color: color-mix(in srgb, var(--red) 40%, var(--line));
@@ -205,7 +224,6 @@ a:hover {
 .sync {
   display: flex;
   align-items: center;
-  gap: 10px;
   min-width: 0;
 }
 body.offline .top::after {
@@ -243,30 +261,6 @@ body.offline .top::after {
   background: var(--sunk);
   color: var(--text);
   text-decoration: none;
-}
-.strip {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -1px;
-  height: 2px;
-  overflow: hidden;
-}
-.syncing .strip::before {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 30%;
-  background: linear-gradient(90deg, transparent, var(--accent), var(--accent-2), transparent);
-  animation: slide 1.2s ease-in-out infinite;
-}
-@keyframes slide {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(340%);
-  }
 }
 
 /* layout */
@@ -1363,8 +1357,8 @@ a.chip-btn:hover {
 }
 .search {
   position: relative;
-  flex: 0 1 420px;
-  max-width: 420px;
+  flex: 0 1 640px;
+  max-width: 640px;
 }
 .search input {
   width: 100%;
@@ -1664,15 +1658,6 @@ textarea.text {
   flex: none;
   width: 120px;
 }
-.src-add {
-  display: flex;
-  gap: 8px;
-  flex-basis: 100%;
-  min-width: 0;
-}
-.src-cmd {
-  flex: 3;
-}
 .set-control > .code-block {
   flex-basis: 100%;
   min-width: 0;
@@ -1722,29 +1707,13 @@ kbd {
   align-items: center;
 }
 .toast {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  background: #1f2330;
+  background: var(--red);
   color: #fff;
-  padding: 8px 10px 8px 14px;
+  padding: 8px 14px;
   border-radius: 10px;
   font-size: 13px;
   box-shadow: 0 8px 24px rgb(0 0 0 / 22%);
   animation: rise 0.18s ease-out;
-}
-.toast.bad {
-  background: var(--red);
-}
-.toast button {
-  height: 26px;
-  min-width: 0;
-  background: transparent;
-  color: #a5b4fc;
-  border-color: transparent;
-}
-.toast button:hover:not(:disabled) {
-  color: #fff;
 }
 @keyframes rise {
   from {
@@ -1773,8 +1742,19 @@ kbd {
   opacity: 1;
   cursor: progress;
 }
+.sync-more {
+  width: 20px;
+  height: 38px;
+}
+.sync-more svg {
+  width: 14px;
+  height: 14px;
+}
 .sync-btn:disabled svg {
   animation: spin 0.9s linear infinite;
+}
+.sync-menu .menu-pop {
+  min-width: 140px;
 }
 /* overview */
 .overview .sec-head .seg {

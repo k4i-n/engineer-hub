@@ -30,30 +30,6 @@ const UNDO = {
   "wait-pinged": (d, r) => ["wait-unpinged", { ...d, pingAfter: r.before?.ping_after, pingedAt: r.before?.pinged_at }],
   "draft-later": (d, r) => ["draft-send-at", { ...d, sendAt: r.before?.send_at }],
 };
-const LATER_TOAST = {
-  "item-snooze": { "1h": "Snoozed for an hour", "4h": "Snoozed for 4 hours", tomorrow: "Snoozed until tomorrow" },
-  "wait-pinged": { "1h": "Reminder in an hour", "4h": "Reminder in 4 hours", tomorrow: "Reminder tomorrow" },
-  "draft-later": { "1h": "Send in an hour", "4h": "Send in 4 hours", tomorrow: "Send tomorrow" },
-};
-const DONE_TEXT = {
-  backup: "Backed up",
-  "item-done": "Done",
-  "item-reopen": "Back in the list",
-  "wait-close": "Answered",
-  "wait-reopen": "Back in the list",
-  "item-ignore": "Ignored",
-  "item-unignore": "Shown again",
-  "repo-unignore": "Shown again",
-  sent: "Marked sent",
-  "draft-unsent": "Marked not sent",
-  "gate-reopen": "Open again",
-  "match-propose": "Back in the list",
-  match: "Saved",
-  gate: "Answered",
-  "source-fetch": "Fetched",
-  "source-remove": "Removed",
-};
-
 let seen = null;
 let selected = null;
 let lastUndo = null;
@@ -62,13 +38,17 @@ function needKeys() {
   return new Set([...app.querySelectorAll(".needs-list > li[data-key]:not(.is-dim)")].map((li) => li.dataset.key));
 }
 
+const MARK =
+  '<rect width="32" height="32" rx="8" fill="#4f46e5"/><g transform="scale(1.333)" fill="none" stroke="#fff" stroke-width="1.8"><path d="M12 9.4V6.8M14.24 13.31l2.71 1.58M9.76 13.31l-2.71 1.58"/><circle cx="12" cy="12" r="2.6" fill="#fff"/><circle cx="12" cy="5" r="1.8"/><circle cx="18.5" cy="15.8" r="1.8"/><circle cx="5.5" cy="15.8" r="1.8"/></g>';
+
 function badge(count) {
   document.title =
     count > 0 ? `(${count}) ${document.title.replace(/^\(\d+\) /, "")}` : document.title.replace(/^\(\d+\) /, "");
-  const svg =
+  const dot =
     count > 0
-      ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#4f46e5"/><circle cx="23" cy="9" r="9" fill="#dc2626"/><text x="23" y="13" font-size="12" font-family="sans-serif" font-weight="700" text-anchor="middle" fill="#fff">${count > 9 ? "9+" : count}</text></svg>`
-      : `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#4f46e5"/></svg>`;
+      ? `<circle cx="24" cy="8" r="8" fill="#dc2626"/><text x="24" y="12" font-size="11" font-family="sans-serif" font-weight="700" text-anchor="middle" fill="#fff">${count > 9 ? "9+" : count}</text>`
+      : "";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">${MARK}${dot}</svg>`;
   document.querySelector('link[rel="icon"]').href = `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
@@ -94,7 +74,7 @@ function announce(fresh) {
   for (const li of fresh.slice(0, 3)) {
     const verb = li.querySelector(".verb")?.textContent ?? "";
     const title = li.querySelector(".need-title")?.textContent ?? "";
-    const n = new Notification(`${verb} · hub`, { body: title, tag: li.dataset.key });
+    const n = new Notification(`${verb} · EngineerHub`, { body: title, tag: li.dataset.key });
     n.onclick = () => window.focus();
   }
 }
@@ -214,17 +194,7 @@ async function refresh() {
     const boxFocused = document.activeElement === box;
     const caret = box?.selectionStart ?? null;
     const focusKey = document.activeElement?.closest?.("[data-key]")?.dataset.key;
-    const kept = new Map([...app.querySelectorAll("[data-keep]")].map((el) => [el.dataset.keep, el.value]));
-    const keptFocus = document.activeElement?.dataset?.keep;
-    const keptCaret = document.activeElement?.selectionStart ?? null;
     app.innerHTML = html;
-    for (const el of app.querySelectorAll("[data-keep]")) el.value = kept.get(el.dataset.keep) ?? "";
-    const refocus = keptFocus ? app.querySelector(`[data-keep="${keptFocus}"]`) : null;
-    if (refocus) {
-      refocus.focus();
-      if (keptCaret !== null) refocus.setSelectionRange(keptCaret, keptCaret);
-    }
-    sourceLine();
     for (const d of app.querySelectorAll("details[data-key]")) if (open.has(d.dataset.key)) d.open = true;
     for (const e of app.querySelectorAll("[data-keep-scroll][data-key]")) e.scrollTop = scroll.get(e.dataset.key) ?? 0;
     const newBox = app.querySelector("[data-search-box]");
@@ -249,21 +219,12 @@ async function refresh() {
   }
 }
 
-function toast(text, opts = {}) {
+function fail(text) {
   const el = document.createElement("div");
-  el.className = `toast${opts.bad ? " bad" : ""}`;
+  el.className = "toast";
   el.textContent = text;
-  if (opts.undo) {
-    const b = document.createElement("button");
-    b.textContent = "Undo";
-    b.onclick = () => {
-      el.remove();
-      opts.undo();
-    };
-    el.append(b);
-  }
   toasts.append(el);
-  setTimeout(() => el.remove(), opts.bad ? 7000 : 5000);
+  setTimeout(() => el.remove(), 7000);
 }
 
 function closeMenus(except) {
@@ -323,7 +284,7 @@ const ROUTES = {
   "source-set": (d) => ["PATCH", `/sources/${e(d.name)}`, { on: d.on === "1" }],
   "source-fetch": (d) => ["POST", "/fetch", { source: d.name }],
   "source-remove": (d) => ["POST", `/sources/${e(d.name)}/remove`, {}],
-  sync: () => ["POST", "/sync", {}],
+  sync: (d) => ["POST", "/sync", { what: d.what }],
   backup: () => ["POST", "/backups", {}],
 };
 
@@ -360,31 +321,26 @@ function keep(key, value) {
   } catch {}
 }
 
-function offer(text, steps) {
+function offerUndo(steps) {
   lastUndo = steps ? () => runUndo(steps) : null;
-  toast(text, { undo: lastUndo ?? undefined });
 }
 
 async function runUndo(steps) {
   try {
     for (const [name, data] of steps) await post(name, data);
-    const [name, data] = steps[steps.length - 1];
-    if (data.go !== undefined) {
-      location.href = data.go.replace("{value}", encodeURIComponent(data.value ?? ""));
-      return;
-    }
-    toast(DONE_TEXT[name] ?? "Undone");
+    const data = steps[steps.length - 1][1];
+    if (data.go !== undefined) location.href = data.go.replace("{value}", encodeURIComponent(data.value ?? ""));
   } catch (error) {
-    toast(error.message, { bad: true });
+    fail(error.message);
   }
 }
 
-function pendingToast() {
+function pendingUndo() {
   try {
-    const raw = sessionStorage.getItem("hub.toast");
-    sessionStorage.removeItem("hub.toast");
-    const pending = raw ? JSON.parse(raw) : null;
-    if (pending) offer(pending.text, pending.steps);
+    const raw = sessionStorage.getItem("hub.undo");
+    sessionStorage.removeItem("hub.undo");
+    const steps = raw ? JSON.parse(raw) : null;
+    if (steps) offerUndo(steps);
   } catch {}
 }
 
@@ -403,21 +359,14 @@ async function act(button) {
     const r = await post(name, data);
     const result = await r.json().catch(() => ({}));
     const steps = undoSteps(name, data, result);
-    const text =
-      (name === "pin"
-        ? data.on === "1"
-          ? "Pinned"
-          : "Unpinned"
-        : (LATER_TOAST[name]?.[data.for] ?? DONE_TEXT[name])) ?? "Saved";
     if (data.go !== undefined) {
-      if (steps) keep("hub.toast", { text, steps });
+      if (steps) keep("hub.undo", steps);
       location.href = data.go.replace("{value}", encodeURIComponent(data.value ?? ""));
       return;
     }
-    if (name === "sync") return;
-    offer(text, steps);
+    if (name !== "sync") offerUndo(steps);
   } catch (error) {
-    toast(error.message, { bad: true });
+    fail(error.message);
   } finally {
     button.classList.remove("busy");
   }
@@ -606,7 +555,7 @@ function selectFromHash() {
 
 window.addEventListener("hashchange", selectFromHash);
 selectFromHash();
-pendingToast();
+pendingUndo();
 
 async function saveConfig(key, value, el) {
   try {
@@ -622,7 +571,7 @@ async function saveConfig(key, value, el) {
       await Notification.requestPermission();
     }
   } catch (error) {
-    toast(error.message, { bad: true });
+    fail(error.message);
     if (el) el.classList.add("invalid");
   }
 }
@@ -662,7 +611,6 @@ document.addEventListener("click", async (e) => {
     if (b.dataset.copy !== undefined) {
       closeMenus();
       await navigator.clipboard.writeText(b.dataset.copy);
-      toast("Copied");
       return;
     }
     if (b.dataset.config) {
@@ -694,7 +642,7 @@ async function saveOrder(row) {
   try {
     await api("PUT", `/tickets/${encodeURIComponent(row.dataset.id)}/order`, { place: rows.indexOf(row) + 1 });
   } catch (error) {
-    toast(error.message, { bad: true });
+    fail(error.message);
     refresh();
   }
 }
@@ -703,7 +651,7 @@ async function saveLayout() {
   try {
     await post("config", { key: "layout", value: JSON.stringify(layoutFromDom()) });
   } catch (error) {
-    toast(error.message, { bad: true });
+    fail(error.message);
     refresh();
   }
 }
@@ -807,31 +755,13 @@ document.addEventListener(
   true,
 );
 
-function sourceLine() {
-  const form = app.querySelector("[data-source-form]");
-  if (!form) return;
-  const value = (name) => form.querySelector(`[name="${name}"]`).value.trim();
-  const [name, every, command] = [value("name"), value("every"), value("command")];
-  const line = `hub source add ${name || "<name>"} --every ${every || "5m"} -- ${command || "<program>"}`;
-  const row = form.closest(".set-control");
-  row.querySelector("[data-source-line]").textContent = line;
-  const copy = row.querySelector("button[data-copy]");
-  copy.dataset.copy = line;
-  copy.disabled = name === "" || command === "";
-}
-
-document.addEventListener("input", (e) => {
-  if (e.target.closest("[data-source-form]")) sourceLine();
-});
-
 document.addEventListener("change", async (e) => {
   const el = e.target.closest("input[data-source]");
   if (!el) return;
   try {
     await api("PATCH", `/sources/${encodeURIComponent(el.dataset.source)}`, { [el.dataset.field]: el.value.trim() });
-    toast("Saved");
   } catch (error) {
-    toast(error.message, { bad: true });
+    fail(error.message);
     el.classList.add("invalid");
   }
 });

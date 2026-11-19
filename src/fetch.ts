@@ -52,11 +52,13 @@ export class Runner {
   private readonly builtIns: Fetcher[];
   private readonly sys: System;
   private readonly ctx: () => Ctx;
+  private readonly changed: () => void;
 
-  constructor(builtIns: Fetcher[], sys: System, ctx: () => Ctx) {
+  constructor(builtIns: Fetcher[], sys: System, ctx: () => Ctx, changed: () => void = () => {}) {
     this.builtIns = builtIns;
     this.sys = sys;
     this.ctx = ctx;
+    this.changed = changed;
   }
 
   fetchers(c: Ctx): Fetcher[] {
@@ -92,6 +94,7 @@ export class Runner {
     const state = this.state(f.name);
     if (state.running) return `${f.name}: already running`;
     state.running = true;
+    this.changed();
     try {
       state.check = await f.check(this.sys);
       if (!state.check.ok) throw new HubError(state.check.how);
@@ -104,6 +107,7 @@ export class Runner {
       return `${f.name}: ${message}`;
     } finally {
       state.running = false;
+      this.changed();
     }
   }
 

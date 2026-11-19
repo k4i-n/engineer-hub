@@ -352,11 +352,11 @@ describe("github", () => {
 });
 
 describe("sync", () => {
-  const sync = (method: string) =>
+  const sync = (method: string, body: object = {}) =>
     fetch(`${server.url}/api/v1/sync`, {
       method,
       headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
-      ...(method === "POST" ? { body: "{}" } : {}),
+      ...(method === "POST" ? { body: JSON.stringify(body) } : {}),
     });
   const ended = async (): Promise<[string, string]> => {
     for (let i = 0; i < 200; i++) {
@@ -367,20 +367,24 @@ describe("sync", () => {
     throw new Error("sync still running");
   };
 
-  test("by default Sync fetches hub's own sources and never runs Claude", async () => {
+  test("by default Sync fetches hub's own sources and never runs the agent", async () => {
     answers.gh = graphql([PR("https://github.com/acme/web/pull/7")], []);
     await hub("config", "syncCommand", '["sh","-c","echo ran > claude-ran"]');
     assert.equal((await sync("POST")).status, 202);
     assert.deepEqual(await ended(), ["finished", "github: items: 1 new, 0 changed, 0 unchanged"]);
     assert.equal(existsSync(join(dir, "claude-ran")), false);
     assert.match(await hub("items", "--needs-me"), /pull\/7/);
+    const page = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.match(
+      page,
+      /<div class="sources"><span class="src src-ok" title="last sync [^"]*"><i><\/i>GitHub<\/span><span class="src src-idle" title="not run yet\nauto sync off"><i><\/i>Agent<\/span><\/div>/,
+    );
   });
 
-  test("with Claude on, Sync fetches first and then runs the command", async () => {
+  test("Sync of all fetches first and then runs the agent command", async () => {
     answers.gh = graphql([PR("https://github.com/acme/web/pull/7")], []);
     await hub("config", "syncCommand", '["sh","-c","echo judged"]');
-    await hub("config", "claudeSync", "true");
-    assert.equal((await sync("POST")).status, 202);
+    assert.equal((await sync("POST", { what: "all" })).status, 202);
     assert.deepEqual(await ended(), ["finished", "judged"]);
     assert.match(await hub("items", "--needs-me"), /pull\/7/);
   });
@@ -1018,7 +1022,7 @@ describe("slack", () => {
       /warning: missing im:read, reactions:read, users:read: names, DMs or reactions are left out/,
     );
     const page = await (await fetch(`${server.url}/settings?part=1`)).text();
-    assert.match(page, /<span class="src src-warn" title="[^"]*missing im:read[^"]*"><i><\/i>slack/);
+    assert.match(page, /<span class="src src-warn" title="[^"]*missing im:read[^"]*"><i><\/i>Slack<\/span>/);
     assert.match(page, /tone-text-amber">missing im:read, reactions:read, users:read/);
     assert.match(page, /--allow &#39;GET \/api\/reactions\.get&#39;/);
   });
@@ -1150,9 +1154,10 @@ describe("script sources", () => {
     await hub("source", "remove", "oncall");
   });
 
-  test("Settings builds the add command for the terminal", async () => {
+  test("Settings shows the add command for the terminal, with no form", async () => {
     const settings = await (await fetch(`${server.url}/settings?part=1`)).text();
-    assert.match(settings, /data-source-form[\s\S]*?hub source add &lt;name&gt; --every 5m -- &lt;program&gt;/);
+    assert.match(settings, /hub source add &lt;name&gt; --every 5m -- &lt;program&gt;/);
+    assert.doesNotMatch(settings, /data-source-form|<input[^>]*name="command"/);
   });
 
   test("a failing run or a bad line writes nothing and is the source error", async () => {
