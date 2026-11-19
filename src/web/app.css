@@ -386,6 +386,11 @@ h1 {
   padding: 20px 24px 0;
 }
 .tid {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
   font-weight: 650;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -483,6 +488,7 @@ a.need-title:hover {
   white-space: nowrap;
 }
 .need-ticket {
+  min-width: 0;
   text-align: right;
 }
 .need-line {
@@ -686,8 +692,9 @@ button.busy::after {
 }
 .t-meta {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 4px 12px;
   margin-top: 6px;
   min-width: 0;
 }
@@ -782,7 +789,7 @@ button.busy::after {
 }
 
 .t-next {
-  flex: 1;
+  flex: 1 1 16em;
   min-width: 0;
   color: var(--muted);
   font-size: 13px;
@@ -803,8 +810,20 @@ button.busy::after {
 }
 .chips {
   display: flex;
-  flex: none;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+  margin-left: auto;
+  gap: 4px 6px;
+}
+.chip-pop {
+  flex-flow: row wrap;
   gap: 6px;
+  min-width: 0;
+  width: max-content;
+  max-width: 320px;
+  padding: 8px;
 }
 
 /* today */
@@ -867,7 +886,7 @@ button.busy::after {
 .md li.md-task[hidden] {
   display: none;
 }
-.md code {
+:is(.md, .need-title, .need-sub, .t-title, .t-next, .s-title, .e-text, .page-head h1) code {
   font:
     12.5px ui-monospace,
     SFMono-Regular,
@@ -985,7 +1004,14 @@ button.busy::after {
 }
 .state dd {
   margin: 0;
+  min-width: 0;
   overflow-wrap: anywhere;
+}
+.state dd > :first-child {
+  margin-top: 0;
+}
+.state dd > :last-child {
+  margin-bottom: 0;
 }
 .steps {
   list-style: none;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { renderMarkdown } from "../src/markdown.ts";
+import { renderLine, renderMarkdown } from "../src/markdown.ts";
 
 const link = (url: string, text: string) => `<a href="${url}">${text}</a>`;
 
@@ -26,4 +26,15 @@ test("html in the text is escaped and only http links become links", () => {
 
 test("a fenced block is kept as is", () => {
   assert.equal(renderMarkdown("```\n<b>x</b>\n- y\n```", link), "<pre><code>&lt;b&gt;x&lt;/b&gt;\n- y</code></pre>");
+});
+
+test("one line keeps inline markdown, shows a fenced block as inline code and drops block markers", () => {
+  assert.equal(
+    renderLine("## Pick **one**\n- run `make db`\n```sql\nselect 1\nfrom t\n```\nsee https://x.dev/a", link),
+    'Pick <strong>one</strong> run <code>make db</code> <code>select 1 from t</code> see <a href="https://x.dev/a">https://x.dev/a</a>',
+  );
+});
+
+test("one line cuts at the limit and escapes html", () => {
+  assert.equal(renderLine("<b>abcdefghij</b>\n```\nx\n```", link, 10), "&lt;b&gt;abcd...");
 });

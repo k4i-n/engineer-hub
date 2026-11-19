@@ -16,7 +16,7 @@ import {
   type WaitRow,
 } from "./db.ts";
 import { KIND_NAME, repoOf } from "./items.ts";
-import { esc, renderMarkdown } from "./markdown.ts";
+import { esc, renderLine, renderMarkdown } from "./markdown.ts";
 import { pins } from "./pins.ts";
 import { progress } from "./steps.ts";
 import { cut, nowIso, nowTs, shiftDate, sinceDate, startOfDayIso, today } from "./util.ts";
@@ -52,6 +52,7 @@ type Need = {
 const MAX_ACTIVITY = 40;
 const ACTIVITY_SHOWN = 5;
 const MAX_TIMELINE = 200;
+const MAX_PR_CHIPS = 3;
 const STALE_MS = 6 * 3_600_000;
 const DIR_LABEL: Record<string, string> = {
   inprogress: "In progress",
@@ -125,7 +126,12 @@ function linker(ctx: Ctx) {
 
 function ticketLink(id: string | null): string {
   if (id === null) return "";
-  return `<a class="tid" href="/t/${encodeURIComponent(id)}">${esc(id)}</a>`;
+  return `<a class="tid" href="/t/${encodeURIComponent(id)}" title="${esc(id)}">${esc(id)}</a>`;
+}
+
+function line(ctx: Ctx, text: string, max = Number.POSITIVE_INFINITY): string {
+  const link = linker(ctx);
+  return renderLine(text, (url, label) => link(url, label), max);
 }
 
 function button(
@@ -345,7 +351,7 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
       since: d.posted_at ?? now,
       verb: "Sent?",
       tone: "blue",
-      title: `<span class="need-title">“${esc(cut(d.match_text ?? "", 180))}”</span>`,
+      title: `<span class="need-title">“${line(ctx, d.match_text ?? "", 180)}”</span>`,
       sub: "",
       ask: askChips(`Your draft ${d.label}${where}?`, [
         answerChip("Yes", { act: "match", ticket: d.ticket_id, label: d.label, answer: "yes" }, "y"),
@@ -387,8 +393,8 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
         since: t.updated_at ?? now,
         verb: "Approve?",
         tone: "amber",
-        title: `<span class="need-title">${esc(t.gate)}</span>`,
-        sub: esc(cut(t.title ?? "", 80)),
+        title: `<span class="need-title">${line(ctx, t.gate ?? "")}</span>`,
+        sub: line(ctx, t.title ?? "", 80),
         ask: askChips("", [
           answerChip("Yes", { act: "gate", ticket: t.id, answer: "yes" }, "y"),
           answerChip("No", { act: "gate", ticket: t.id, answer: "no" }, "n"),
@@ -408,8 +414,8 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
         since: t.updated_at ?? now,
         verb: "Decide",
         tone: "amber",
-        title: `<span class="need-title">${esc(t.decide)}</span>`,
-        sub: esc(cut(t.title ?? "", 80)),
+        title: `<span class="need-title">${line(ctx, t.decide ?? "")}</span>`,
+        sub: line(ctx, t.title ?? "", 80),
         ask: askChips("", [`<a class="chip-btn" href="${esc(page)}">Open ticket</a>`]),
         ticket: t.id,
         href: page,
@@ -427,7 +433,7 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
       since: e.created_at,
       verb: "Approve?",
       tone: "amber",
-      title: `<span class="need-title">${esc(e.text.replace(/^(Yes|No): /, ""))}</span>`,
+      title: `<span class="need-title">${line(ctx, e.text.replace(/^(Yes|No): /, ""))}</span>`,
       sub: "",
       ask: "",
       ticket: e.ticket_id,
@@ -685,6 +691,16 @@ function prChip(ctx: Ctx, i: ItemRow): string {
   return linker(ctx)(i.url, label, `chip tone-${prTone(i.state).tone}`);
 }
 
+function prChips(ctx: Ctx, ticketId: string, prs: ItemRow[]): string {
+  const shown = prs
+    .slice(0, MAX_PR_CHIPS)
+    .map((i) => prChip(ctx, i))
+    .join("");
+  const rest = prs.slice(MAX_PR_CHIPS);
+  if (rest.length === 0) return shown;
+  return `${shown}<details class="menu chip-more" data-key="prs-${esc(ticketId)}"><summary class="chip" title="${rest.length} more PRs">+${rest.length}</summary><div class="menu-pop chip-pop">${rest.map((i) => prChip(ctx, i)).join("")}</div></details>`;
+}
+
 function doneDay(ctx: Ctx, iso: string): string {
   const day = today(new Date(iso), ctx.config.timezone);
   const now = today(ctx.now, ctx.config.timezone);
@@ -707,7 +723,11 @@ function ticketRow(ctx: Ctx, t: Ticket, done = false, needing: Need[] = []): str
     0;
   const threads = items.filter((i) => i.kind === "thread").length;
   const chips = [
-    ...items.filter((i) => i.kind === "pr").map((i) => prChip(ctx, i)),
+    prChips(
+      ctx,
+      t.id,
+      items.filter((i) => i.kind === "pr"),
+    ),
     threads > 0 ? `<span class="chip tone-teal">Slack ${threads}</span>` : "",
     waiting > 0 ? `<span class="chip tone-orange">waiting ${waiting}</span>` : "",
     has(t.gate) ? `<span class="chip tone-amber">approve?</span>` : "",
@@ -721,8 +741,8 @@ function ticketRow(ctx: Ctx, t: Ticket, done = false, needing: Need[] = []): str
   const priority = (t.tracker_priority ?? "").trim();
   const drag = done ? "" : ` draggable="true" data-id="${esc(t.id)}" data-dir="${esc(t.dir ?? "")}"`;
   return `<li class="ticket${done ? " is-closed" : ""}" data-key="t-${esc(t.id)}" data-href="/t/${encodeURIComponent(t.id)}"${drag}>
-<div class="t-top">${ticketLink(t.id)}<span class="t-title">${esc(t.title)}</span>${needPill(needing)}${priority ? pill(priority, PRIORITY_TONE[priority.toLowerCase()] ?? "grey") : ""}${pill(DIR_LABEL[t.dir ?? ""] ?? t.dir ?? "", DIR_TONE[t.dir ?? ""] ?? "grey")}</div>
-<div class="t-meta">${progressView(ctx.config.progressStyle, p.done, p.total, false)}<span class="t-next">${esc(cut(next || "–", 160))}</span><span class="chips">${chips}</span></div>
+<div class="t-top">${ticketLink(t.id)}<span class="t-title">${line(ctx, t.title ?? "")}</span>${needPill(needing)}${priority ? pill(priority, PRIORITY_TONE[priority.toLowerCase()] ?? "grey") : ""}${pill(DIR_LABEL[t.dir ?? ""] ?? t.dir ?? "", DIR_TONE[t.dir ?? ""] ?? "grey")}</div>
+<div class="t-meta">${progressView(ctx.config.progressStyle, p.done, p.total, false)}<span class="t-next">${line(ctx, next || "–", 160)}</span><span class="chips">${chips}</span></div>
 </li>`;
 }
 
@@ -789,7 +809,7 @@ function draftsSection(ctx: Ctx): string {
 function eventRow(ctx: Ctx, e: EventRow, showTicket: boolean): string {
   const link = linker(ctx);
   const tone = EVENT_TONE[e.kind] ?? "grey";
-  return `<li class="event"><span class="dot tone-${tone}"></span><span class="ts">${esc(e.ts.length > 10 && e.ts.startsWith(today(ctx.now, ctx.config.timezone)) ? e.ts.slice(11) : e.ts.slice(5))}</span>${showTicket ? ticketLink(e.ticket_id) : ""}<span class="e-text">${esc(e.text)}</span>${e.ref ? link(e.ref, "↗", "e-ref") : ""}</li>`;
+  return `<li class="event"><span class="dot tone-${tone}"></span><span class="ts">${esc(e.ts.length > 10 && e.ts.startsWith(today(ctx.now, ctx.config.timezone)) ? e.ts.slice(11) : e.ts.slice(5))}</span>${showTicket ? ticketLink(e.ticket_id) : ""}<span class="e-text">${line(ctx, e.text)}</span>${e.ref ? link(e.ref, "↗", "e-ref") : ""}</li>`;
 }
 
 function activitySection(ctx: Ctx): string {
@@ -883,10 +903,12 @@ ${col("right")}
 </main>`;
 }
 
-function field(label: string, value: string | null, tone: Tone | null = null): string {
+function field(ctx: Ctx, label: string, value: string | null, tone: Tone | null = null): string {
   const v = (value ?? "").trim();
-  const shown = v === "" || v === "-" ? `<span class="muted">–</span>` : esc(v);
-  return `<dt>${esc(label)}</dt><dd${tone && v && v !== "-" ? ` class="tone-text-${tone}"` : ""}>${shown}</dd>`;
+  if (v === "" || v === "-") return `<dt>${esc(label)}</dt><dd><span class="muted">–</span></dd>`;
+  const link = linker(ctx);
+  const body = renderMarkdown(v, (url, text) => link(url, text));
+  return `<dt>${esc(label)}</dt><dd class="md${tone ? ` tone-text-${tone}` : ""}">${body}</dd>`;
 }
 
 export function ticketBody(ctx: Ctx, id: string, sync: SyncState): string {
@@ -914,15 +936,15 @@ export function ticketBody(ctx: Ctx, id: string, sync: SyncState): string {
   const p = progress(ctx.db, id);
   const priority = (t.tracker_priority ?? "").trim();
 
-  const head = `<div class="page-head">${ticketLink(t.id)}<h1>${esc(t.title)}</h1>${priority ? pill(priority, PRIORITY_TONE[priority.toLowerCase()] ?? "grey") : ""}${pill(DIR_LABEL[t.dir ?? ""] ?? t.dir ?? "", DIR_TONE[t.dir ?? ""] ?? "grey")}${t.tracker_state ? pill(t.tracker_state, "violet") : ""}${link(t.tracker_url, "tracker ↗", "head-link")}</div>`;
-  const state = `<dl class="state">${field("Status", t.status)}${field("Next", t.next, "blue")}${field("Approve?", t.gate, "amber")}${field("Decide", t.decide, "amber")}${field("Repo", [t.repo, t.branch].filter(Boolean).join(" · "))}${field("PRs", t.prs)}${field("Owner", t.owner)}</dl>`;
+  const head = `<div class="page-head">${ticketLink(t.id)}<h1>${line(ctx, t.title ?? "")}</h1>${priority ? pill(priority, PRIORITY_TONE[priority.toLowerCase()] ?? "grey") : ""}${pill(DIR_LABEL[t.dir ?? ""] ?? t.dir ?? "", DIR_TONE[t.dir ?? ""] ?? "grey")}${t.tracker_state ? pill(t.tracker_state, "violet") : ""}${link(t.tracker_url, "tracker ↗", "head-link")}</div>`;
+  const state = `<dl class="state">${field(ctx, "Status", t.status)}${field(ctx, "Next", t.next, "blue")}${field(ctx, "Approve?", t.gate, "amber")}${field(ctx, "Decide", t.decide, "amber")}${field(ctx, "Repo", [t.repo, t.branch].filter(Boolean).join(" · "))}${field(ctx, "PRs", t.prs)}${field(ctx, "Owner", t.owner)}</dl>`;
   const stepList =
     steps.length === 0
       ? empty()
       : `${progressView(ctx.config.progressStyle, p.done, p.total, true)}<ol class="steps">${steps
           .map(
             (s) =>
-              `<li class="${s.done_at === null ? (p.next?.n === s.n ? "next" : "") : "done"}"><span class="check"></span><span class="s-title">${esc(s.title)}</span>${s.evidence ? link(s.evidence, "↗", "e-ref") : ""}</li>`,
+              `<li class="${s.done_at === null ? (p.next?.n === s.n ? "next" : "") : "done"}"><span class="check"></span><span class="s-title">${line(ctx, s.title)}</span>${s.evidence ? link(s.evidence, "↗", "e-ref") : ""}</li>`,
           )
           .join("")}</ol>`;
   const itemRows = items.map((i) => {
