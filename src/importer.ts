@@ -39,7 +39,8 @@ type DayRec = { date: string; resume: string | null; body: string };
 export type ImportReport = {
   oversize: { id: string; field: string; length: number }[];
   unclassified: { id: string; heading: string }[];
-  duplicates: { id: string; paths: string[] }[];
+  folded: { id: string; paths: string[] }[];
+  noTicket: string[];
   noState: string[];
 };
 
@@ -54,13 +55,14 @@ export type ImportPlan = {
   report: ImportReport;
 };
 
-type TicketFile = { path: string; dir: string; id: string; stem: string };
+type TaskFile = { path: string; dir: string; id: string | null; stem: string; markdown: boolean; ticket: boolean };
 
-function markdownFiles(dir: string): string[] {
+const OTHER_FILES = "Other files";
+
+function filesUnder(dir: string): string[] {
   if (!existsSync(dir) || !statSync(dir).isDirectory()) return [];
   return readdirSync(dir, { recursive: true, encoding: "utf8" })
-    .filter((p) => p.endsWith(".md"))
-    .map((p) => join(dir, p))
+    .filter((p) => !p.split(sep).some((part) => part.startsWith(".")) && statSync(join(dir, p)).isFile())
     .sort();
 }
 
@@ -73,17 +75,26 @@ function idMatcher(config: Config): (stem: string) => string | null {
   };
 }
 
-export function ticketFiles(root: string, config: Config): TicketFile[] {
+function taskFiles(root: string, config: Config): TaskFile[] {
   const match = idMatcher(config);
-  const files: TicketFile[] = [];
+  const files: TaskFile[] = [];
   for (const dir of config.taskDirs) {
-    for (const file of markdownFiles(join(root, "tasks", dir))) {
-      const name = basename(file);
-      const stem = name.slice(0, -3);
-      if (name.endsWith("-draft.md") || /^(STATUS|README)/i.test(stem)) continue;
-      const id = match(stem);
-      if (!id) continue;
-      files.push({ path: relative(root, file).split(sep).join("/"), dir, id, stem });
+    const base = join(root, "tasks", dir);
+    for (const rel of filesUnder(base)) {
+      const name = basename(rel);
+      const markdown = name.endsWith(".md");
+      const stem = markdown ? name.slice(0, -3) : name.replace(/\.[^.]*$/, "");
+      const own = match(stem);
+      const folder =
+        rel
+          .split(sep)
+          .slice(0, -1)
+          .reverse()
+          .map(match)
+          .find((id) => id !== null) ?? null;
+      const ticket = markdown && own !== null && !name.endsWith("-draft.md") && !/^(STATUS|README)/i.test(stem);
+      const path = relative(root, join(base, rel)).split(sep).join("/");
+      files.push({ path, dir, id: own ?? folder, stem, markdown, ticket });
     }
   }
   return files;
@@ -113,23 +124,38 @@ function fieldLabel(field: string, config: Config): string {
   return config.stateFields.find((f) => f.toLowerCase() === field) ?? field;
 }
 
+function foldFiles(root: string, id: string, files: TaskFile[], position: number, plan: ImportPlan): void {
+  if (files.length === 0) return;
+  plan.report.folded.push({ id, paths: files.map((f) => f.path) });
+  const markdown = files.filter((f) => f.markdown);
+  for (const [i, f] of markdown.entries()) {
+    const body = readFileSync(join(root, f.path), "utf8");
+    plan.notes.push({ ticket_id: id, title: f.path, body, kind: "other", position: position + i });
+  }
+  const rest = files.filter((f) => !f.markdown);
+  if (rest.length === 0) return;
+  const body = rest.map((f) => `- ${f.path}`).join("\n");
+  plan.notes.push({ ticket_id: id, title: OTHER_FILES, body, kind: "other", position: position + markdown.length });
+}
+
 function collectTickets(db: DatabaseSync, root: string, config: Config, now: Date, plan: ImportPlan): void {
-  const files = ticketFiles(root, config);
-  const parsed = files.map((file) => ({
-    file,
-    ticket: parseTicket(readFileSync(join(root, file.path), "utf8"), file.stem, config),
-  }));
+  const files = taskFiles(root, config);
+  const parsed = files
+    .filter((file) => file.ticket)
+    .map((file) => ({ file, ticket: parseTicket(readFileSync(join(root, file.path), "utf8"), file.stem, config) }));
 
   const owners = new Map<string, string>();
-  for (const { file, ticket } of parsed) if (ticket.hasState && !owners.has(file.id)) owners.set(file.id, file.path);
-  for (const { file } of parsed) if (!owners.has(file.id)) owners.set(file.id, file.path);
-  const byId = new Map<string, string[]>();
-  for (const { file } of parsed) byId.set(file.id, [...(byId.get(file.id) ?? []), file.path]);
-  for (const [id, paths] of byId) if (paths.length > 1) plan.report.duplicates.push({ id, paths });
+  for (const { file, ticket } of parsed) {
+    if (ticket.hasState && file.id !== null && !owners.has(file.id)) owners.set(file.id, file.path);
+  }
+  for (const { file } of parsed) if (file.id !== null && !owners.has(file.id)) owners.set(file.id, file.path);
+  const folded = files.filter((f) => f.id !== null && owners.has(f.id) && owners.get(f.id) !== f.path);
+  plan.report.noTicket = files.filter((f) => f.id === null || !owners.has(f.id)).map((f) => f.path);
 
   const date = today(now, config.timezone);
   for (const { file, ticket } of parsed) {
-    const id = owners.get(file.id) === file.path ? file.id : file.stem;
+    if (file.id === null || owners.get(file.id) !== file.path) continue;
+    const id = file.id;
     const rec = emptyTicket(id);
     rec.title = ticket.title;
     rec.dir = file.dir;
@@ -171,6 +197,8 @@ function collectTickets(db: DatabaseSync, root: string, config: Config, now: Dat
     }
 
     plan.tickets.push(rec);
+    const extra = folded.filter((f) => f.id === id);
+    foldFiles(root, id, extra, ticket.notes.length + (stateNotes.length > 0 ? 1 : 0), plan);
     for (const heading of ticket.otherHeadings) plan.report.unclassified.push({ id, heading });
     for (const event of ticket.events) plan.events.push({ ticket_id: id, ...event, kind: "log", source: "import" });
     for (const note of ticket.notes) plan.notes.push({ ticket_id: id, ...note });
@@ -199,7 +227,7 @@ function emptyPlan(root: string): ImportPlan {
     drafts: [],
     links: [],
     days: [],
-    report: { oversize: [], unclassified: [], duplicates: [], noState: [] },
+    report: { oversize: [], unclassified: [], folded: [], noTicket: [], noState: [] },
   };
 }
 
@@ -358,9 +386,13 @@ export function formatSummary(plan: ImportPlan, changes: number | null): string 
   if (r.unclassified.length > 0) {
     lines.push(`other headings (stored as notes): ${r.unclassified.map((u) => `${u.id}: ${u.heading}`).join("; ")}`);
   }
-  if (r.duplicates.length > 0) {
-    lines.push(`duplicate ids: ${r.duplicates.map((d) => `${d.id} (${d.paths.join(", ")})`).join("; ")}`);
+  if (r.folded.length > 0) {
+    const n = r.folded.reduce((sum, f) => sum + f.paths.length, 0);
+    lines.push(
+      `folded ${n} files into ${r.folded.length} tickets (as notes): ${r.folded.map((f) => `${f.id} (${f.paths.join(", ")})`).join("; ")}`,
+    );
   }
+  if (r.noTicket.length > 0) lines.push(`not imported, no ticket: ${r.noTicket.join(", ")}`);
   if (r.noState.length > 0) lines.push(`no State block: ${r.noState.join(", ")}`);
   if (changes !== null) lines.push(`changes: ${changes}`);
   return lines.join("\n");

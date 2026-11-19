@@ -89,5 +89,6 @@ The importer reads, and never writes:
 
 - `tasks/<dir>/**/<id>*.md`: a `Status:` / `Repo:` / `Next:` … state block (`Order: 2` or `Order: P2` is the ticket's place, as `hub order` sets it), `## Log` entries (`- 2026-11-12 14:20: text`), `## Messages` drafts (`### label`), and a tracker block between the sync markers.
 - `plan/plan-YYYY-MM-DD.md`: day plans.
+- every other file under `tasks/<dir>/` that names a ticket id or sits in a folder named after one (`ENG-42-baseline.md` next to `ENG-42-session-sync.md`, `ENG-7-notes-draft.md`, `ENG-7-scripts/notes.md`): one markdown file per id is the ticket (the one with a state block, else the first), each other markdown file becomes a note on it titled with its path, and other files are listed by path in its `Other files` note. The dry run lists what it folded and every file that matched no ticket.
 
 Every section lands in the database. Other headings become notes. A state field over its limit is cut and its full text kept in a `State notes` note. After the import, move the markdown folder to a backup: from then on the database is the only source of truth.
