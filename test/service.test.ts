@@ -24,7 +24,7 @@ function fakeSystem(platform: NodeJS.Platform = "darwin"): System {
   };
 }
 
-function hub(argv: string[], sys = fakeSystem()): { code: number; out: string; err: string } {
+async function hub(argv: string[], sys = fakeSystem()): Promise<{ code: number; out: string; err: string }> {
   let out = "";
   let err = "";
   const io: Io = {
@@ -39,7 +39,8 @@ function hub(argv: string[], sys = fakeSystem()): { code: number; out: string; e
     now: () => new Date(),
     system: sys,
   };
-  return { code: run(argv, io), out, err };
+  const code = await run(argv, io);
+  return { code, out, err };
 }
 
 beforeEach(() => {
@@ -52,8 +53,8 @@ afterEach(() => {
   rmSync(home, { recursive: true, force: true });
 });
 
-test("install writes a LaunchAgent that serves the database at login and keeps it running", () => {
-  const r = hub(["service", "install", "--port", "7431"]);
+test("install writes a LaunchAgent that serves the database at login and keeps it running", async () => {
+  const r = await hub(["service", "install", "--port", "7431"]);
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /http:\/\/127\.0\.0\.1:7431, log .*\.hub\/serve\.log$/);
   const plist = readFileSync(join(home, "Library", "LaunchAgents", "engineer-hub.plist"), "utf8");
@@ -67,12 +68,12 @@ test("install writes a LaunchAgent that serves the database at login and keeps i
   ]);
 });
 
-test("status reports running with its pid, and exits 1 when not installed", () => {
-  const missing = hub(["service", "status"]);
+test("status reports running with its pid, and exits 1 when not installed", async () => {
+  const missing = await hub(["service", "status"]);
   assert.equal(missing.code, 1);
   assert.equal(missing.out, "hub service is not installed: hub service install");
   printed = "gui/501/engineer-hub = {\n\tstate = running\n\tpid = 4242\n}";
-  const shown = hub(["service", "status", "--json"]);
+  const shown = await hub(["service", "status", "--json"]);
   assert.equal(shown.code, 0);
   assert.deepEqual(JSON.parse(shown.out), {
     installed: true,
@@ -83,17 +84,17 @@ test("status reports running with its pid, and exits 1 when not installed", () =
   });
 });
 
-test("uninstall stops the job and removes the LaunchAgent", () => {
-  hub(["service", "install"]);
-  const r = hub(["service", "uninstall"]);
+test("uninstall stops the job and removes the LaunchAgent", async () => {
+  await hub(["service", "install"]);
+  const r = await hub(["service", "uninstall"]);
   assert.equal(r.code, 0, r.err);
   assert.equal(existsSync(join(home, "Library", "LaunchAgents", "engineer-hub.plist")), false);
   assert.deepEqual(calls.at(-1), ["bootout", "gui/501/engineer-hub"]);
 });
 
-test("off macOS the service command says to use your own supervisor", () => {
-  const r = hub(["service", "install"], fakeSystem("linux"));
+test("off macOS the service command says to use your own supervisor", async () => {
+  const r = await hub(["service", "install"], fakeSystem("linux"));
   assert.equal(r.code, 1);
   assert.match(r.err, /macOS only: run hub serve under your own supervisor/);
-  assert.equal(hub(["service", "restart"]).code, 1);
+  assert.equal((await hub(["service", "restart"])).code, 1);
 });

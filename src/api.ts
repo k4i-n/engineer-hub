@@ -1,8 +1,8 @@
 import { brief } from "./brief.ts";
 import type { Ctx, Result } from "./commands.ts";
 import * as commands from "./commands.ts";
-import { setConfig } from "./config.ts";
 import { SETTABLE_FIELDS, transaction } from "./db.ts";
+import { applyImport, collectImport, countPlan, formatSummary } from "./importer.ts";
 import * as items from "./items.ts";
 import * as pins from "./pins.ts";
 import * as sources from "./sources.ts";
@@ -11,7 +11,7 @@ import { HubError } from "./util.ts";
 import * as waits from "./waits.ts";
 
 export type FieldType = "string" | "integer" | "boolean" | "object" | "array" | "any";
-export type Field = { type: FieldType; required?: boolean; about: string };
+export type Field = { type: FieldType; required?: boolean; about: string; of?: "string" | "object" };
 export type Fields = Record<string, Field>;
 export type Args = Record<string, unknown>;
 export type Method = "GET" | "POST" | "PUT" | "PATCH";
@@ -34,7 +34,7 @@ export type Route = {
 
 export const MAX_COUNT = 200;
 
-const COMMAND_KEYS = ["syncCommand"];
+export const COMMAND_KEYS = ["syncCommand"];
 
 function str(a: Args, key: string): string {
   return a[key] as string;
@@ -111,11 +111,11 @@ export const ROUTES: Route[] = [
       const fields = SETTABLE_FIELDS.filter((f) => a[f] !== undefined);
       if (fields.length === 0 && a.dir === undefined)
         throw new HubError(`give at least one of ${Object.keys(TICKET_FIELDS).join(", ")}`);
-      transaction(ctx.db, () => {
-        for (const f of fields) commands.set(ctx, id, f, str(a, f));
-        if (a.dir !== undefined) commands.move(ctx, id, str(a, "dir"));
-      });
-      return commands.ticket(ctx, id);
+      const done = transaction(ctx.db, () => [
+        ...fields.map((f) => commands.set(ctx, id, f, str(a, f))),
+        ...(a.dir === undefined ? [] : [commands.move(ctx, id, str(a, "dir"))]),
+      ]);
+      return { text: done.map((r) => r.text).join("\n"), json: commands.ticket(ctx, id).json };
     },
   },
   {
@@ -378,8 +378,9 @@ export const ROUTES: Route[] = [
     name: "item_close",
     method: "POST",
     path: "/items/{key}/close",
-    about: "Close an item.",
-    run: (ctx, a) => items.close(ctx, [str(a, "key")]),
+    about: "Close an item, and any more given.",
+    body: { more: { type: "array", of: "string", about: "more item numbers or refs to close in the same call" } },
+    run: (ctx, a) => items.close(ctx, [str(a, "key"), ...((a.more as string[] | undefined) ?? [])]),
   },
   {
     name: "item_snooze",
@@ -476,8 +477,9 @@ export const ROUTES: Route[] = [
     name: "config",
     method: "GET",
     path: "/config",
-    about: "Effective config.",
-    run: (ctx) => commands.config(ctx, undefined, undefined),
+    about: "Effective config, or one key.",
+    query: { key: { type: "string", about: "one key" } },
+    run: (ctx, a) => commands.config(ctx, opt(a, "key") ?? undefined, undefined),
   },
   {
     name: "config_set",
@@ -488,8 +490,7 @@ export const ROUTES: Route[] = [
     run: (ctx, a) => {
       const k = str(a, "key");
       if (COMMAND_KEYS.includes(k)) throw new HubError(`${k} is set from the terminal: hub config ${k}`);
-      setConfig(ctx.db, k, JSON.stringify(a.value), ctx.now);
-      return { text: "saved", json: { key: k } };
+      return commands.config(ctx, k, JSON.stringify(a.value));
     },
   },
   {
@@ -499,6 +500,21 @@ export const ROUTES: Route[] = [
     about: "Pin or unpin a dashboard row.",
     body: { on: { type: "boolean", required: true, about: "pinned" } },
     run: (ctx, a) => pins.setPin(ctx, str(a, "row"), a.on === true),
+  },
+  {
+    name: "import",
+    method: "POST",
+    path: "/import",
+    about: "Read a markdown ticket folder on this machine; apply writes it, else a dry run.",
+    body: {
+      root: { type: "string", required: true, about: "folder holding tasks/ and plan/" },
+      apply: { type: "boolean", about: "write the database" },
+    },
+    run: (ctx, a) => {
+      const plan = collectImport(ctx.db, str(a, "root"), ctx.config, ctx.now);
+      const changes = a.apply === true ? applyImport(ctx.db, plan, ctx.now) : null;
+      return { text: formatSummary(plan, changes), json: { counts: countPlan(plan), report: plan.report, changes } };
+    },
   },
   {
     name: "sync_status",
@@ -566,6 +582,9 @@ export function checkFields(fields: Fields, input: Args, where: string): Args {
       continue;
     }
     if (!typeOk(f.type, value)) throw new HubError(`${name} must be ${f.type === "any" ? "JSON" : `a ${f.type}`}`);
+    if (f.of === "string" && !(value as unknown[]).every((v) => typeof v === "string")) {
+      throw new HubError(`${name} must be an array of strings`);
+    }
   }
   return input;
 }
@@ -593,7 +612,7 @@ export function schema(fields: Fields): unknown {
       f.type === "any"
         ? { description: f.about }
         : f.type === "array"
-          ? { type: "array", items: { type: "object" }, description: f.about }
+          ? { type: "array", items: { type: f.of ?? "object" }, description: f.about }
           : { type: f.type, description: f.about },
     ]),
   );

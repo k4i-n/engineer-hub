@@ -14,7 +14,7 @@ import { HubError } from "./util.ts";
 
 export const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"];
 
-const DASHBOARD_ONLY = ["find", "pin", "config", "config_set", "sync", "sync_status", "gate"];
+const NOT_TOOLS = ["find", "pin", "config", "config_set", "sync", "sync_status", "gate", "import"];
 const HUMAN_FIELDS: Record<string, string[]> = { match: ["answer"] };
 
 const INSTRUCTIONS =
@@ -40,7 +40,7 @@ function fieldsOf(route: Route): Fields {
   return { ...path, ...own };
 }
 
-export const TOOLS = ROUTES.filter((r) => !DASHBOARD_ONLY.includes(r.name));
+export const TOOLS = ROUTES.filter((r) => !NOT_TOOLS.includes(r.name));
 
 function annotations(route: Route): Record<string, boolean> {
   if (route.method === "GET") return { readOnlyHint: true, openWorldHint: false };

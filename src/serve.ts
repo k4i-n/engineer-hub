@@ -3,6 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import { resolve } from "node:path";
 import { type Args, checkFields, findRoute, openapi, queryArgs } from "./api.ts";
 import type { Ctx } from "./commands.ts";
 import { loadConfig } from "./config.ts";
@@ -163,6 +164,13 @@ export function serve(options: ServeOptions): Promise<Server> {
       send(res, status, "application/json", JSON.stringify(value), extra);
     if (!authorized(req)) {
       json(401, { error: "missing or wrong token: send Authorization: Bearer <the token file next to the database>" });
+      return;
+    }
+    const want = req.headers["x-hub-db"];
+    if (typeof want === "string" && resolve(want) !== resolve(options.dbPath)) {
+      json(409, {
+        error: `hub at 127.0.0.1:${port} serves ${options.dbPath}, not ${want}: point HUB_DB or --db at it, or HUB_URL at the hub that serves ${want}`,
+      });
       return;
     }
     const found = findRoute(req.method ?? "", url.pathname.slice(API.length));

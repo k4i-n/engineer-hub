@@ -15,7 +15,7 @@ let dir = "";
 let dbFile = "";
 let server: Server;
 
-function hub(argv: string[], stdin = ""): string {
+async function hub(argv: string[], stdin = ""): Promise<string> {
   let out = "";
   let err = "";
   const io: Io = {
@@ -26,10 +26,10 @@ function hub(argv: string[], stdin = ""): string {
       err += text;
     },
     readStdin: () => stdin,
-    env: { HUB_DB: dbFile },
+    env: { HUB_DB: dbFile, HUB_URL: server.url },
     now: () => new Date(),
   };
-  assert.equal(run(argv, io), 0, `hub ${argv.join(" ")} failed: ${err}`);
+  assert.equal(await run(argv, io), 0, `hub ${argv.join(" ")} failed: ${err}`);
   return out;
 }
 
@@ -73,9 +73,9 @@ async function syncState(): Promise<SyncState> {
 beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), "hub-serve-"));
   dbFile = join(dir, "hub.db");
-  hub(["config", "trackerHosts", '["tracker.example.com"]']);
-  hub(["import", "--root", ROOT, "--apply"]);
   server = await serve({ dbPath: dbFile, port: 0, now: () => new Date(), env: process.env });
+  await hub(["config", "trackerHosts", '["tracker.example.com"]']);
+  await hub(["import", "--root", ROOT, "--apply"]);
 });
 
 afterEach(async () => {
@@ -120,7 +120,7 @@ describe("serve", () => {
       },
       { source: "grafana", kind: "alert", ref: "alert-1", title: "API 5xx", needs_me: true },
     ];
-    hub(["item", "put", "--stdin"], lines.map((l) => JSON.stringify(l)).join("\n"));
+    await hub(["item", "put", "--stdin"], lines.map((l) => JSON.stringify(l)).join("\n"));
     const verbs = (html: string) =>
       [...html.matchAll(/data-key="(item-\d+|wait-\d+|gate-[^"]+|decide-[^"]+)"/g)].map((m) => m[1]);
     const groups = (html: string) => [...html.matchAll(/data-group="([a-z]+)"/g)].map((m) => m[1]);
@@ -142,7 +142,7 @@ describe("serve", () => {
   });
 
   test("every needs row has the same three controls, and a pinned row moves to the top", async () => {
-    hub(
+    await hub(
       ["item", "put", "--stdin"],
       JSON.stringify({ source: "grafana", kind: "alert", ref: "alert-1", needs_me: true }),
     );
@@ -178,7 +178,7 @@ describe("serve", () => {
     const bad = await setConfigKey("theme", '"pink"');
     assert.equal(bad.status, 400);
     assert.match(await bad.text(), /theme must be one of/);
-    hub(
+    await hub(
       ["item", "put", "--stdin"],
       JSON.stringify({ source: "linear", kind: "issue", url: "https://linear.app/acme/issue/ENG-7", needs_me: true }),
     );
@@ -186,7 +186,7 @@ describe("serve", () => {
   });
 
   test("tickets split into ongoing and recently done tabs", async () => {
-    hub(["move", "ENG-7", "done"]);
+    await hub(["move", "ENG-7", "done"]);
     const html = await (await fetch(`${server.url}/?part=1`)).text();
     const panel = (tab: string) =>
       new RegExp(`<ul class="rows ticket-list" data-tab-panel="${tab}"[^>]*>([\\s\\S]*?)</ul>`).exec(html)?.[1] ?? "";
@@ -196,7 +196,7 @@ describe("serve", () => {
   });
 
   test("the page shows each thing once: no ticket id twice, no Sent? draft in Drafts, only unhealthy sources", async () => {
-    hub(
+    await hub(
       ["item", "put", "--stdin"],
       JSON.stringify({
         source: "github",
@@ -206,10 +206,10 @@ describe("serve", () => {
         needs_me: true,
       }),
     );
-    hub(["source", "github", "--cursor", "c1"]);
-    hub(["source", "slack", "--error", "no connector"]);
-    hub(["draft", "ENG-7", "ask product", "--stdin"], "Can we cap exports?");
-    hub(
+    await hub(["source", "github", "--cursor", "c1"]);
+    await hub(["source", "slack", "--error", "no connector"]);
+    await hub(["draft", "ENG-7", "ask product", "--stdin"], "Can we cap exports?");
+    await hub(
       ["match", "ENG-7", "ask product", "--ref", "https://acme.slack.com/archives/C1/p1", "--stdin"],
       "can we cap exports",
     );
@@ -222,7 +222,7 @@ describe("serve", () => {
   });
 
   test("blocks render in the saved layout, a bad layout is refused, and tickets show what needs you", async () => {
-    hub(
+    await hub(
       ["item", "put", "--stdin"],
       JSON.stringify({
         source: "github",
@@ -256,9 +256,9 @@ describe("serve", () => {
   });
 
   test("the overview sits in the top row and counts needs, steps, tickets and steps done per day", async () => {
-    hub(["step", "add", "ENG-42", "write the migration"]);
-    hub(["step", "add", "ENG-42", "ship it"]);
-    hub(["step", "done", "ENG-42", "1"]);
+    await hub(["step", "add", "ENG-42", "write the migration"]);
+    await hub(["step", "add", "ENG-42", "ship it"]);
+    await hub(["step", "done", "ENG-42", "1"]);
     const html = await (await fetch(`${server.url}/?part=1`)).text();
     const top = /data-col="top">([\s\S]*?)<\/div>\s*<div class="col" data-col="left">/.exec(html)?.[1] ?? "";
     assert.match(top, /data-block="overview"/);
@@ -304,7 +304,7 @@ describe("serve", () => {
   });
 
   test("search finds tickets, items, steps and notes from one box", async () => {
-    hub(
+    await hub(
       ["item", "put", "--stdin"],
       JSON.stringify({
         source: "github",
@@ -315,7 +315,7 @@ describe("serve", () => {
         needs_me: true,
       }),
     );
-    hub(["step", "add", "ENG-7", "measure webhook latency"]);
+    await hub(["step", "add", "ENG-7", "measure webhook latency"]);
     const find = async (q: string) =>
       (await (await call("GET", `/find?q=${encodeURIComponent(q)}`)).json()) as {
         kind: string;
@@ -340,7 +340,7 @@ describe("serve", () => {
   });
 
   test("text from the DB is escaped", async () => {
-    hub(["ticket-new", "NEW-xss", "<script>alert(1)</script>"]);
+    await hub(["ticket-new", "NEW-xss", "<script>alert(1)</script>"]);
     const html = await (await fetch(`${server.url}/`)).text();
     assert.doesNotMatch(html, /<script>alert/);
     assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
@@ -387,8 +387,8 @@ describe("serve", () => {
       url: "https://github.com/acme/web/pull/9",
       needs_me: true,
     });
-    hub(["item", "put", "--stdin"], review);
-    const id = /^#(\d+)/.exec(hub(["items", "--needs-me"]))?.[1] ?? "";
+    await hub(["item", "put", "--stdin"], review);
+    const id = /^#(\d+)/.exec(await hub(["items", "--needs-me"]))?.[1] ?? "";
     const page = await (await fetch(`${server.url}/`)).text();
     assert.match(page, /data-act="item-done" data-id="\d+"/);
     assert.match(
@@ -396,7 +396,7 @@ describe("serve", () => {
       /<details class="menu"[^>]*><summary class="ic ic-more"[^>]*>[\s\S]*?<div class="menu-pop">[\s\S]*?data-act="item-snooze" data-id="\d+" data-for="1h"/,
     );
     assert.equal((await call("POST", `/items/${id}/snooze`, { for: "1h" })).status, 200);
-    assert.equal(hub(["items", "--needs-me"]), "no items");
+    assert.equal(await hub(["items", "--needs-me"]), "no items");
     const db = new DatabaseSync(dbFile);
     const row = db.prepare("SELECT snoozed_until FROM item WHERE id = ?").get(Number(id)) as { snoozed_until: string };
     db.close();
@@ -404,14 +404,14 @@ describe("serve", () => {
     assert.ok(minutes > 58 && minutes <= 60, `snoozed ${minutes} minutes`);
     assert.equal((await call("POST", `/items/${id}/snooze`, { for: "soon" })).status, 400);
     assert.equal((await call("POST", `/items/${id}/close`, {})).status, 200);
-    assert.match(hub(["items", "--all"]), /pull\/9 \| closed$/m);
+    assert.match(await hub(["items", "--all"]), /pull\/9 \| closed$/m);
 
-    hub(["draft", "ENG-7", "ask product", "--stdin"], "Can we cap exports?");
+    await hub(["draft", "ENG-7", "ask product", "--stdin"], "Can we cap exports?");
     assert.equal(
       (await call("POST", `/tickets/ENG-7/drafts/${encodeURIComponent("ask product")}/posted`, {})).status,
       200,
     );
-    assert.match(hub(["drafts", "ENG-7"]), /ask product \| posted \| .* \| wording pending/);
+    assert.match(await hub(["drafts", "ENG-7"]), /ask product \| posted \| .* \| wording pending/);
 
     const bad = await call("POST", "/waits/42/close", {});
     assert.equal(bad.status, 400);
@@ -432,7 +432,7 @@ describe("serve", () => {
         seen += decoder.decode(value);
       }
     })();
-    hub(["log", "ENG-7", "written elsewhere"]);
+    await hub(["log", "ENG-7", "written elsewhere"]);
     await Promise.race([changed, new Promise((_, reject) => setTimeout(() => reject(new Error("no change")), 2000))]);
     await reader.cancel();
   });
@@ -482,7 +482,7 @@ describe("serve", () => {
     });
     assert.equal(ran.detail, "auto");
 
-    hub(["config", "autoSync", "false"]);
+    await hub(["config", "autoSync", "false"]);
     clock = new Date("2026-11-18T10:00:00Z");
     await new Promise((r) => setTimeout(r, 80));
     assert.equal((await syncState()).at, ran.at);
@@ -513,7 +513,7 @@ describe("api v1", () => {
       headers: { authorization: `Bearer ${server.token}`, accept: "text/plain" },
     });
     assert.equal(text.headers.get("x-hub-exit"), "0");
-    assert.equal(await text.text(), hub(["ticket", "ENG-42"]));
+    assert.equal(await text.text(), await hub(["ticket", "ENG-42"]));
     const lint = await fetch(`${server.url}/api/v1/lint`, {
       headers: { authorization: `Bearer ${server.token}`, accept: "text/plain" },
     });
@@ -531,17 +531,17 @@ describe("api v1", () => {
     assert.equal((await call("DELETE", "/tickets/ENG-42")).status, 405);
     assert.equal((await call("GET", "/nope")).status, 404);
     assert.equal((await call("POST", "/tickets/ENG-42/events", { text: "from the api" })).status, 200);
-    assert.match(hub(["events", "ENG-42", "-n", "1"]), /from the api$/);
+    assert.match(await hub(["events", "ENG-42", "-n", "1"]), /from the api$/);
   });
 
   test("a ticket patch is all or nothing", async () => {
-    const before = hub(["ticket", "ENG-42"]);
+    const before = await hub(["ticket", "ENG-42"]);
     const bad = await call("PATCH", "/tickets/ENG-42", { next: "ship it", status: "x".repeat(300) });
     assert.equal(bad.status, 400);
-    assert.equal(hub(["ticket", "ENG-42"]), before);
+    assert.equal(await hub(["ticket", "ENG-42"]), before);
     const ok = await call("PATCH", "/tickets/ENG-42", { next: "ship it", dir: "todo" });
     assert.equal(ok.status, 200);
-    assert.match(hub(["ticket", "ENG-42"]), /^ENG-42 \| todo \|[\s\S]*next: ship it/);
+    assert.match(await hub(["ticket", "ENG-42"]), /^ENG-42 \| todo \|[\s\S]*next: ship it/);
   });
 
   test("items go in as a batch and waits close by thread url", async () => {
@@ -552,11 +552,11 @@ describe("api v1", () => {
       ],
     });
     assert.equal(put.status, 200);
-    assert.match(hub(["items", "--needs-me"]), /pull\/1/);
+    assert.match(await hub(["items", "--needs-me"]), /pull\/1/);
     const url = "https://acme.slack.com/archives/C1/p1";
     assert.equal((await call("POST", "/waits", { ticket: "ENG-42", who: "ana", url, ping_after: "1d" })).status, 200);
     assert.equal((await call("POST", `/waits/${encodeURIComponent(url)}/close`, {})).status, 200);
-    assert.match(hub(["waits"]), /no open waits|^$/);
+    assert.match(await hub(["waits"]), /no open waits|^$/);
   });
 });
 
@@ -625,7 +625,7 @@ describe("mcp", () => {
       await rpc("tools/call", { name: "log", arguments: { id: "ENG-42", text: "from mcp" } }),
     );
     assert.equal(ok.isError, false);
-    assert.match(hub(["events", "ENG-42", "-n", "1"]), /from mcp$/);
+    assert.match(await hub(["events", "ENG-42", "-n", "1"]), /from mcp$/);
     const bad = await result<{ content: { text: string }[]; isError: boolean }>(
       await rpc("tools/call", { name: "ticket_set", arguments: { id: "ENG-42", next: "x".repeat(300) } }),
     );
