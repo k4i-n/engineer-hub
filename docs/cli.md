@@ -8,7 +8,7 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 |---|---|
 | `hub ticket <id>` | state, tracker fields, step progress and the next step, the last 3 events, open drafts, open items and waits, note titles (under 25 lines) |
 | `hub board [regex]` | open tickets grouped by dir, one line each |
-| `hub next` | the next action of each ticket in progress, then to do, by tracker priority |
+| `hub next` | the next action of each ticket in progress, then to do, in your order, then by tracker priority |
 | `hub gates` | tickets waiting on a human decision |
 | `hub changed --since <date\|yesterday\|today>` | events and state changes since a day |
 | `hub search <query> [-n 10]` | full-text search over tickets, notes, events and drafts |
@@ -39,7 +39,8 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 | `hub wait <id> <who> <url> [--ping-after 1d]`, `hub wait close <wait \| url>` | records a question asked of someone, closes it when they answer |
 | `hub source <name> [--cursor <c>] [--error <text>]` | records a sync of a source |
 | `hub day set <date> (--file \| --stdin)` | stores a day plan |
-| `hub ticket-new <id> <title> [--dir todo]`, `hub move <id> <dir>` | creates a ticket, moves it between dirs |
+| `hub ticket-new <id> <title> [--dir todo]`, `hub move <id> <dir>` | creates a ticket, moves it between dirs (a move drops its place in the order) |
+| `hub order <id> <place \| ->` | puts the ticket at a place in its dir (1 is the top); tickets above it keep their places and the rest shift down; `-` takes it out of the order. Ordered tickets come first in `hub board`, `hub next` and the dashboard, as `#1`, `#2`…, then the rest by tracker priority |
 | `hub config <key> <json>` | stores a config value, checked against the default's type |
 
 ## Limits
