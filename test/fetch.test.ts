@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
@@ -239,6 +239,41 @@ describe("github", () => {
     await hub("source", "github", "--cursor", "2000-01-01T00:00:00Z");
     await new Promise((r) => setTimeout(r, 120));
     assert.equal(calls.filter((c) => c[1] === "api").length, 1);
+  });
+});
+
+describe("sync", () => {
+  const sync = (method: string) =>
+    fetch(`${server.url}/api/v1/sync`, {
+      method,
+      headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+      ...(method === "POST" ? { body: "{}" } : {}),
+    });
+  const ended = async (): Promise<[string, string]> => {
+    for (let i = 0; i < 200; i++) {
+      const state = (await (await sync("GET")).json()) as { status: string; detail: string };
+      if (state.status !== "running") return [state.status, state.detail];
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    throw new Error("sync still running");
+  };
+
+  test("by default Sync fetches hub's own sources and never runs Claude", async () => {
+    answers.gh = graphql([PR("https://github.com/acme/web/pull/7")], []);
+    await hub("config", "syncCommand", '["sh","-c","echo ran > claude-ran"]');
+    assert.equal((await sync("POST")).status, 202);
+    assert.deepEqual(await ended(), ["finished", "github: items: 1 new, 0 changed, 0 unchanged"]);
+    assert.equal(existsSync(join(dir, "claude-ran")), false);
+    assert.match(await hub("items", "--needs-me"), /pull\/7/);
+  });
+
+  test("with Claude on, Sync fetches first and then runs the command", async () => {
+    answers.gh = graphql([PR("https://github.com/acme/web/pull/7")], []);
+    await hub("config", "syncCommand", '["sh","-c","echo judged"]');
+    await hub("config", "claudeSync", "true");
+    assert.equal((await sync("POST")).status, 202);
+    assert.deepEqual(await ended(), ["finished", "judged"]);
+    assert.match(await hub("items", "--needs-me"), /pull\/7/);
   });
 });
 

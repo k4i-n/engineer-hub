@@ -608,7 +608,8 @@ export const ROUTES: Route[] = [
     name: "sync",
     method: "POST",
     path: "/sync",
-    about: "Start a Sync (syncCommand) unless one is running.",
+    about:
+      "Start a Sync unless one is running: fetch the sources hub fetches itself, then run syncCommand when claudeSync is on.",
     run: (_ctx, _a, hooks) => {
       const r = hooks.startSync();
       return { text: r.started ? "sync started" : "a sync is running", json: r.status, exitCode: r.started ? 0 : 1 };

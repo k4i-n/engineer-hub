@@ -580,8 +580,18 @@ describe("serve", () => {
     await reader.cancel();
   });
 
-  test("Sync runs the configured command once at a time with HUB_DB and HUB_URL set, and reports failure", async () => {
+  test("Sync with no source on and Claude off fails and names the setting", async () => {
+    assert.equal((await call("POST", "/sync", {})).status, 202);
+    const failed = await waitFor(async () => {
+      const s = await syncState();
+      return s.status === "running" ? undefined : s;
+    });
+    assert.deepEqual([failed.status, failed.detail], ["failed", "no source is on (hub config fetch)"]);
+  });
+
+  test("Sync with Claude on runs the configured command once at a time with HUB_DB and HUB_URL set, and reports failure", async () => {
     const db = new DatabaseSync(dbFile);
+    db.prepare("INSERT OR REPLACE INTO config(key, value) VALUES ('claudeSync', 'true')").run();
     const setCommand = (argv: string[]) =>
       db.prepare("INSERT OR REPLACE INTO config(key, value) VALUES ('syncCommand', ?)").run(JSON.stringify(argv));
     setCommand([
@@ -611,13 +621,14 @@ describe("serve", () => {
     assert.deepEqual([failed.status, failed.detail], ["failed", "exit 3: no connector"]);
   });
 
-  test("auto sync runs once the interval passes, and not when it is off", async () => {
+  test("auto sync runs Claude once the interval passes, and not when auto sync or Claude is off", async () => {
     await server.close();
     let clock = new Date("2026-11-18T09:00:00Z");
     const db = new DatabaseSync(dbFile);
     db.prepare("INSERT OR REPLACE INTO config(key, value) VALUES ('syncCommand', ?)").run(
       JSON.stringify(["node", "-e", "process.stdout.write('auto')"]),
     );
+    db.prepare("INSERT OR REPLACE INTO config(key, value) VALUES ('claudeSync', 'true')").run();
     db.close();
     server = await serve({
       dbPath: dbFile,
@@ -638,6 +649,12 @@ describe("serve", () => {
 
     await hub(["config", "autoSync", "false"]);
     clock = new Date("2026-11-18T18:00:00Z");
+    await new Promise((r) => setTimeout(r, 80));
+    assert.equal((await syncState()).at, ran.at);
+
+    await hub(["config", "claudeSync", "false"]);
+    await hub(["config", "autoSync", "true"]);
+    clock = new Date("2026-11-18T23:00:00Z");
     await new Promise((r) => setTimeout(r, 80));
     assert.equal((await syncState()).at, ran.at);
     assert.equal((await setConfigKey("syncEvery", '"5m"')).status, 400);

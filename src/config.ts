@@ -25,6 +25,7 @@ export type Config = {
   notifySound: boolean;
   theme: string;
   layout: Layout;
+  claudeSync: boolean;
   autoSync: boolean;
   syncEvery: string;
   fetch: Record<string, boolean>;
@@ -94,6 +95,7 @@ export const DEFAULTS: Config = {
   notifySound: false,
   theme: "system",
   layout: DEFAULT_LAYOUT,
+  claudeSync: false,
   autoSync: true,
   syncEvery: "4h",
   fetch: { github: true, linear: false, slack: false },

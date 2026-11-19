@@ -69,7 +69,8 @@ Config lives in the database. `hub config` lists every key with its value:
 | `openDirs` | `["inprogress","todo","triage","backlog","unfiled"]` | dirs `hub board` shows, in order |
 | `limits` | see Limits | write-time field limits |
 | `trackerHosts` | `["linear.app"]` | URLs whose links count as the tracker |
-| `syncCommand` | `claude -p /engineer-hub:hub-sync …` | what the dashboard's Sync runs |
+| `claudeSync` | `false` | Sync also runs `syncCommand` after fetching hub's own sources; auto sync runs only when on |
+| `syncCommand` | `claude -p /engineer-hub:hub-sync …` | the Claude run Sync starts when `claudeSync` is on |
 | `layout` | `{"top":["overview"],"left":[…],"right":[…]}` | where each dashboard card sits |
 | `hiddenBlocks` | `[]` | dashboard cards that are hidden |
 | `progressStyle` | `"ring"` | step progress as `ring`, `half` or `bar` |
