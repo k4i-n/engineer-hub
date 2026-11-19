@@ -61,8 +61,67 @@ function announce(fresh) {
   }
 }
 
+function stored(key, fallback) {
+  try {
+    return JSON.parse(localStorage.getItem(key) ?? "null") ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function store(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {}
+}
+
+const TODAY_SHOWN = 3;
+let inPlace = new Set();
+let openNow = new Set();
+
+function foldGroups() {
+  const closed = new Set(stored("hub.closedGroups", []));
+  for (const g of app.querySelectorAll("details.ngroup")) g.open = !closed.has(g.dataset.group);
+}
+
+function foldCleared() {
+  const kept = new Set();
+  for (const g of app.querySelectorAll("details.ngroup")) {
+    const list = g.querySelector(":scope > ul.needs-list");
+    const cleared = [...list.querySelectorAll(":scope > li.is-dim")].filter((li) => !inPlace.has(li.dataset.key));
+    for (const li of list.querySelectorAll(":scope > li")) if (!cleared.includes(li)) kept.add(li.dataset.key);
+    if (cleared.length === 0) continue;
+    const fold = document.createElement("details");
+    fold.className = "cleared";
+    fold.dataset.key = `cleared-${g.dataset.group}`;
+    fold.open = openNow.has(fold.dataset.key);
+    fold.innerHTML = `<summary>Done & snoozed ${cleared.length}</summary><ul class="rows needs-list"></ul>`;
+    fold.querySelector("ul").append(...cleared);
+    g.append(fold);
+  }
+  inPlace = kept;
+}
+
+function foldToday() {
+  const expanded = stored("hub.todayExpanded", false);
+  for (const ul of app.querySelectorAll('[data-key="today"] ul, [data-key="today"] ol')) {
+    const items = [...ul.children];
+    if (items.length <= TODAY_SHOWN) continue;
+    for (const li of items.slice(TODAY_SHOWN)) li.hidden = !expanded;
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "more-btn";
+    b.dataset.todayToggle = "";
+    b.textContent = expanded ? "Show less" : `${items.length - TODAY_SHOWN} more`;
+    ul.after(b);
+  }
+}
+
 function afterRender(first) {
   applyTab();
+  foldGroups();
+  foldCleared();
+  foldToday();
   const keys = needKeys();
   const section = app.querySelector("[data-needs-count]");
   badge(section ? Number(section.dataset.needsCount) : 0);
@@ -91,6 +150,7 @@ async function refresh() {
     if (!r.ok) return;
     const html = await r.text();
     const open = new Set([...app.querySelectorAll("details[open][data-key]")].map((d) => d.dataset.key));
+    openNow = open;
     const scroll = new Map(
       [...app.querySelectorAll("[data-keep-scroll][data-key]")].map((e) => [e.dataset.key, e.scrollTop]),
     );
@@ -209,9 +269,9 @@ function open(href, newTab) {
 }
 
 function rows() {
-  return [
-    ...app.querySelectorAll(".needs-list > li[data-key], .ticket-list:not([hidden]) > li[data-key]:not([hidden])"),
-  ];
+  return [...app.querySelectorAll(".needs-list > li[data-key], .ticket-list > li[data-key]")].filter((li) =>
+    li.checkVisibility(),
+  );
 }
 
 function select(li) {
@@ -244,6 +304,11 @@ async function saveConfig(key, value, el) {
 document.addEventListener("click", async (e) => {
   closeMenus(e.target.closest("details.menu"));
   const b = e.target.closest("button");
+  if (b?.dataset.todayToggle !== undefined) {
+    store("hub.todayExpanded", !stored("hub.todayExpanded", false));
+    refresh();
+    return;
+  }
   if (b?.dataset.tab) {
     ticketTab = b.dataset.tab;
     try {
@@ -275,6 +340,19 @@ document.addEventListener("click", async (e) => {
   const ticket = e.target.closest(".ticket[data-href]");
   if (ticket) open(ticket.dataset.href);
 });
+
+document.addEventListener(
+  "toggle",
+  (e) => {
+    const g = e.target;
+    if (!(g instanceof HTMLDetailsElement) || !g.classList.contains("ngroup")) return;
+    const closed = new Set(stored("hub.closedGroups", []));
+    if (g.open) closed.delete(g.dataset.group);
+    else closed.add(g.dataset.group);
+    store("hub.closedGroups", [...closed]);
+  },
+  true,
+);
 
 document.addEventListener("change", (e) => {
   const el = e.target.closest("[data-config-input]");

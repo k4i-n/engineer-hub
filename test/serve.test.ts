@@ -113,9 +113,12 @@ describe("serve", () => {
       { source: "grafana", kind: "alert", ref: "alert-1", title: "API 5xx", needs_me: true },
     ];
     hub(["item", "put", "--stdin"], lines.map((l) => JSON.stringify(l)).join("\n"));
-    const verbs = (html: string) => [...html.matchAll(/<span class="verb">([^<]+)<\/span>/g)].map((m) => m[1]);
+    const verbs = (html: string) =>
+      [...html.matchAll(/data-key="(item-\d+|wait-\d+|gate-[^"]+|decide-[^"]+)"/g)].map((m) => m[1]);
+    const groups = (html: string) => [...html.matchAll(/data-group="([a-z]+)"/g)].map((m) => m[1]);
     const before = await (await fetch(`${server.url}/?part=1`)).text();
-    assert.deepEqual(verbs(before).slice(0, 2), ["Alert", "Review"]);
+    assert.deepEqual(groups(before).slice(0, 2), ["fix", "review"]);
+    assert.doesNotMatch(before, /class="stat /);
     assert.match(before, /data-needs-count="4"/);
     const id = /data-act="item-done" data-id="(\d+)"/.exec(before)?.[1] ?? "";
     await post("/api/item-done", { id });
@@ -147,13 +150,13 @@ describe("serve", () => {
     }
     const last = rows.at(-1)?.[1] ?? "";
     assert.notEqual(rows[0]?.[1], last);
-    assert.equal((await post("/api/pin", { key: last, on: "1" })).status, 200);
+    assert.equal((await post("/api/pin", { row: last, on: "1" })).status, 200);
     const pinned = await (await fetch(`${server.url}/?part=1`)).text();
     const first = /<li class="(need [^"]*)" data-key="([^"]+)"/.exec(pinned);
     assert.equal(first?.[2], last);
     assert.match(first?.[1] ?? "", /\bpinned\b/);
-    assert.match(pinned, new RegExp(`data-act="pin" data-key="${last}" data-on="0"`));
-    assert.equal((await post("/api/pin", { key: "ticket-1", on: "1" })).status, 400);
+    assert.match(pinned, new RegExp(`data-act="pin" data-row="${last}" data-on="0"`));
+    assert.equal((await post("/api/pin", { row: "ticket-1", on: "1" })).status, 400);
   });
 
   test("settings show the database and save config through the same checks as the CLI", async () => {
@@ -179,9 +182,35 @@ describe("serve", () => {
     const html = await (await fetch(`${server.url}/?part=1`)).text();
     const panel = (tab: string) =>
       new RegExp(`<ul class="rows ticket-list" data-tab-panel="${tab}"[^>]*>([\\s\\S]*?)</ul>`).exec(html)?.[1] ?? "";
-    assert.match(panel("done"), /class="ticket is-closed" data-key="t-ENG-7"[\s\S]*?<div class="t-next">done /);
+    assert.match(panel("done"), /class="ticket is-closed" data-key="t-ENG-7"[\s\S]*?<span class="t-next">done /);
     assert.doesNotMatch(panel("ongoing"), /data-key="t-ENG-7"/);
     assert.match(html, /data-tab="done" aria-selected="false">Done <b>1<\/b>/);
+  });
+
+  test("the page shows each thing once: no ticket id twice, no Sent? draft in Drafts, only unhealthy sources", async () => {
+    hub(
+      ["item", "put", "--stdin"],
+      JSON.stringify({
+        source: "github",
+        kind: "review_request",
+        url: "https://github.com/acme/web/pull/9",
+        title: "ENG-42: banner",
+        needs_me: true,
+      }),
+    );
+    hub(["source", "github", "--cursor", "c1"]);
+    hub(["source", "slack", "--error", "no connector"]);
+    hub(["draft", "ENG-7", "ask product", "--stdin"], "Can we cap exports?");
+    hub(
+      ["match", "ENG-7", "ask product", "--ref", "https://acme.slack.com/archives/C1/p1", "--stdin"],
+      "can we cap exports",
+    );
+    const html = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.match(html, />banner<\/a>/);
+    const drafts = /<section class="drafts">[\s\S]*?<\/section>/.exec(html)?.[0] ?? "";
+    assert.doesNotMatch(drafts, /ask product/);
+    assert.match(html, /<span class="synced"[^>]*>synced just now<\/span><span class="src src-bad"[^>]*><i><\/i>slack/);
+    assert.doesNotMatch(html, /class="src src-ok"/);
   });
 
   test("text from the DB is escaped", async () => {
