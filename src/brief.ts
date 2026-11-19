@@ -57,6 +57,12 @@ export function brief(ctx: Ctx): Result {
   mark.run("brief_at", nowIso(ctx.now));
   mark.run("brief_event", String(top));
 
+  const scripts = all<{ name: string }>(ctx.db, "SELECT name FROM script_source ORDER BY name").map((r) => r.name);
+  const fetched = [...Object.keys(ctx.config.fetch).filter((k) => ctx.config.fetch[k] === true), ...scripts];
+  const toJudge = all<ItemRow>(
+    ctx.db,
+    "SELECT * FROM item WHERE state = 'sent' AND closed_at IS NULL ORDER BY first_seen, id",
+  );
   const draftLine = (d: DraftRow) =>
     [
       d.ticket_id,
@@ -66,6 +72,7 @@ export function brief(ctx: Ctx): Result {
       firstLine(d.body),
     ].join(" | ");
   const lines = [
+    `hub fetches itself, do not read: ${fetched.join(", ") || "none"}`,
     ...section(
       "sources",
       sources.map((s) => `${s.name} | since ${shown(s.last_sync)} | cursor ${s.cursor ?? "-"}`),
@@ -83,7 +90,11 @@ export function brief(ctx: Ctx): Result {
       "waits",
       waits.map((w) => `#${w.id} ${w.ticket_id} | ${w.who} | ${w.url} | asked ${shown(w.asked_at)}`),
     ),
-    ...section("tracked", items.map(itemLine)),
+    ...section(
+      "to judge, the user's sent messages",
+      toJudge.map((i) => `#${i.id} | ${i.title ?? ""} | ${i.url ?? i.ref}`),
+    ),
+    ...section("tracked", items.filter((i) => i.state !== "sent").map(itemLine)),
     ...section(
       `from you since ${shown(lastLook)}`,
       fromYou.map((e) => `${e.ts} ${e.ticket_id ?? "-"} ${e.text}`),
@@ -92,6 +103,8 @@ export function brief(ctx: Ctx): Result {
   return {
     text: lines.join("\n"),
     json: {
+      fetched,
+      to_judge: toJudge,
       sources,
       tickets,
       drafts,

@@ -486,7 +486,7 @@ describe("serve", () => {
     });
     await new Promise((r) => setTimeout(r, 80));
     assert.equal((await syncState()).status, "idle");
-    clock = new Date("2026-11-18T09:16:00Z");
+    clock = new Date("2026-11-18T13:01:00Z");
     const ran = await waitFor(async () => {
       const s = await syncState();
       return s.status === "finished" ? s : undefined;
@@ -494,7 +494,7 @@ describe("serve", () => {
     assert.equal(ran.detail, "auto");
 
     await hub(["config", "autoSync", "false"]);
-    clock = new Date("2026-11-18T10:00:00Z");
+    clock = new Date("2026-11-18T18:00:00Z");
     await new Promise((r) => setTimeout(r, 80));
     assert.equal((await syncState()).at, ran.at);
     assert.equal((await setConfigKey("syncEvery", '"5m"')).status, 400);

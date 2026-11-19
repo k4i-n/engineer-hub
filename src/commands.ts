@@ -398,6 +398,12 @@ export function set(ctx: Ctx, id: string, field: string, value: string): Result 
   return { text: `${id} ${field} set`, json: { id, field, value, updated } };
 }
 
+function judged(ctx: Ctx, ref: string): void {
+  ctx.db
+    .prepare("UPDATE item SET closed_at = ? WHERE state = 'sent' AND closed_at IS NULL AND (ref = ? OR url = ?)")
+    .run(nowIso(ctx.now), ref, ref);
+}
+
 export function match(ctx: Ctx, id: string, label: string, sentText: string, sentRef: string): Result {
   const existing = one<DraftRow>(ctx.db, "SELECT * FROM draft WHERE ticket_id = ? AND label = ?", id, label);
   if (!existing) throw new HubError(`no draft "${label}" on ${id} (hub drafts ${id} lists them)`);
@@ -405,6 +411,7 @@ export function match(ctx: Ctx, id: string, label: string, sentText: string, sen
   ctx.db
     .prepare("UPDATE draft SET match_text = ?, match_ref = ?, updated_at = ? WHERE ticket_id = ? AND label = ?")
     .run(sentText, sentRef, nowIso(ctx.now), id, label);
+  judged(ctx, sentRef);
   return {
     text: `${id} draft "${label}": match proposed, waiting for yes or no`,
     json: { ticket_id: id, label, match_ref: sentRef },
@@ -461,6 +468,7 @@ export function log(ctx: Ctx, id: string, text: string, options: LogOptions): Re
   const result = ctx.db
     .prepare("INSERT INTO event(ticket_id, ts, kind, text, source, ref, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
     .run(id, ts, options.kind, text, options.source, options.ref, nowIso(ctx.now));
+  if (options.ref !== null) judged(ctx, options.ref);
   touch(ctx, id);
   return { text: `${id} logged ${ts}`, json: { id: Number(result.lastInsertRowid), ticket_id: id, ts } };
 }
@@ -544,6 +552,7 @@ export function posted(ctx: Ctx, id: string, label: string, options: PostedOptio
        WHERE ticket_id = ? AND label = ?`,
     )
     .run(status, at, options.channel, answer, options.sentText, options.sentRef, nowIso(ctx.now), id, label);
+  if (options.sentRef !== null) judged(ctx, options.sentRef);
   touch(ctx, id);
   const pending = options.sentText === null && existing.sent_text === null ? ", wording pending" : "";
   return { text: `${id} draft "${label}" ${status}${pending}`, json: { ticket_id: id, label, status, posted_at: at } };

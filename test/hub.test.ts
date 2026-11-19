@@ -685,6 +685,32 @@ describe("send at", () => {
   });
 });
 
+describe("brief for judging", () => {
+  test("brief names what hub fetches itself and lists the user's sent messages to judge, apart from tracked", async () => {
+    await imported();
+    await ok("config", "fetch", '{"github":true,"slack":true}');
+    stdin = [
+      '{"source":"slack","kind":"message","url":"https://acme.slack.com/archives/C1/p1763350000000100","title":"#web khai: shipped it","author":"me","state":"sent"}',
+      '{"source":"slack","kind":"message","url":"https://acme.slack.com/archives/C1/p1763350000000200","title":"#ops ana: on call?","state":"mention","needs_me":true}',
+    ].join("\n");
+    await ok("item", "put", "--stdin");
+    const brief = await ok("brief");
+    assert.match(brief, /^hub fetches itself, do not read: github, slack\n/);
+    assert.match(
+      brief,
+      /to judge, the user's sent messages:\n {2}#\d+ \| #web khai: shipped it \| https:\/\/acme\.slack\.com\/archives\/C1\/p1763350000000100/,
+    );
+    const tracked = brief.slice(brief.indexOf("tracked:"));
+    assert.doesNotMatch(tracked, /shipped it/);
+    assert.match(tracked, /on call\?/);
+    stdin = "shipped it";
+    await ok("draft", "ENG-7", "tell web", "--stdin");
+    await ok("posted", "ENG-7", "tell web", "--ref", "https://acme.slack.com/archives/C1/p1763350000000100", "--stdin");
+    assert.match(await ok("brief"), /to judge, the user's sent messages: none/);
+    assert.match(await ok("items", "--all", "--source", "slack"), /shipped it \| sent \| https:\S+ \| closed/);
+  });
+});
+
 describe("moved", () => {
   const later = (minutes: number) => {
     now = new Date(now.getTime() + minutes * 60_000);
