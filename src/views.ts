@@ -70,6 +70,7 @@ type Need = {
   panel?: string;
 };
 
+const NO_TEXT = "(no text)";
 const MAX_ACTIVITY = 40;
 const ACTIVITY_SHOWN = 5;
 const MAX_TIMELINE = 200;
@@ -336,6 +337,14 @@ function moreText(i: ItemRow): { body?: string; fold?: true } {
   return i.detail === null ? {} : { fold: true };
 }
 
+function itemTitle(i: ItemRow): string {
+  const title = i.title?.trim() ?? "";
+  if (title.endsWith(":")) return `${title} ${flat(i.body ?? "").slice(0, 200) || NO_TEXT}`;
+  if (title !== "") return title;
+  if (!/^https?:/.test(i.ref)) return i.ref;
+  return githubRef(i.ref) ?? [NO_TEXT, i.author].filter(Boolean).join(" · ");
+}
+
 function withoutTicket(title: string, ticket: string | null): string {
   if (ticket === null || !title.startsWith(ticket)) return title;
   const rest = title.slice(ticket.length).replace(/^[\s:–-]+/, "");
@@ -542,7 +551,7 @@ function itemNeed(ctx: Ctx, i: ItemRow): Need {
     since: i.first_seen,
     verb: v.verb,
     tone: v.tone,
-    title: linker(ctx)(url, withoutTicket(i.title ?? i.ref, i.ticket_id), "need-title"),
+    title: linker(ctx)(url, withoutTicket(itemTitle(i), i.ticket_id), "need-title"),
     sub: sourceLine([githubRef(url) ?? i.source, i.author, i.state, i.detail]),
     ...moreText(i),
     ...draftMore(ctx, drafts, true),

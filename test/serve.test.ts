@@ -416,6 +416,27 @@ describe("serve", () => {
     assert.match(row, /chip-pop">.*pull\/4.*pull\/5/);
   });
 
+  test("an item with no title or an empty message is named (no text) with its sender, never by its url", async () => {
+    const slackUrl = "https://acme.slack.com/archives/C09/p1763350000123456";
+    await hub(
+      ["item", "put", "--stdin"],
+      [
+        JSON.stringify({ source: "slack", kind: "message", url: slackUrl, author: "Linear", needs_me: true }),
+        JSON.stringify({
+          source: "slack",
+          kind: "message",
+          url: `${slackUrl}9`,
+          title: "#tech_platform · Linear:",
+          needs_me: true,
+        }),
+      ].join("\n"),
+    );
+    const html = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.match(html, /class="need-title"[^>]*>\(no text\) · Linear</);
+    assert.match(html, /class="need-title"[^>]*>#tech_platform · Linear: \(no text\)</);
+    assert.doesNotMatch(html, /class="need-title"[^>]*>https:/);
+  });
+
   test("a folding row has a chevron button and its body after the header cells; a plain row keeps an empty slot", async () => {
     await hub(["set", "ENG-7", "decide", "pick one"]);
     await hub(["draft", "ENG-7", "ask ops", "--stdin"], "a long body");
