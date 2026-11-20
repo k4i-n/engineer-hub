@@ -531,7 +531,7 @@ function itemNeed(ctx: Ctx, i: ItemRow): Need {
     title: linker(ctx)(url, withoutTicket(i.title ?? i.ref, i.ticket_id), "need-title"),
     sub: sourceLine([githubRef(url) ?? i.source, i.author, i.state, i.detail]),
     ...moreText(i),
-    ask: draftChips(ctx, i),
+    ask: itemAsk(ctx, i) + draftChips(ctx, i),
     ticket: i.ticket_id,
     href: url,
     dim,
@@ -959,6 +959,15 @@ function itemDrafts(ctx: Ctx, i: ItemRow): DraftRow[] {
     i.ref,
     i.url ?? i.ref,
   );
+}
+
+function itemAsk(ctx: Ctx, i: ItemRow): string {
+  if (i.ask === null) return "";
+  if (i.ask_answer !== null) return askChips(`${line(ctx, i.ask)} ${i.ask_answer === "yes" ? "Yes" : "No"}`, []);
+  return askChips(line(ctx, i.ask), [
+    answerChip("Yes", { act: "item-answer", id: i.id, answer: "yes" }, "y"),
+    answerChip("No", { act: "item-answer", id: i.id, answer: "no" }, "n"),
+  ]);
 }
 
 function draftChips(ctx: Ctx, i: ItemRow): string {

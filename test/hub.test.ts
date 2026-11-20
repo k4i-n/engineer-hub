@@ -1013,23 +1013,23 @@ describe("db", () => {
     db.close();
     assert.throws(
       () => serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] }),
-      /has schema v1, this hub needs v16: move the file aside and re-import/,
+      /has schema v1, this hub needs v17: move the file aside and re-import/,
     );
     server = await serve({ dbPath: join(dir, "other.db"), port: 0, now: () => now, env: {}, fetchers: [] });
   });
 });
 
 describe("schema upgrade", () => {
-  test("a v2 database gains draft.send_at, the script table, ticket.position and item.ignored, source.warning, item.detached, script_source.enabled and section, item verdicts, item.body and item.detail, draft.item, draft.closed_item and draft.match_no, and becomes v16, when hub serve opens it", async () => {
+  test("a v2 database gains draft.send_at, the script table, ticket.position and item.ignored, source.warning, item.detached, script_source.enabled and section, item verdicts, item.body and item.detail, draft.item, draft.closed_item and draft.match_no, item.ask, and becomes v17, when hub serve opens it", async () => {
     await imported();
     await server.close();
     const db = new DatabaseSync(dbFile);
     db.exec(
-      "ALTER TABLE draft DROP COLUMN send_at; DROP TABLE script_source; ALTER TABLE ticket DROP COLUMN position; ALTER TABLE item DROP COLUMN ignored; ALTER TABLE source DROP COLUMN warning; ALTER TABLE item DROP COLUMN detached; ALTER TABLE item DROP COLUMN judged_at; ALTER TABLE item DROP COLUMN away_ping; ALTER TABLE item DROP COLUMN away_why; ALTER TABLE item DROP COLUMN body; ALTER TABLE item DROP COLUMN detail; DROP INDEX draft_item; DROP INDEX draft_item_label; ALTER TABLE draft DROP COLUMN item; ALTER TABLE draft DROP COLUMN closed_item; ALTER TABLE draft DROP COLUMN match_no; UPDATE meta SET value = '2' WHERE key = 'schema_version'",
+      "ALTER TABLE draft DROP COLUMN send_at; DROP TABLE script_source; ALTER TABLE ticket DROP COLUMN position; ALTER TABLE item DROP COLUMN ignored; ALTER TABLE source DROP COLUMN warning; ALTER TABLE item DROP COLUMN detached; ALTER TABLE item DROP COLUMN judged_at; ALTER TABLE item DROP COLUMN away_ping; ALTER TABLE item DROP COLUMN away_why; ALTER TABLE item DROP COLUMN body; ALTER TABLE item DROP COLUMN detail; DROP INDEX draft_item; DROP INDEX draft_item_label; ALTER TABLE draft DROP COLUMN item; ALTER TABLE draft DROP COLUMN closed_item; ALTER TABLE draft DROP COLUMN match_no; ALTER TABLE item DROP COLUMN ask; ALTER TABLE item DROP COLUMN ask_answer; ALTER TABLE item DROP COLUMN ask_at; UPDATE meta SET value = '2' WHERE key = 'schema_version'",
     );
     db.close();
     server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] });
-    assert.equal(sql<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'")[0]?.value, "16");
+    assert.equal(sql<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'")[0]?.value, "17");
     assert.equal(sql<{ n: number }>("SELECT count(*) AS n FROM draft WHERE item IS NOT NULL")[0]?.n, 0);
     assert.equal(
       sql<{ n: number }>(
@@ -1059,7 +1059,8 @@ describe("schema upgrade to v11", () => {
       ('ignoreRepos', '{"review_request":["acme/noisy","acme/old"],"pr":["acme/web"]}');
       ALTER TABLE item DROP COLUMN judged_at; ALTER TABLE item DROP COLUMN away_ping; ALTER TABLE item DROP COLUMN away_why;
       ALTER TABLE item DROP COLUMN body; ALTER TABLE item DROP COLUMN detail; DROP INDEX draft_item; DROP INDEX draft_item_label;
-      ALTER TABLE draft DROP COLUMN item; ALTER TABLE draft DROP COLUMN closed_item; ALTER TABLE draft DROP COLUMN match_no; UPDATE meta SET value = '10' WHERE key = 'schema_version'`);
+      ALTER TABLE draft DROP COLUMN item; ALTER TABLE draft DROP COLUMN closed_item; ALTER TABLE draft DROP COLUMN match_no;
+      ALTER TABLE item DROP COLUMN ask; ALTER TABLE item DROP COLUMN ask_answer; ALTER TABLE item DROP COLUMN ask_at; UPDATE meta SET value = '10' WHERE key = 'schema_version'`);
     db.close();
     server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] });
     assert.equal(
@@ -1219,6 +1220,32 @@ describe("drafts on items", () => {
 
     await ok("draft", "ENG-7", "review", "--stdin", "--item", "");
     assert.equal(await ok("drafts", "ENG-7"), "review | draft");
+  });
+});
+
+describe("item questions", () => {
+  test("the agent asks, the human answers yes or no, and both show on the item", async () => {
+    await imported();
+    const pr = "https://github.com/acme/web/pull/132";
+    stdin = JSON.stringify({
+      source: "github",
+      kind: "review_request",
+      url: pr,
+      title: "Retry webhooks",
+      needs_me: true,
+    });
+    await ok("item", "put", "--stdin");
+    assert.equal(await ok("item", "ask", pr, "Review", "this?"), "#3 asks: Review this?");
+    assert.match(await ok("items", "--needs-me"), /\| ask: Review this\? \(no answer yet\)$/);
+    assert.match(await ok("brief"), /Retry webhooks .*\| ask: Review this\? \(no answer yet\)/);
+    assert.equal(await ok("item", "answer", pr, "yes"), "#3 Review this? yes");
+    assert.match(await ok("items", "--needs-me"), /\| ask: Review this\? yes$/);
+    assert.match((await hub("item", "answer", pr, "maybe")).err, /answer must be yes or no/);
+    assert.equal(await ok("item", "unanswer", pr), "#3 asks again: Review this?");
+    assert.match((await hub("item", "unanswer", pr)).err, /has no answer/);
+    assert.match((await hub("item", "ask", pr, "x".repeat(201))).err, /one line of at most 200/);
+    assert.equal(await ok("item", "ask", pr, ""), "#3 has no question");
+    assert.match((await hub("item", "answer", pr, "no")).err, /has no question/);
   });
 });
 

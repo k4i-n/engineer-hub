@@ -30,7 +30,7 @@ During work: log what changed, readings and decisions; ticket_set next (one acti
 Waiting on someone: wait_add with ping_after; waits with due says whom to ping.
 Drafts for humans to post: draft_save; a review or reply to a PR, review request or message gets item (its url), and id is that url when there is no ticket; when posted: posted with the wording actually sent and its permalink.
 Daily plan: day to resume; day_set after writing it. To change an existing plan: day with full, merge, day_set with its rev. Longer content: note_save.
-State fields are one line each; hub refuses more and says where the text belongs. Never answer a gate or a draft match for the human.
+State fields are one line each; hub refuses more and says where the text belongs. Never answer a gate, a draft match or an item question for the human.
 ```
 
 Without MCP, the same through the CLI: `hub ticket`, `hub log`, `hub set`, `hub link`, `hub wait`, `hub draft`, `hub posted`, `hub day set`, `hub note`.

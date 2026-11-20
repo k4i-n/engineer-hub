@@ -29,6 +29,8 @@ const NOT_TOOLS = [
   "import",
   "item_ignore",
   "item_unignore",
+  "item_answer",
+  "item_unanswer",
   "restore",
   "source_remove",
   "source_set",
@@ -38,7 +40,7 @@ const NOT_TOOLS = [
 const HUMAN_FIELDS: Record<string, string[]> = { match: ["answer"] };
 
 const INSTRUCTIONS =
-  "engineer-hub keeps the engineer's tickets, steps, drafts, waits and items from sources. Cold start: brief, then board or ticket. Write as you work: log what changed, ticket_set next (and gate when a human must decide), link every PR, thread or doc. State fields are one line each. Never answer a gate or a draft match for the human.";
+  "engineer-hub keeps the engineer's tickets, steps, drafts, waits and items from sources. Cold start: brief, then board or ticket. Write as you work: log what changed, ticket_set next (and gate when a human must decide), link every PR, thread or doc. State fields are one line each. Never answer a gate, a draft match or an item question for the human.";
 
 class RpcError extends Error {
   code: number;

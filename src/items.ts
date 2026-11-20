@@ -37,6 +37,8 @@ export type Upsert = "new" | "changed" | "unchanged";
 
 const MAX_TITLE = 240;
 const MAX_DETAIL = 240;
+const MAX_ASK = 200;
+const ANSWERS = ["yes", "no"];
 const MAX_LENGTH: Record<string, number> = { ref: 2048, url: 2048, state: 60, author: 120, context: 8000, body: 8000 };
 const INPUT_KEYS = [
   "source",
@@ -343,6 +345,33 @@ export function unignore(ctx: Ctx, key: string): Result {
   return { text: `#${item.id} shown again`, json: { id: item.id } };
 }
 
+export function ask(ctx: Ctx, key: string, question: string): Result {
+  const item = findItem(ctx.db, key);
+  const text = question.trim();
+  if (text.includes("\n") || text.length > MAX_ASK)
+    throw new HubError(`a question is one line of at most ${MAX_ASK} chars`);
+  ctx.db.prepare("UPDATE item SET ask = ?, ask_answer = NULL, ask_at = NULL WHERE id = ?").run(text || null, item.id);
+  return {
+    text: text === "" ? `#${item.id} has no question` : `#${item.id} asks: ${text}`,
+    json: { id: item.id, ask: text || null },
+  };
+}
+
+export function answer(ctx: Ctx, key: string, given: string): Result {
+  if (!ANSWERS.includes(given)) throw new HubError(`answer must be yes or no, not ${given}`);
+  const item = findItem(ctx.db, key);
+  if (item.ask === null) throw new HubError(`#${item.id} has no question`);
+  ctx.db.prepare("UPDATE item SET ask_answer = ?, ask_at = ? WHERE id = ?").run(given, nowIso(ctx.now), item.id);
+  return { text: `#${item.id} ${item.ask} ${given}`, json: { id: item.id, ask: item.ask, answer: given } };
+}
+
+export function unanswer(ctx: Ctx, key: string): Result {
+  const item = findItem(ctx.db, key);
+  if (item.ask_answer === null) throw new HubError(`#${item.id} has no answer`);
+  ctx.db.prepare("UPDATE item SET ask_answer = NULL, ask_at = NULL WHERE id = ?").run(item.id);
+  return { text: `#${item.id} asks again: ${item.ask}`, json: { id: item.id, ask: item.ask, answer: null } };
+}
+
 export function attach(ctx: Ctx, key: string, ticketId: string): Result {
   getTicket(ctx.db, ticketId);
   const item = findItem(ctx.db, key);
@@ -379,6 +408,7 @@ export function itemLine(i: ItemRow): string {
     i.state,
     i.ticket_id,
     i.url ?? i.ref,
+    i.ask === null ? null : `ask: ${i.ask} ${i.ask_answer ?? "(no answer yet)"}`,
     i.ignored ? "ignored" : i.closed_at ? "closed" : null,
   ]
     .filter((part) => part !== null && part !== "")

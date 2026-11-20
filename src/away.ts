@@ -213,6 +213,9 @@ function sampleGroup(kind: string, place: string, author: string, count: number)
     away_why: null,
     body: null,
     detail: null,
+    ask: null,
+    ask_answer: null,
+    ask_at: null,
   };
   return { item, ids: Array.from({ length: count }, (_, i) => i) };
 }

@@ -20,6 +20,7 @@ const UNDO = {
   "ticket-rename": (d) => ["ticket-rename", { ...d, ticket: d.value, value: d.askValue }],
   sent: (d) => ["draft-unsent", d],
   gate: (d) => ["gate-reopen", d],
+  "item-answer": (d) => ["item-unanswer", d],
   match: (d) =>
     d.answer === "yes"
       ? [
@@ -374,6 +375,8 @@ const ROUTES = {
   "item-reopen": (d) => ["POST", `/items/${e(d.id)}/reopen`, {}],
   "item-ignore": (d) => ["POST", `/items/${e(d.id)}/ignore`, {}],
   "item-unignore": (d) => ["POST", `/items/${e(d.id)}/unignore`, {}],
+  "item-answer": (d) => ["POST", `/items/${e(d.id)}/answer`, { answer: d.answer }],
+  "item-unanswer": (d) => ["POST", `/items/${e(d.id)}/unanswer`, {}],
   "wait-close": (d) => ["POST", `/waits/${e(d.id)}/close`, {}],
   "wait-pinged": (d) => ["POST", `/waits/${e(d.id)}/pinged`, later(d)],
   "wait-reopen": (d) => ["POST", `/waits/${e(d.id)}/reopen`, {}],
