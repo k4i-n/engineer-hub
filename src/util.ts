@@ -87,6 +87,12 @@ export function cut(value: string, max: number): string {
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+export function isDate(value: string): boolean {
+  if (!DATE.test(value)) return false;
+  const at = Date.parse(`${value}T00:00:00Z`);
+  return !Number.isNaN(at) && new Date(at).toISOString().startsWith(value);
+}
+
 export function shiftDate(date: string, days: number): string {
   const d = new Date(`${date}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);
