@@ -29,6 +29,8 @@ Hub matches the engineer's own GitHub reviews to drafts on that PR itself; leave
 
 For each tracked item with no ticket whose title or link clearly belongs to an open ticket from the brief, `item_attach` it. When unsure, leave it.
 
+For each open review request with no `ask:` in its brief line, `item_ask` with `question: "Review this?"`. An answer shows as `ask: Review this? yes` (or `no`) and under "from you"; review only on yes, never answer it yourself.
+
 ## 4. Sources hub does not fetch
 
 Only for sources not named in the brief's first line, and only through a connector this session has. Read the delta since the source's cursor (no cursor: the last 2 days). A source with no connector: `source_status` with `name` and `error: "no connector"`. A failed read: `source_status` with the `error` and no `cursor`, then go on.

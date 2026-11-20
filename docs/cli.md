@@ -43,6 +43,7 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 | `hub draft-mv <id> <label> <new label>`, `hub draft-rm <id> <label>` | renames a draft, or removes one never sent (a sent draft stays as the record) |
 | `hub item put --stdin` | stores items read from a source, one JSON object per line ([format](sources.md#items-from-connectors)) |
 | `hub item close <item>...`, `hub item snooze <item> [--for 1d|tomorrow]`, `hub item attach <item> <id>`, `hub item detach <item>` | marks items handled, hides one for a while (a change brings it back), attaches one to a ticket, takes one off its ticket (a later fetch does not match it back by id; attach does); `<item>` is the `#` number or the ref |
+| `hub item ask <item> <question>`, `hub item answer <item> (yes \| no)`, `hub item unanswer <item>` | puts a one-line yes/no question on an item (an empty question removes it), answers it, takes the answer back; the question and answer show in `hub items`, the brief and on the item's row. Agents ask (`item_ask`); only the human answers |
 | `hub item ignore <item>`, `hub item unignore <item>` | never shows the item again, whatever changes (it stays in `hub items --all`); to leave out a whole repo, add `-repo:owner/name` to `githubReviewQuery` or `githubPrQuery` |
 | `hub wait <id> <who> <url> [--ping-after 1d]`, `hub wait close <wait \| url>` | records a question asked of someone, closes it when they answer |
 | `hub wait edit <wait> [--who <w>] [--ping-after 1d]` | changes who an open wait is on, or when to ping |
