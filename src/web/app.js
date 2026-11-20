@@ -51,9 +51,18 @@ function badge(count) {
   document.querySelector('link[rel="icon"]').href = `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
-function beep() {
+let audio = null;
+
+function unlockAudio() {
   try {
-    const audio = new AudioContext();
+    audio ??= new AudioContext();
+    if (audio.state === "suspended") audio.resume();
+  } catch {}
+}
+
+function beep() {
+  if (audio === null || audio.state !== "running") return;
+  try {
     const osc = audio.createOscillator();
     const gain = audio.createGain();
     osc.frequency.value = 880;
@@ -68,7 +77,8 @@ function beep() {
 function announce(fresh) {
   if (fresh.length === 0) return;
   if (document.body.dataset.sound === "true") beep();
-  if (document.body.dataset.notify !== "true" || !document.hidden || !("Notification" in window)) return;
+  if (document.body.dataset.notify !== "true" || !("Notification" in window)) return;
+  if (!document.hidden && document.hasFocus()) return;
   if (Notification.permission !== "granted") return;
   for (const li of fresh.slice(0, 3)) {
     const verb = li.querySelector(".verb")?.textContent ?? "";
@@ -579,6 +589,9 @@ selectFromHash();
 pendingUndo();
 
 async function saveConfig(key, value, el) {
+  if (key === "notifyNew" && value === "true" && "Notification" in window && Notification.permission === "default") {
+    Notification.requestPermission();
+  }
   try {
     await post("config", { key, value });
     if (key === "theme") {
@@ -588,14 +601,14 @@ async function saveConfig(key, value, el) {
     }
     if (key === "notifyNew" || key === "notifySound")
       document.body.dataset[key === "notifyNew" ? "notify" : "sound"] = value;
-    if (key === "notifyNew" && value === "true" && "Notification" in window && Notification.permission === "default") {
-      await Notification.requestPermission();
-    }
   } catch (error) {
     fail(error.message);
     if (el) el.classList.add("invalid");
   }
 }
+
+document.addEventListener("pointerdown", unlockAudio);
+document.addEventListener("keydown", unlockAudio);
 
 document.addEventListener("click", async (e) => {
   closeMenus(e.target.closest("details.menu"));
