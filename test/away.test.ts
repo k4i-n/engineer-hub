@@ -378,6 +378,7 @@ describe("collapse and escaping", () => {
     judged_at: null,
     away_ping: null,
     away_why: null,
+    body: null,
     ...over,
   });
 
