@@ -30,6 +30,7 @@ const UNDO = {
   "draft-later": (d, r) => ["draft-send-at", { ...d, sendAt: r.before?.send_at }],
 };
 let seen = null;
+const unflashed = new Set();
 let selected = null;
 let lastUndo = null;
 
@@ -86,6 +87,12 @@ function announce(fresh) {
     const n = new Notification(`${verb} · EngineerHub`, { body: title, tag: li.dataset.key });
     n.onclick = () => window.focus();
   }
+}
+
+function flash() {
+  if (document.hidden || !document.hasFocus()) return;
+  for (const key of unflashed) app.querySelector(`[data-key="${CSS.escape(key)}"]`)?.classList.add("fresh");
+  unflashed.clear();
 }
 
 function stored(key, fallback) {
@@ -180,11 +187,12 @@ function afterRender(first, shown) {
   badge(section ? Number(section.dataset.needsCount) : 0);
   if (seen !== null && !first) {
     const fresh = [...app.querySelectorAll(".needs-list > li[data-key]:not(.is-dim)")].filter(
-      (li) => !seen.has(li.dataset.key),
+      (li) => !li.hidden && !seen.has(li.dataset.key),
     );
-    for (const li of fresh) li.classList.add("fresh");
+    for (const li of fresh) unflashed.add(li.dataset.key);
     announce(fresh);
   }
+  flash();
   if (section) seen = keys;
   if (selected) app.querySelector(`[data-key="${CSS.escape(selected)}"]`)?.classList.add("sel");
   tick();
@@ -868,5 +876,7 @@ events.addEventListener("open", () => {
   refresh();
 });
 events.addEventListener("error", () => document.body.classList.add("offline"));
+document.addEventListener("visibilitychange", flash);
+window.addEventListener("focus", flash);
 setInterval(refresh, 60000);
 afterRender(true);
