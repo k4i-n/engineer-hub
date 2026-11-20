@@ -421,7 +421,7 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
       verb: "Send",
       tone: "teal",
       title: `<span class="need-title">${line(ctx, d.label)}</span>`,
-      sub: esc(d.channel ?? ""),
+      sub: sourceLine([d.channel, d.ticket_id === null ? itemName(d.item) : null]),
       body: d.body,
       ask: askChips("", [button("Copy", { copy: d.body }, { cls: "chip-btn" })]),
       ticket: d.ticket_id,
@@ -531,7 +531,7 @@ function itemNeed(ctx: Ctx, i: ItemRow): Need {
     title: linker(ctx)(url, withoutTicket(i.title ?? i.ref, i.ticket_id), "need-title"),
     sub: sourceLine([githubRef(url) ?? i.source, i.author, i.state, i.detail]),
     ...moreText(i),
-    ask: "",
+    ask: draftChips(ctx, i),
     ticket: i.ticket_id,
     href: url,
     dim,
@@ -929,13 +929,49 @@ function draftTabs(drafts: DraftRow[]): string {
   return openTabs("drafts", openDrafts(drafts), drafts.length);
 }
 
-function draftButtons(d: DraftRow): string {
+function draftButtons(d: DraftRow, cls = ""): string {
   const which = { ticket: draftOwner(d), label: d.label };
   const mark =
     d.status === "draft"
-      ? button("Sent", { act: "sent", ...which }, { cls: "primary", disabled: d.match_ref !== null })
-      : button("Not sent", { act: "draft-unsent", ...which });
-  return `${button("Copy", { copy: d.sent_text ?? d.body })}${mark}`;
+      ? button("Sent", { act: "sent", ...which }, { cls: `${cls} primary`.trim(), disabled: d.match_ref !== null })
+      : button("Not sent", { act: "draft-unsent", ...which }, { cls });
+  return `${button("Copy", { copy: d.sent_text ?? d.body }, { cls })}${mark}`;
+}
+
+function ticketDraftKey(d: DraftRow): string {
+  return d.ticket_id === null ? `${d.item}-${d.label}` : d.label;
+}
+
+function itemName(item: string | null): string | null {
+  return githubRef(item) ?? item;
+}
+
+function itemLink(ctx: Ctx, item: string | null): string {
+  if (item === null) return "";
+  const name = itemName(item) ?? item;
+  return /^https?:/.test(item) ? linker(ctx)(item, name, "d-item") : `<span class="d-item">${esc(name)}</span>`;
+}
+
+function itemDrafts(ctx: Ctx, i: ItemRow): DraftRow[] {
+  return all<DraftRow>(
+    ctx.db,
+    `SELECT * FROM draft WHERE item IN (?, ?) AND (status = 'draft' OR sent_text IS NULL) ORDER BY id`,
+    i.ref,
+    i.url ?? i.ref,
+  );
+}
+
+function draftChips(ctx: Ctx, i: ItemRow): string {
+  const drafts = itemDrafts(ctx, i);
+  if (drafts.length === 0) return "";
+  return drafts
+    .map((d) =>
+      askChips("", [
+        `<span class="chip tone-${d.status === "draft" ? "teal" : "grey"}" title="draft">${line(ctx, d.label, 40)}</span>`,
+        draftButtons(d, "chip-btn"),
+      ]),
+    )
+    .join("");
 }
 
 function draftPanel(d: DraftRow): string {
@@ -1013,7 +1049,7 @@ function draftsSection(ctx: Ctx): string {
             ? pill(`send ${when(ctx, d.send_at ?? "")}`, "grey")
             : "";
     return `<li class="draft${sent || later ? " is-dim" : ""}" data-key="d-${esc(draftOwner(d))}-${esc(d.label)}"${draftPanel(d)}>
-<div class="d-head">${ticketLink(d.ticket_id)}<span class="d-label">${line(ctx, d.label)}</span>${d.channel ? pill(d.channel, "teal") : ""}${state}<span class="d-actions">${draftButtons(d)}</span></div>
+<div class="d-head">${ticketLink(d.ticket_id)}${itemLink(ctx, d.item)}<span class="d-label">${line(ctx, d.label)}</span>${d.channel ? pill(d.channel, "teal") : ""}${state}<span class="d-actions">${draftButtons(d)}</span></div>
 <details class="d-fold" data-key="dfold-${esc(draftOwner(d))}-${esc(d.label)}"><summary><span class="d-line">${line(ctx, d.body)}</span><div class="d-body md">${markdown(ctx, d.body)}</div></summary></details>
 </li>`;
   });
@@ -1199,7 +1235,12 @@ export function ticketBody(ctx: Ctx, id: string, live: Live): string {
     "SELECT * FROM wait WHERE ticket_id = ? ORDER BY closed_at IS NOT NULL, asked_at",
     id,
   );
-  const drafts = all<DraftRow>(ctx.db, "SELECT * FROM draft WHERE ticket_id = ? ORDER BY id", id);
+  const drafts = all<DraftRow>(
+    ctx.db,
+    `SELECT * FROM draft WHERE ticket_id = ?1 OR (ticket_id IS NULL AND item IN
+       (SELECT ref FROM item WHERE ticket_id = ?1 UNION SELECT url FROM item WHERE ticket_id = ?1)) ORDER BY id`,
+    id,
+  );
   const events = all<EventRow>(
     ctx.db,
     "SELECT * FROM event WHERE ticket_id = ? ORDER BY ts DESC, id DESC LIMIT ?",
@@ -1272,12 +1313,12 @@ export function ticketBody(ctx: Ctx, id: string, live: Live): string {
   });
   const draftRows = drafts.map(
     (d) =>
-      `<li class="draft" data-key="td-${esc(d.label)}"${draftPanel(d)}><div class="d-head"><span class="d-label">${line(ctx, d.label)}</span>${pill(d.status, d.status === "draft" ? "blue" : "green")}${d.channel ? pill(d.channel, "teal") : ""}<span class="d-actions">${draftButtons(d)}${moreMenu(
-        `menu-td-${d.label}`,
+      `<li class="draft" data-key="td-${esc(ticketDraftKey(d))}"${draftPanel(d)}><div class="d-head">${itemLink(ctx, d.item)}<span class="d-label">${line(ctx, d.label)}</span>${pill(d.status, d.status === "draft" ? "blue" : "green")}${d.channel ? pill(d.channel, "teal") : ""}<span class="d-actions">${draftButtons(d)}${moreMenu(
+        `menu-td-${ticketDraftKey(d)}`,
         [
           menuItem("edit", "Rename", {
             act: "draft-rename",
-            ticket: t.id,
+            ticket: draftOwner(d),
             label: d.label,
             ask: "Label",
             "ask-value": d.label,
@@ -1286,7 +1327,7 @@ export function ticketBody(ctx: Ctx, id: string, live: Live): string {
             ? [
                 menuItem("trash", "Remove", {
                   act: "draft-remove",
-                  ticket: t.id,
+                  ticket: draftOwner(d),
                   label: d.label,
                   confirm: `Remove draft "${d.label}"?`,
                 }),
