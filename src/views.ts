@@ -1543,6 +1543,11 @@ ${section(
       c.fetch.github !== true,
     ) +
     row(
+      "My PRs",
+      `<input class="text" data-config-input="githubPrQuery" value="${esc(c.githubPrQuery)}" spellcheck="false">`,
+      c.fetch.github !== true,
+    ) +
+    row(
       "Alert channels",
       `<input class="text" data-config-input="slackAlertChannels" data-list value="${esc(c.slackAlertChannels.map((n) => `#${n.replace(/^#/, "")}`).join(", "))}" spellcheck="false">`,
       c.fetch.slack !== true,

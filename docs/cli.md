@@ -86,6 +86,7 @@ Config lives in the database. `hub config` lists every key with its value:
 | `progressStyle` | `"ring"` | step progress as `ring`, `half` or `bar` |
 | `horizon` | `"14d"` | the period for Steps done, the Done tab, the done count and Activity: `7d`, `14d`, `30d`, `week`, `month` or `all` |
 | `githubReviewQuery` | `"is:pr is:open review-requested:@me archived:false"` | the GitHub search for review requests |
+| `githubPrQuery` | `"is:pr author:@me"` | the GitHub search for your PRs (hub adds `updated:>=` the last fetch) |
 | `slackAlertChannels` | `[]` | Slack channels whose new messages are alerts (Fix now) |
 | `ignoreRepos` | `{"review_request":[],"pr":[]}` | repos whose review requests or PRs of yours are ignored |
 | `laterHour` | `9` | the hour "later until tomorrow" means |

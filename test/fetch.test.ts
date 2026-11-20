@@ -264,6 +264,17 @@ describe("github", () => {
     assert.equal(empty.status, 400);
   });
 
+  test("the My PRs search comes from config and shows in Settings", async () => {
+    const narrow = "is:pr author:@me -repo:acme/noisy";
+    await hub("config", "githubPrQuery", JSON.stringify(narrow));
+    answers.gh = graphql([], []);
+    await hub("fetch", "github");
+    const query = calls.find((c) => c[1] === "api") ?? [];
+    assert.ok(query.some((a) => a.startsWith(`mine=${narrow} updated:>=`)));
+    const settings = await (await fetch(`${server.url}/settings`)).text();
+    assert.ok(settings.includes(`data-config-input="githubPrQuery" value="${narrow}"`));
+  });
+
   test("an ignored PR stays out whatever changes, hub items --all still lists it, and unignore brings it back", async () => {
     const mine = "https://github.com/acme/web/pull/101";
     answers.gh = graphql([], [PR(mine, { reviewDecision: "APPROVED" })]);
