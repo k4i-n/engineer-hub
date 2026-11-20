@@ -941,8 +941,7 @@ button.busy::after {
   border-color: var(--green);
   color: #fff;
 }
-:is(.md, .need-title, .need-sub, .ask, .t-title, .t-next, .s-title, .e-text, .page-head h1, .d-label, .d-line, summary)
-  code {
+:is(.md, .need-title, .need-sub, .ask, .t-title, .t-next, .s-title, .e-text, .page-head h1, .d-label, summary) code {
   font:
     12.5px ui-monospace,
     SFMono-Regular,
@@ -1021,7 +1020,6 @@ button.busy::after {
   gap: 6px;
 }
 .d-body,
-.d-line,
 .n-body {
   font-weight: 400;
   margin: 8px 0 0;
@@ -1296,7 +1294,6 @@ a.chip-btn:hover {
 }
 .ngroup,
 .cleared,
-.d-fold,
 .n-fold,
 .more-fold {
   padding: 0;
@@ -1307,14 +1304,12 @@ a.chip-btn:hover {
 }
 .ngroup > summary,
 .cleared > summary,
-.d-fold > summary,
 .n-fold > summary,
 .more-fold > summary {
   list-style: none;
 }
 .ngroup > summary::-webkit-details-marker,
 .cleared > summary::-webkit-details-marker,
-.d-fold > summary::-webkit-details-marker,
 .n-fold > summary::-webkit-details-marker,
 .more-fold > summary::-webkit-details-marker {
   display: none;
@@ -1382,18 +1377,8 @@ a.chip-btn:hover {
 .more-fold:not([open]) .when-open {
   display: none;
 }
-.d-fold > summary {
-  cursor: pointer;
-}
-.d-line {
-  display: block;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.d-fold[open] .d-line,
-.d-fold:not([open]) .d-body {
-  display: none;
+.n-draft {
+  border-left: 3px solid var(--teal);
 }
 .n-fold {
   min-width: 0;

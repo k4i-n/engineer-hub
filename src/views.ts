@@ -55,6 +55,7 @@ type Need = {
   fold?: true;
   sub: string;
   body?: string;
+  drafts?: string;
   ask: string;
   ticket: string | null;
   href: string | null;
@@ -368,10 +369,9 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
     dayStart,
   );
   const matches = all<DraftRow>(ctx.db, "SELECT * FROM draft WHERE match_ref IS NOT NULL");
-  const sends = all<DraftRow>(
+  const unsent = all<DraftRow>(
     ctx.db,
-    "SELECT * FROM draft WHERE status = 'draft' AND match_ref IS NULL AND send_at IS NOT NULL AND send_at <= ? ORDER BY send_at",
-    now,
+    "SELECT * FROM draft WHERE status = 'draft' AND match_ref IS NULL AND internal = 0 ORDER BY id",
   );
   const answered = all<EventRow & { created_at: string }>(
     ctx.db,
@@ -380,6 +380,7 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
   );
   const cards = sections(ctx);
   const list: Need[] = [];
+  const rowKeys = new Set(items.filter((i) => itemOpen(ctx, i)).flatMap((i) => [i.ref, i.url ?? i.ref]));
   for (const i of items) {
     const section = cards.get(i.source);
     list.push({ ...itemNeed(ctx, i), ...(section === undefined ? {} : { section: sectionId(section) }) });
@@ -414,24 +415,8 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
       later: null,
     });
   }
-  for (const d of sends) {
-    list.push({
-      key: `send-${draftOwner(d)}-${d.label}`,
-      rank: 2,
-      since: d.send_at ?? now,
-      verb: "Send",
-      tone: "teal",
-      title: `<span class="need-title">${line(ctx, d.label)}</span>`,
-      sub: sourceLine([d.channel, d.ticket_id === null ? itemName(d.item) : null]),
-      body: d.body,
-      ask: askChips("", [button("Copy", { copy: d.body }, { cls: "chip-btn" })]),
-      ticket: d.ticket_id,
-      href: null,
-      dim: null,
-      ok: { label: "Sent", data: { act: "sent", ticket: draftOwner(d), label: d.label } },
-      undo: null,
-      later: { act: "draft-later", data: { ticket: draftOwner(d), label: d.label } },
-    });
+  for (const d of unsent) {
+    if (d.item === null || !rowKeys.has(d.item)) list.push(sendNeed(ctx, d));
   }
   for (const w of waits) list.push(waitNeed(ctx, w));
   for (const t of tickets) {
@@ -510,6 +495,33 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
   );
 }
 
+function sendNeed(ctx: Ctx, d: DraftRow): Need {
+  const now = nowIso(ctx.now);
+  const later = d.send_at !== null && d.send_at > now;
+  return {
+    key: `send-${draftOwner(d)}-${d.label}`,
+    rank: 2,
+    since: d.send_at ?? d.created_at ?? now,
+    verb: "Send",
+    tone: "teal",
+    title: `<span class="need-title">${line(ctx, d.label)}</span>`,
+    sub: sourceLine([d.channel, d.ticket_id === null ? itemName(d.item) : null]),
+    body: d.body,
+    ...draftMore(ctx, [d], false),
+    ask: askChips("", [verdictPill(d), button("Copy", { copy: d.body }, { cls: "chip-btn" })]),
+    ticket: d.ticket_id,
+    href: null,
+    dim: later ? `send ${when(ctx, d.send_at ?? now)}` : null,
+    ok: { label: "Sent", data: { act: "sent", ticket: draftOwner(d), label: d.label } },
+    undo: null,
+    later: { act: "draft-later", data: { ticket: draftOwner(d), label: d.label } },
+  };
+}
+
+function itemOpen(ctx: Ctx, i: ItemRow): boolean {
+  return i.ignored === null && i.closed_at === null && (i.snoozed_until === null || i.snoozed_until <= nowIso(ctx.now));
+}
+
 function itemNeed(ctx: Ctx, i: ItemRow): Need {
   const now = nowIso(ctx.now);
   const v = itemVerb(i);
@@ -523,6 +535,7 @@ function itemNeed(ctx: Ctx, i: ItemRow): Need {
           ? `until ${when(ctx, i.snoozed_until ?? now)}`
           : null;
   const url = i.url ?? (/^https?:/.test(i.ref) ? i.ref : null);
+  const drafts = itemDrafts(ctx, i, dim === null);
   return {
     key: `item-${i.id}`,
     rank: v.rank,
@@ -532,7 +545,8 @@ function itemNeed(ctx: Ctx, i: ItemRow): Need {
     title: linker(ctx)(url, withoutTicket(i.title ?? i.ref, i.ticket_id), "need-title"),
     sub: sourceLine([githubRef(url) ?? i.source, i.author, i.state, i.detail]),
     ...moreText(i),
-    ask: itemAsk(ctx, i) + draftChips(ctx, i),
+    ...draftMore(ctx, drafts, true),
+    ask: itemAsk(ctx, i) + draftChips(ctx, drafts),
     ticket: i.ticket_id,
     href: url,
     dim,
@@ -575,10 +589,10 @@ function needRow(ctx: Ctx, n: Need, pinned: boolean, showVerb: boolean | "inline
   const cls = `need tone-${n.tone}${n.dim === null ? "" : " is-dim"}${finished ? " is-done" : ""}${pinned ? " pinned" : ""}`;
   const panel =
     n.panel === undefined ? "" : ` data-tab-panel="${n.panel}"${n.panel.split(" ").includes("open") ? "" : " hidden"}`;
-  const folds = n.fold === true || n.body !== undefined;
+  const folds = n.fold === true || n.body !== undefined || n.drafts !== undefined;
   const caret = folds ? `<span class="n-caret">${svg("down")}</span>` : "";
   const main = `<span class="need-line">${pin}${showVerb === "inline" ? `<span class="verb verb-inline">${esc(n.verb)}</span>` : ""}${n.title}${caret}</span><span class="need-sub">${dim}${n.sub}</span>`;
-  const more = n.body === undefined ? "" : `<div class="n-body md">${markdown(ctx, n.body)}</div>`;
+  const more = `${n.body === undefined ? "" : `<div class="n-body md">${markdown(ctx, n.body)}</div>`}${n.drafts ?? ""}`;
   const shown = folds
     ? `<details class="n-fold" data-key="nfold-${esc(n.key)}"><summary>${main}</summary>${more}</details>`
     : main;
@@ -700,7 +714,6 @@ const BLOCK_NAME: Record<string, string> = {
   other: "Other",
   tickets: "Tickets",
   today: "Today",
-  drafts: "Drafts",
   activity: "Activity",
 };
 
@@ -963,11 +976,6 @@ function draftComments(ctx: Ctx, d: DraftRow): CommentRow[] {
   return all<CommentRow>(ctx.db, "SELECT * FROM draft_comment WHERE draft_id = ? ORDER BY pos", d.id);
 }
 
-function commentCount(comments: CommentRow[]): string {
-  if (comments.length === 0) return "";
-  return pill(`${comments.length} comment${comments.length === 1 ? "" : "s"}`, "grey");
-}
-
 function commentList(ctx: Ctx, comments: CommentRow[]): string {
   if (comments.length === 0) return "";
   const rows = comments.map(
@@ -991,12 +999,13 @@ function itemLink(ctx: Ctx, item: string | null): string {
   return /^https?:/.test(item) ? linker(ctx)(item, name, "d-item") : `<span class="d-item">${esc(name)}</span>`;
 }
 
-function itemDrafts(ctx: Ctx, i: ItemRow): DraftRow[] {
+function itemDrafts(ctx: Ctx, i: ItemRow, open: boolean): DraftRow[] {
   return all<DraftRow>(
     ctx.db,
-    `SELECT * FROM draft WHERE item IN (?, ?) AND (status = 'draft' OR sent_text IS NULL) ORDER BY id`,
+    `SELECT * FROM draft WHERE item IN (?, ?) AND internal = 0 AND sent_text IS NULL AND (status != 'draft' OR ?) ORDER BY id`,
     i.ref,
     i.url ?? i.ref,
+    open ? 1 : 0,
   );
 }
 
@@ -1009,8 +1018,17 @@ function itemAsk(ctx: Ctx, i: ItemRow): string {
   ]);
 }
 
-function draftChips(ctx: Ctx, i: ItemRow): string {
-  const drafts = itemDrafts(ctx, i);
+function draftMore(ctx: Ctx, drafts: DraftRow[], withBody: boolean): { drafts?: string } {
+  const html = drafts
+    .map(
+      (d) =>
+        `${withBody ? `<div class="n-body n-draft md">${markdown(ctx, d.sent_text ?? d.body)}</div>` : ""}${commentList(ctx, draftComments(ctx, d))}`,
+    )
+    .join("");
+  return html === "" ? {} : { drafts: html };
+}
+
+function draftChips(ctx: Ctx, drafts: DraftRow[]): string {
   if (drafts.length === 0) return "";
   return drafts
     .map((d) =>
@@ -1076,34 +1094,6 @@ function todaySection(ctx: Ctx): string {
   const listed = (body.match(/<li class="md-task/g) ?? []).length;
   const checked = (body.match(/<li class="md-task done"/g) ?? []).length;
   return section("Today", null, body, "today", date + openTabs("today", listed - checked, listed));
-}
-
-function draftsSection(ctx: Ctx): string {
-  const drafts = all<DraftRow>(
-    ctx.db,
-    `SELECT * FROM draft WHERE (status = 'draft' OR sent_text IS NULL) AND match_ref IS NULL
-       AND NOT (status = 'draft' AND send_at IS NOT NULL AND send_at <= ?)
-     ORDER BY status != 'draft', send_at IS NOT NULL, send_at, ticket_id, label`,
-    nowIso(ctx.now),
-  );
-  const rows = drafts.map((d) => {
-    const later = d.status === "draft" && d.send_at !== null;
-    const sent = d.status !== "draft";
-    const comments = draftComments(ctx, d);
-    const state =
-      d.match_ref !== null
-        ? pill("sent?", "blue")
-        : sent
-          ? pill("wording pending", "grey")
-          : later
-            ? pill(`send ${when(ctx, d.send_at ?? "")}`, "grey")
-            : "";
-    return `<li class="draft${sent || later ? " is-dim" : ""}" data-key="d-${esc(draftOwner(d))}-${esc(d.label)}"${draftPanel(d)}>
-<div class="d-head">${ticketLink(d.ticket_id)}${itemLink(ctx, d.item)}<span class="d-label">${line(ctx, d.label)}</span>${verdictPill(d)}${commentCount(comments)}${d.channel ? pill(d.channel, "teal") : ""}${state}<span class="d-actions">${draftButtons(d)}</span></div>
-<details class="d-fold" data-key="dfold-${esc(draftOwner(d))}-${esc(d.label)}"><summary><span class="d-line">${line(ctx, d.body)}</span><div class="d-body md">${markdown(ctx, d.body)}</div></summary>${commentList(ctx, comments)}</details>
-</li>`;
-  });
-  return section("Drafts", null, draftList(drafts, rows), "drafts", draftTabs(drafts));
 }
 
 function eventRow(ctx: Ctx, e: EventRow, showTicket: boolean): string {
@@ -1248,7 +1238,6 @@ export function indexBody(ctx: Ctx, live: Live): string {
     ...needsCards(ctx, list, extra),
     tickets: ticketsSection(ctx, tickets, needCounts(list)),
     today: todaySection(ctx),
-    drafts: draftsSection(ctx),
     activity: activitySection(ctx),
   };
   const cols = columns(

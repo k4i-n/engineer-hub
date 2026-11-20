@@ -77,14 +77,13 @@ export const BLOCKS = [
   "other",
   "tickets",
   "today",
-  "drafts",
   "activity",
 ];
 
 export const DEFAULT_LAYOUT: Layout = {
   top: ["overview"],
   left: ["today", "tickets", "activity"],
-  right: ["pinned", "fix", "review", "reply", "prs", "triage", "waiting", "decide", "other", "drafts"],
+  right: ["pinned", "fix", "review", "reply", "prs", "triage", "waiting", "decide", "other"],
 };
 
 export const DEFAULTS: Config = {
@@ -286,7 +285,14 @@ export function loadConfig(db: DatabaseSync): Config {
     const isObject = typeof base === "object" && !Array.isArray(base);
     config[row.key] = isObject ? { ...base, ...(value as object) } : value;
   }
-  return config as Config;
+  return withKnownBlocks(config as Config);
+}
+
+function withKnownBlocks(c: Config): Config {
+  const layout = Object.fromEntries(
+    Object.entries(c.layout).map(([col, ids]) => [col, (ids as string[]).filter(knownBlock)]),
+  ) as Layout;
+  return { ...c, layout, hiddenBlocks: c.hiddenBlocks.filter(knownBlock) };
 }
 
 export function setConfig(db: DatabaseSync, key: string, raw: string, now: Date): void {
