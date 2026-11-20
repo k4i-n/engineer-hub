@@ -5,7 +5,7 @@ export type Ran = { code: number; stdout: string; stderr: string };
 export type Run = (
   program: string,
   args: string[],
-  options?: { input?: string; timeoutMs?: number; env?: NodeJS.ProcessEnv },
+  options?: { input?: string; timeoutMs?: number; env?: NodeJS.ProcessEnv; cwd?: string },
 ) => Promise<Ran>;
 export type Http = (url: string, init: RequestInit) => Promise<{ status: number; text: () => Promise<string> }>;
 export type System = { platform: NodeJS.Platform; env: NodeJS.ProcessEnv; run: Run; http: Http };
@@ -19,7 +19,11 @@ export const KEYCHAIN_SERVICE = "engineer-hub";
 
 export const run: Run = (program, args, options = {}) =>
   new Promise((resolve) => {
-    const child = spawn(program, args, { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, ...options.env } });
+    const child = spawn(program, args, {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env, ...options.env },
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    });
     let stdout = "";
     let stderr = "";
     const timer = setTimeout(() => child.kill("SIGTERM"), options.timeoutMs ?? RUN_TIMEOUT_MS);
