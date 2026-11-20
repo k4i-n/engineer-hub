@@ -573,6 +573,16 @@ a.need-title:hover {
   text-decoration: line-through;
   text-decoration-color: color-mix(in srgb, var(--muted) 60%, transparent);
 }
+li.leaving {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--muted) 60%, transparent);
+}
+li.leaving > :not(.rail) {
+  opacity: 0.55;
+}
+.rows:has(> li.leaving) > .empty {
+  display: none;
+}
 .rows > li.sel {
   background: color-mix(in srgb, var(--accent) 9%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);

@@ -1198,7 +1198,7 @@ export function ticketBody(ctx: Ctx, id: string, live: Live): string {
       : `${progressView(ctx.config.progressStyle, p.done, p.total, true)}<ol class="steps">${steps
           .map(
             (s) =>
-              `<li class="${s.done_at === null ? (p.next?.n === s.n ? "next" : "") : "done"}"${s.done_at === null ? "" : ' data-tab-panel="all" hidden'}><span class="check"></span><span class="s-title">${line(ctx, s.title)}</span>${s.evidence ? link(s.evidence, "↗", "e-ref") : ""}${moreMenu(
+              `<li class="${s.done_at === null ? (p.next?.n === s.n ? "next" : "") : "done"}" data-key="s-${s.n}"${s.done_at === null ? "" : ' data-tab-panel="all" hidden'}><span class="check"></span><span class="s-title">${line(ctx, s.title)}</span>${s.evidence ? link(s.evidence, "↗", "e-ref") : ""}${moreMenu(
                 `menu-step-${s.n}`,
                 [
                   menuItem("edit", "Edit", {

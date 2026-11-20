@@ -254,7 +254,7 @@ describe("serve", () => {
     assert.equal((steps.all ?? 0) - (steps.open ?? 0), 1);
     assert.match(
       page,
-      /<li class="done" data-tab-panel="all" hidden><span class="check"><\/span><span class="s-title">measure/,
+      /<li class="done" data-key="s-\d+" data-tab-panel="all" hidden><span class="check"><\/span><span class="s-title">measure/,
     );
     assert.deepEqual(tabCounts(page, "waits"), { open: 1, all: 2 });
     assert.match(page, /data-tab-panel="all" hidden>[\s\S]*?>bo</);
