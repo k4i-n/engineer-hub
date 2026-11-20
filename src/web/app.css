@@ -1518,6 +1518,9 @@ a.chip-btn:hover {
 }
 
 /* settings */
+.grid.settings {
+  grid-template-columns: minmax(0, 880px);
+}
 .set-row {
   display: flex;
   align-items: center;
