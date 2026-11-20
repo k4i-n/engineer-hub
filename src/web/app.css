@@ -501,6 +501,7 @@ a.chip:hover {
   grid-area: main;
   display: flex;
   flex-direction: column;
+  gap: 3px;
   min-width: 0;
 }
 .need-title {
