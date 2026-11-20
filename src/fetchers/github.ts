@@ -13,6 +13,8 @@ const FACT_FIELDS = `additions deletions changedFiles baseRefName totalCommentsC
         repository { defaultBranchRef { name } }
         latestReviews(first: 20) { nodes { state author { login } } }
         reviewRequests(first: 10) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } } }`;
+const HTML_TAG =
+  /<\/?(?:a|b|blockquote|br|code|del|details|div|em|h[1-6]|hr|i|img|li|ol|p|pre|span|strong|sub|summary|sup|table|tbody|td|th|thead|tr|ul)\b[^>]*>/gi;
 
 const PR_FIELDS = `url title headRefName body state merged isDraft reviewDecision viewerDidAuthor author { login }
         ${FACT_FIELDS}
@@ -71,7 +73,11 @@ async function graphql<T>(sys: System, fields: string[]): Promise<T> {
 }
 
 function body(pr: Pr): string | undefined {
-  const text = (pr.body ?? "").replace(/<!--[\s\S]*?-->/g, "").trim();
+  const text = (pr.body ?? "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(HTML_TAG, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
   return text === "" ? undefined : clip(text, MAX_BODY);
 }
 

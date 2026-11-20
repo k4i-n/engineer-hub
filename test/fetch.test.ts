@@ -138,14 +138,15 @@ describe("github", () => {
     assert.ok(calls.some((c) => c.includes(`mine=is:pr author:@me updated:>=${cursor}`)));
   });
 
-  test("a PR's description is kept without template comments and unfolds under its row", async () => {
-    const body = "<!-- describe the change -->\nAdds the **cookie** path.\n\n- one\n- two";
+  test("a PR's description is kept without template comments or HTML tags and unfolds under its row", async () => {
+    const body =
+      "<!-- describe the change -->\nAdds the **cookie** path.\n\n- one\n- two\n\n<details>\n<summary>Notes</summary>\n<p>keeps <code>Map<string, number></code></p>\n</details>";
     answers.gh = graphql([PR("https://github.com/acme/web/pull/7", { body })], []);
     await hub("fetch", "github");
     const page = await (await fetch(`${server.url}/?part=1`)).text();
     assert.match(
       page,
-      /data-key="nbody-item-\d+"><summary><span class="n-line">Adds the <strong>cookie<\/strong> path\. one two<\/span><div class="n-body md"><p>Adds the <strong>cookie<\/strong> path\.<\/p><ul><li>one<\/li><li>two<\/li><\/ul><\/div>/,
+      /data-key="nfold-item-\d+"><summary>(?:(?!<\/summary>)[\s\S])*<span class="n-caret">[\s\S]*?<\/summary><div class="n-body md"><p>Adds the <strong>cookie<\/strong> path\.<\/p><ul><li>one<\/li><li>two<\/li><\/ul><p>Notes<br>keeps Map&lt;string, number&gt;<\/p><\/div>/,
     );
     assert.doesNotMatch(page, /describe the change/);
   });
@@ -516,7 +517,7 @@ describe("linear", () => {
       page,
       /<div class="n-body md"><p>CSV export of <strong>50k rows<\/strong> hits the 30s limit\.<\/p><\/div>/,
     );
-    assert.equal([...page.matchAll(/data-key="nbody-/g)].length, 1);
+    assert.equal([...page.matchAll(/<div class="n-body md">/g)].length, 1);
   });
 
   test("new comments from others on my issues and tickets are Reply items on the ticket timeline", async () => {

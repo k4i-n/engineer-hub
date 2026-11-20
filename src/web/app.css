@@ -1373,22 +1373,32 @@ a.chip-btn:hover {
   min-width: 0;
 }
 .n-fold > summary {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
   font-weight: inherit;
 }
-.n-line {
-  display: block;
+.n-caret {
+  flex: none;
+  display: inline-flex;
   color: var(--muted);
-  font-size: 12px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  transform: rotate(-90deg);
 }
-.need:has(.n-fold[open]) .need-sub {
+.n-fold[open] .n-caret {
+  transform: none;
+}
+.n-caret svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.n-fold[open] :is(.need-title, .need-sub) {
   white-space: normal;
-}
-.n-fold[open] > summary > :is(.need-line, .n-line),
-.n-fold:not([open]) .n-body {
-  display: none;
+  overflow-wrap: anywhere;
 }
 .search {
   position: relative;
