@@ -1013,23 +1013,24 @@ describe("db", () => {
     db.close();
     assert.throws(
       () => serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] }),
-      /has schema v1, this hub needs v14: move the file aside and re-import/,
+      /has schema v1, this hub needs v15: move the file aside and re-import/,
     );
     server = await serve({ dbPath: join(dir, "other.db"), port: 0, now: () => now, env: {}, fetchers: [] });
   });
 });
 
 describe("schema upgrade", () => {
-  test("a v2 database gains draft.send_at, the script table, ticket.position and item.ignored, source.warning, item.detached, script_source.enabled and section, item verdicts, item.body and item.detail, and becomes v14, when hub serve opens it", async () => {
+  test("a v2 database gains draft.send_at, the script table, ticket.position and item.ignored, source.warning, item.detached, script_source.enabled and section, item verdicts, item.body and item.detail, draft.item and draft.closed_item, and becomes v15, when hub serve opens it", async () => {
     await imported();
     await server.close();
     const db = new DatabaseSync(dbFile);
     db.exec(
-      "ALTER TABLE draft DROP COLUMN send_at; DROP TABLE script_source; ALTER TABLE ticket DROP COLUMN position; ALTER TABLE item DROP COLUMN ignored; ALTER TABLE source DROP COLUMN warning; ALTER TABLE item DROP COLUMN detached; ALTER TABLE item DROP COLUMN judged_at; ALTER TABLE item DROP COLUMN away_ping; ALTER TABLE item DROP COLUMN away_why; ALTER TABLE item DROP COLUMN body; ALTER TABLE item DROP COLUMN detail; UPDATE meta SET value = '2' WHERE key = 'schema_version'",
+      "ALTER TABLE draft DROP COLUMN send_at; DROP TABLE script_source; ALTER TABLE ticket DROP COLUMN position; ALTER TABLE item DROP COLUMN ignored; ALTER TABLE source DROP COLUMN warning; ALTER TABLE item DROP COLUMN detached; ALTER TABLE item DROP COLUMN judged_at; ALTER TABLE item DROP COLUMN away_ping; ALTER TABLE item DROP COLUMN away_why; ALTER TABLE item DROP COLUMN body; ALTER TABLE item DROP COLUMN detail; DROP INDEX draft_item; DROP INDEX draft_item_label; ALTER TABLE draft DROP COLUMN item; ALTER TABLE draft DROP COLUMN closed_item; UPDATE meta SET value = '2' WHERE key = 'schema_version'",
     );
     db.close();
     server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] });
-    assert.equal(sql<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'")[0]?.value, "14");
+    assert.equal(sql<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'")[0]?.value, "15");
+    assert.equal(sql<{ n: number }>("SELECT count(*) AS n FROM draft WHERE item IS NOT NULL")[0]?.n, 0);
     assert.equal(
       sql<{ n: number }>(
         "SELECT count(*) AS n FROM item WHERE judged_at IS NOT NULL OR body IS NOT NULL OR detail IS NOT NULL",
@@ -1057,7 +1058,8 @@ describe("schema upgrade to v11", () => {
       ('githubReviewQuery', '"is:pr is:open review-requested:@me"'),
       ('ignoreRepos', '{"review_request":["acme/noisy","acme/old"],"pr":["acme/web"]}');
       ALTER TABLE item DROP COLUMN judged_at; ALTER TABLE item DROP COLUMN away_ping; ALTER TABLE item DROP COLUMN away_why;
-      ALTER TABLE item DROP COLUMN body; ALTER TABLE item DROP COLUMN detail; UPDATE meta SET value = '10' WHERE key = 'schema_version'`);
+      ALTER TABLE item DROP COLUMN body; ALTER TABLE item DROP COLUMN detail; DROP INDEX draft_item; DROP INDEX draft_item_label;
+      ALTER TABLE draft DROP COLUMN item; ALTER TABLE draft DROP COLUMN closed_item; UPDATE meta SET value = '10' WHERE key = 'schema_version'`);
     db.close();
     server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] });
     assert.equal(
@@ -1147,6 +1149,76 @@ describe("send at", () => {
     stdin = "";
     await ok("draft", "ENG-7", "x", "--stdin");
     assert.doesNotMatch(await ok("brief"), /send 2026/);
+  });
+});
+
+describe("drafts on items", () => {
+  const review = "https://github.com/acme/web/pull/131";
+  const request = async () => {
+    stdin = JSON.stringify({
+      source: "github",
+      kind: "review_request",
+      url: review,
+      title: "Cap exports",
+      state: "open",
+      needs_me: true,
+    });
+    await ok("item", "put", "--stdin");
+  };
+
+  test("a draft on an item needs no ticket, and Sent closes its review request until Not sent", async () => {
+    await imported();
+    await request();
+    stdin = "LGTM, one nit on the limit.";
+    assert.equal(await ok("draft", `${review}/#discussion`, "review", "--stdin"), `${review} draft "review" saved`);
+    assert.deepEqual(sql("SELECT ticket_id, item FROM draft WHERE label = 'review'"), [
+      { ticket_id: null, item: review },
+    ]);
+    assert.match(await ok("drafts"), new RegExp(`^${review} \\| review \\| LGTM`, "m"));
+    assert.equal(await ok("drafts", review), "review | draft");
+    assert.match(await ok("brief"), new RegExp(`${review} \\| review \\| - \\| LGTM`));
+
+    await ok("posted", review, "review");
+    assert.equal(await ok("items", "--needs-me"), "no items");
+    await ok("unposted", review, "review");
+    assert.match(await ok("items", "--needs-me"), /Cap exports/);
+
+    await ok("item", "close", review);
+    await ok("posted", review, "review");
+    await ok("unposted", review, "review");
+    assert.equal(await ok("items", "--needs-me"), "no items");
+
+    await ok("draft-mv", review, "review", "review 2");
+    assert.equal(await ok("draft-rm", review, "review 2"), `${review} draft "review 2" removed`);
+    assert.match((await hub("draft", "not-a-ticket", "x", "--stdin")).err, /no ticket not-a-ticket/);
+  });
+
+  test("a ticket draft keeps its item until cleared, and the item finds it unless two drafts share a label", async () => {
+    await imported();
+    await request();
+    stdin = "Approve once the limit is configurable.";
+    await ok("draft", "ENG-7", "review", "--stdin", "--item", review);
+    assert.equal(await ok("drafts", "ENG-7"), `review | draft | ${review}`);
+    assert.match(await ok("brief"), new RegExp(`ENG-7 \\| review \\| - \\| for ${review} \\|`));
+    await ok("draft", "ENG-7", "review", "--stdin");
+    assert.equal(await ok("drafts", review), "review | draft | ENG-7");
+
+    await ok("draft", review, "review", "--stdin");
+    assert.equal(await ok("drafts", review), "review | draft | ENG-7");
+
+    await ok("draft", review, "nit", "--stdin");
+    await ok("draft", "ENG-7", "nit", "--stdin", "--item", review);
+    assert.match((await hub("posted", review, "nit")).err, /2 drafts "nit" on .*: name the ticket \(.*ENG-7/);
+    await ok("posted", "ENG-7", "review");
+    assert.equal(await ok("items", "--needs-me"), "no items");
+    await ok("draft-rm", "ENG-7", "nit");
+    assert.match(
+      (await hub("draft", review, "nit", "--stdin", "--item", "")).err,
+      /has no ticket, so it keeps its item/,
+    );
+
+    await ok("draft", "ENG-7", "review", "--stdin", "--item", "");
+    assert.equal(await ok("drafts", "ENG-7"), "review | draft");
   });
 });
 

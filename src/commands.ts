@@ -5,6 +5,7 @@ import {
   checkLimit,
   type DayRow,
   type DraftRow,
+  draftOwner,
   type EventRow,
   ftsQuery,
   getTicket,
@@ -59,8 +60,52 @@ export function byOrder(a: Ticket, b: Ticket): number {
   );
 }
 
-function touch(ctx: Ctx, id: string): void {
+function touch(ctx: Ctx, id: string | null): void {
   ctx.db.prepare("UPDATE ticket SET updated_at = ? WHERE id = ?").run(nowIso(ctx.now), id);
+}
+
+const URL_START = /^https?:\/\//;
+
+export function itemKey(input: string): string {
+  if (!URL_START.test(input)) return input;
+  return input.replace(/#.*$/, "").replace(/\/+$/, "");
+}
+
+type Owner = { ticket: string; item: null } | { ticket: null; item: string };
+
+function draftOwnerOf(ctx: Ctx, id: string): Owner {
+  if (one(ctx.db, "SELECT 1 FROM ticket WHERE id = ?", id)) return { ticket: id, item: null };
+  const key = itemKey(id);
+  const known =
+    URL_START.test(key) ||
+    one(ctx.db, "SELECT 1 FROM item WHERE ref = ?", key) !== undefined ||
+    one(ctx.db, "SELECT 1 FROM draft WHERE item = ?", key) !== undefined;
+  if (known) return { ticket: null, item: key };
+  return { ticket: getTicket(ctx.db, id).id, item: null };
+}
+
+function findDraft(ctx: Ctx, owner: Owner, label: string): DraftRow | undefined {
+  if (owner.ticket !== null) {
+    return one<DraftRow>(ctx.db, "SELECT * FROM draft WHERE ticket_id = ? AND label = ?", owner.ticket, label);
+  }
+  const rows = all<DraftRow>(ctx.db, "SELECT * FROM draft WHERE item = ? AND label = ?", owner.item, label);
+  if (rows.length > 1) {
+    throw new HubError(
+      `${rows.length} drafts "${label}" on ${owner.item}: name the ticket (${rows.map(draftOwner).join(", ")})`,
+    );
+  }
+  return rows[0];
+}
+
+function getDraft(ctx: Ctx, id: string, label: string): DraftRow {
+  const draft = findDraft(ctx, draftOwnerOf(ctx, id), label);
+  if (!draft) throw new HubError(`no draft "${label}" on ${id} (hub drafts ${id} lists them)`);
+  return draft;
+}
+
+export function draftTicket(ctx: Ctx, id: string, label: string): { ticket: string | null; on: string } {
+  const draft = getDraft(ctx, id, label);
+  return { ticket: draft.ticket_id, on: draft.ticket_id === null ? ` on ${draft.item}` : "" };
 }
 
 export function openTickets(ctx: Ctx): Ticket[] {
@@ -385,16 +430,23 @@ export function noteShow(ctx: Ctx, id: string, title: string): Result {
 
 export function drafts(ctx: Ctx, id: string | undefined): Result {
   if (!id) {
-    const rows = all<DraftRow>(ctx.db, "SELECT * FROM draft WHERE status = 'draft' ORDER BY ticket_id, label");
-    const lines = rows.map((d) => `${d.ticket_id} | ${d.label} | ${cut(d.body.split("\n")[0] ?? "", 80)}`);
+    const rows = all<DraftRow>(ctx.db, "SELECT * FROM draft WHERE status = 'draft' ORDER BY ticket_id, item, label");
+    const lines = rows.map((d) =>
+      [draftOwner(d), d.label, d.ticket_id === null ? null : d.item, cut(d.body.split("\n")[0] ?? "", 80)]
+        .filter((part) => part !== null)
+        .join(" | "),
+    );
     return { text: lines.join("\n") || "no open drafts", json: rows };
   }
-  getTicket(ctx.db, id);
-  const rows = all<DraftRow>(ctx.db, "SELECT * FROM draft WHERE ticket_id = ? ORDER BY id", id);
+  const owner = draftOwnerOf(ctx, id);
+  const rows =
+    owner.ticket === null
+      ? all<DraftRow>(ctx.db, "SELECT * FROM draft WHERE item = ? ORDER BY id", owner.item)
+      : all<DraftRow>(ctx.db, "SELECT * FROM draft WHERE ticket_id = ? ORDER BY id", owner.ticket);
   const lines = rows.map((d) => {
     const pending = d.status !== "draft" && d.sent_text === null ? "wording pending" : null;
     const proposed = d.match_ref === null ? null : "match proposed";
-    return [d.label, d.status, d.channel, d.posted_at, pending, proposed]
+    return [d.label, d.status, d.channel, owner.ticket === null ? d.ticket_id : d.item, d.posted_at, pending, proposed]
       .filter((part) => part !== null && part !== "")
       .join(" | ");
   });
@@ -402,8 +454,7 @@ export function drafts(ctx: Ctx, id: string | undefined): Result {
 }
 
 export function draftShow(ctx: Ctx, id: string, label: string): Result {
-  const draft = one<DraftRow>(ctx.db, "SELECT * FROM draft WHERE ticket_id = ? AND label = ?", id, label);
-  if (!draft) throw new HubError(`no draft "${label}" on ${id} (hub drafts ${id} lists them)`);
+  const draft = getDraft(ctx, id, label);
   if (draft.sent_text === null) return { text: draft.body, json: draft };
   return {
     text: `${draft.body}\n\n--- sent${draft.sent_ref ? ` ${draft.sent_ref}` : ""}\n${draft.sent_text}`,
@@ -462,12 +513,11 @@ function judged(ctx: Ctx, ref: string): void {
 }
 
 export function match(ctx: Ctx, id: string, label: string, sentText: string, sentRef: string): Result {
-  const existing = one<DraftRow>(ctx.db, "SELECT * FROM draft WHERE ticket_id = ? AND label = ?", id, label);
-  if (!existing) throw new HubError(`no draft "${label}" on ${id} (hub drafts ${id} lists them)`);
+  const existing = getDraft(ctx, id, label);
   if (existing.sent_text !== null) throw new HubError(`draft "${label}" on ${id} already has its sent wording`);
   ctx.db
-    .prepare("UPDATE draft SET match_text = ?, match_ref = ?, updated_at = ? WHERE ticket_id = ? AND label = ?")
-    .run(sentText, sentRef, nowIso(ctx.now), id, label);
+    .prepare("UPDATE draft SET match_text = ?, match_ref = ?, updated_at = ? WHERE id = ?")
+    .run(sentText, sentRef, nowIso(ctx.now), existing.id);
   judged(ctx, sentRef);
   return {
     text: `${id} draft "${label}": match proposed, waiting for yes or no`,
@@ -477,12 +527,12 @@ export function match(ctx: Ctx, id: string, label: string, sentText: string, sen
 
 export function resolveMatch(ctx: Ctx, id: string, label: string, answer: string): Result {
   oneOf("answer", answer, ["yes", "no"]);
-  const existing = one<DraftRow>(ctx.db, "SELECT * FROM draft WHERE ticket_id = ? AND label = ?", id, label);
-  if (!existing?.match_text) throw new HubError(`no proposed match on draft "${label}" of ${id}`);
+  const existing = getDraft(ctx, id, label);
+  if (!existing.match_text) throw new HubError(`no proposed match on draft "${label}" of ${id}`);
   const clear = () =>
     ctx.db
-      .prepare("UPDATE draft SET match_text = NULL, match_ref = NULL, updated_at = ? WHERE ticket_id = ? AND label = ?")
-      .run(nowIso(ctx.now), id, label);
+      .prepare("UPDATE draft SET match_text = NULL, match_ref = NULL, updated_at = ? WHERE id = ?")
+      .run(nowIso(ctx.now), existing.id);
   if (answer === "no") {
     clear();
     return { text: `${id} draft "${label}": match dropped`, json: { ticket_id: id, label, status: existing.status } };
@@ -594,20 +644,13 @@ export function noteRename(ctx: Ctx, id: string, title: string, to: string): Res
   return { text: `${id} note "${title}" is now "${to}"`, json: { ticket_id: id, title: to, from: title } };
 }
 
-function getDraft(ctx: Ctx, id: string, label: string): DraftRow {
-  getTicket(ctx.db, id);
-  const draft = one<DraftRow>(ctx.db, "SELECT * FROM draft WHERE ticket_id = ? AND label = ?", id, label);
-  if (!draft) throw new HubError(`no draft "${label}" on ${id} (hub drafts ${id} lists them)`);
-  return draft;
-}
-
 export function draftRemove(ctx: Ctx, id: string, label: string): Result {
   const draft = getDraft(ctx, id, label);
   if (draft.status !== "draft") throw new HubError(`draft "${label}" on ${id} was sent; it stays as the record`);
   transaction(ctx.db, () => {
-    ctx.db.prepare("DELETE FROM draft WHERE ticket_id = ? AND label = ?").run(id, label);
-    ctx.db.prepare("DELETE FROM pin WHERE key = ?").run(`match-${id}-${label}`);
-    touch(ctx, id);
+    ctx.db.prepare("DELETE FROM draft WHERE id = ?").run(draft.id);
+    ctx.db.prepare("DELETE FROM pin WHERE key = ?").run(`match-${draftOwner(draft)}-${label}`);
+    touch(ctx, draft.ticket_id);
   });
   return { text: `${id} draft "${label}" removed`, json: { ticket_id: id, label } };
 }
@@ -615,28 +658,34 @@ export function draftRemove(ctx: Ctx, id: string, label: string): Result {
 export function unposted(ctx: Ctx, id: string, label: string): Result {
   const draft = getDraft(ctx, id, label);
   if (draft.status === "draft") throw new HubError(`draft "${label}" on ${id} is not sent`);
-  ctx.db
-    .prepare(
-      `UPDATE draft SET status = 'draft', posted_at = NULL, answer = NULL, sent_text = NULL, sent_ref = NULL, updated_at = ?
-       WHERE ticket_id = ? AND label = ?`,
-    )
-    .run(nowIso(ctx.now), id, label);
-  touch(ctx, id);
+  transaction(ctx.db, () => {
+    ctx.db
+      .prepare(
+        `UPDATE draft SET status = 'draft', posted_at = NULL, answer = NULL, sent_text = NULL, sent_ref = NULL,
+           closed_item = NULL, updated_at = ? WHERE id = ?`,
+      )
+      .run(nowIso(ctx.now), draft.id);
+    if (draft.closed_item !== null) {
+      ctx.db.prepare("UPDATE item SET closed_at = NULL WHERE id = ?").run(draft.closed_item);
+    }
+    touch(ctx, draft.ticket_id);
+  });
   return { text: `${id} draft "${label}" not sent`, json: { ticket_id: id, label, status: "draft" } };
 }
 
 export function draftRename(ctx: Ctx, id: string, label: string, to: string): Result {
   if (!to.trim()) throw new HubError("draft label is empty");
-  getDraft(ctx, id, label);
-  if (one(ctx.db, "SELECT 1 FROM draft WHERE ticket_id = ? AND label = ?", id, to)) {
-    throw new HubError(`${id} already has a draft "${to}"`);
-  }
+  const draft = getDraft(ctx, id, label);
+  const owner = draftOwner(draft);
+  const clash =
+    draft.ticket_id === null
+      ? one(ctx.db, "SELECT 1 FROM draft WHERE ticket_id IS NULL AND item = ? AND label = ?", draft.item, to)
+      : one(ctx.db, "SELECT 1 FROM draft WHERE ticket_id = ? AND label = ?", draft.ticket_id, to);
+  if (clash) throw new HubError(`${owner} already has a draft "${to}"`);
   transaction(ctx.db, () => {
-    ctx.db
-      .prepare("UPDATE draft SET label = ?, updated_at = ? WHERE ticket_id = ? AND label = ?")
-      .run(to, nowIso(ctx.now), id, label);
-    ctx.db.prepare("UPDATE pin SET key = ? WHERE key = ?").run(`match-${id}-${to}`, `match-${id}-${label}`);
-    touch(ctx, id);
+    ctx.db.prepare("UPDATE draft SET label = ?, updated_at = ? WHERE id = ?").run(to, nowIso(ctx.now), draft.id);
+    ctx.db.prepare("UPDATE pin SET key = ? WHERE key = ?").run(`match-${owner}-${to}`, `match-${owner}-${label}`);
+    touch(ctx, draft.ticket_id);
   });
   return { text: `${id} draft "${label}" is now "${to}"`, json: { ticket_id: id, label: to, from: label } };
 }
@@ -648,35 +697,56 @@ export function draft(
   body: string,
   channel: string | null,
   sendAt: string | null,
+  item: string | null = null,
 ): Result {
   if (!label.trim()) throw new HubError("draft label is empty");
-  getTicket(ctx.db, id);
+  const owner = draftOwnerOf(ctx, id);
+  const existing = findDraft(ctx, owner, label);
+  const given = item === null ? null : itemKey(item.trim());
+  const link = owner.item ?? (given === null ? (existing?.item ?? null) : given || null);
+  if (existing?.ticket_id === null && given === "")
+    throw new HubError(`draft "${label}" has no ticket, so it keeps its item`);
   const at = nowIso(ctx.now);
   const send = sendAt === null ? null : sendTime(ctx.now, sendAt, ctx.config.timezone, ctx.config.laterHour, "send_at");
-  ctx.db
-    .prepare(
-      `INSERT INTO draft(ticket_id, label, body, status, channel, send_at, created_at, updated_at) VALUES (?, ?, ?, 'draft', ?, ?, ?, ?)
-       ON CONFLICT(ticket_id, label) DO UPDATE SET body = excluded.body, status = 'draft',
-         channel = coalesce(excluded.channel, draft.channel), send_at = excluded.send_at, posted_at = NULL, sent_text = NULL,
-         sent_ref = NULL, answer = NULL, match_text = NULL, match_ref = NULL, updated_at = excluded.updated_at`,
-    )
-    .run(id, label, body, channel, send, at, at);
-  touch(ctx, id);
+  transaction(ctx.db, () => {
+    if (existing === undefined) {
+      ctx.db
+        .prepare(
+          `INSERT INTO draft(ticket_id, item, label, body, status, channel, send_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?)`,
+        )
+        .run(owner.ticket, link, label, body, channel, send, at, at);
+    } else {
+      ctx.db
+        .prepare(
+          `UPDATE draft SET body = ?, status = 'draft', item = ?, channel = coalesce(?, channel), send_at = ?, posted_at = NULL,
+             sent_text = NULL, sent_ref = NULL, answer = NULL, match_text = NULL, match_ref = NULL, closed_item = NULL,
+             updated_at = ? WHERE id = ?`,
+        )
+        .run(body, existing.ticket_id === null ? existing.item : link, channel, send, at, existing.id);
+    }
+    touch(ctx, owner.ticket ?? existing?.ticket_id ?? null);
+  });
+  const ticket = existing === undefined ? owner.ticket : existing.ticket_id;
+  const name = ticket ?? owner.item ?? id;
   const when = send === null ? "" : `, send at ${nowTs(new Date(send), ctx.config.timezone)}`;
   return {
-    text: `${id} draft "${label}" saved${when}`,
-    json: { ticket_id: id, label, status: "draft", send_at: send },
+    text: `${name} draft "${label}" saved${when}`,
+    json: {
+      ticket_id: ticket,
+      item: existing?.ticket_id === null ? existing.item : link,
+      label,
+      status: "draft",
+      send_at: send,
+    },
   };
 }
 
 export function draftLater(ctx: Ctx, id: string, label: string, duration: string): Result {
-  const d = one<DraftRow>(ctx.db, "SELECT * FROM draft WHERE ticket_id = ? AND label = ?", id, label);
-  if (!d) throw new HubError(`no draft "${label}" on ${id} (hub drafts ${id} lists them)`);
+  const d = getDraft(ctx, id, label);
   if (d.status !== "draft") throw new HubError(`draft "${label}" on ${id} is already ${d.status}`);
   const send = sendTime(ctx.now, duration, ctx.config.timezone, ctx.config.laterHour, "for");
-  ctx.db
-    .prepare("UPDATE draft SET send_at = ?, updated_at = ? WHERE ticket_id = ? AND label = ?")
-    .run(send, nowIso(ctx.now), id, label);
+  ctx.db.prepare("UPDATE draft SET send_at = ?, updated_at = ? WHERE id = ?").run(send, nowIso(ctx.now), d.id);
   return {
     text: `${id} draft "${label}" send at ${nowTs(new Date(send), ctx.config.timezone)}`,
     json: { ticket_id: id, label, send_at: send, before: { send_at: d.send_at } },
@@ -687,9 +757,7 @@ export function draftSendAt(ctx: Ctx, id: string, label: string, sendAt: string 
   const d = getDraft(ctx, id, label);
   if (d.status !== "draft") throw new HubError(`draft "${label}" on ${id} is already ${d.status}`);
   if (sendAt !== null && Number.isNaN(Date.parse(sendAt))) throw new HubError(`not a time: ${sendAt}`);
-  ctx.db
-    .prepare("UPDATE draft SET send_at = ?, updated_at = ? WHERE ticket_id = ? AND label = ?")
-    .run(sendAt, nowIso(ctx.now), id, label);
+  ctx.db.prepare("UPDATE draft SET send_at = ?, updated_at = ? WHERE id = ?").run(sendAt, nowIso(ctx.now), d.id);
   return { text: `${id} draft "${label}" send time set back`, json: { ticket_id: id, label, send_at: sendAt } };
 }
 
@@ -701,23 +769,49 @@ export type PostedOptions = {
   sentRef: string | null;
 };
 
+function openReviewRequest(ctx: Ctx, item: string | null): ItemRow | undefined {
+  if (item === null) return undefined;
+  return one<ItemRow>(
+    ctx.db,
+    `SELECT * FROM item WHERE kind = 'review_request' AND closed_at IS NULL AND ignored IS NULL AND (ref = ?1 OR url = ?1)`,
+    item,
+  );
+}
+
 export function posted(ctx: Ctx, id: string, label: string, options: PostedOptions): Result {
-  const existing = one<DraftRow>(ctx.db, "SELECT * FROM draft WHERE ticket_id = ? AND label = ?", id, label);
-  if (!existing) throw new HubError(`no draft "${label}" on ${id} (hub drafts ${id} lists them)`);
+  const existing = getDraft(ctx, id, label);
   const answer = options.answer ?? existing.answer;
   const status = answer === null ? "posted" : "answered";
   const at = options.at ?? existing.posted_at ?? nowTs(ctx.now, ctx.config.timezone);
-  ctx.db
-    .prepare(
-      `UPDATE draft SET status = ?, posted_at = ?, channel = coalesce(?, channel), answer = ?,
-         sent_text = coalesce(?, sent_text), sent_ref = coalesce(?, sent_ref), updated_at = ?
-       WHERE ticket_id = ? AND label = ?`,
-    )
-    .run(status, at, options.channel, answer, options.sentText, options.sentRef, nowIso(ctx.now), id, label);
-  if (options.sentRef !== null) judged(ctx, options.sentRef);
-  touch(ctx, id);
+  const request = openReviewRequest(ctx, existing.item);
+  transaction(ctx.db, () => {
+    ctx.db
+      .prepare(
+        `UPDATE draft SET status = ?, posted_at = ?, channel = coalesce(?, channel), answer = ?,
+           sent_text = coalesce(?, sent_text), sent_ref = coalesce(?, sent_ref), closed_item = coalesce(?, closed_item),
+           updated_at = ? WHERE id = ?`,
+      )
+      .run(
+        status,
+        at,
+        options.channel,
+        answer,
+        options.sentText,
+        options.sentRef,
+        request?.id ?? null,
+        nowIso(ctx.now),
+        existing.id,
+      );
+    if (request !== undefined)
+      ctx.db.prepare("UPDATE item SET closed_at = ? WHERE id = ?").run(nowIso(ctx.now), request.id);
+    if (options.sentRef !== null) judged(ctx, options.sentRef);
+    touch(ctx, existing.ticket_id);
+  });
   const pending = options.sentText === null && existing.sent_text === null ? ", wording pending" : "";
-  return { text: `${id} draft "${label}" ${status}${pending}`, json: { ticket_id: id, label, status, posted_at: at } };
+  return {
+    text: `${id} draft "${label}" ${status}${pending}`,
+    json: { ticket_id: existing.ticket_id, item: existing.item, label, status, posted_at: at },
+  };
 }
 
 export function daySet(ctx: Ctx, date: string, body: string, expected: string | null): Result {

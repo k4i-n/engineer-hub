@@ -7,6 +7,7 @@ import {
   all,
   type DayRow,
   type DraftRow,
+  draftOwner,
   type EventRow,
   getTicket,
   type ItemRow,
@@ -386,13 +387,13 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
     const where = d.channel ? ` in ${d.channel}` : "";
     const proposal = {
       act: "match",
-      ticket: d.ticket_id,
+      ticket: draftOwner(d),
       label: d.label,
       text: d.match_text ?? "",
       ref: d.match_ref ?? "",
     };
     list.push({
-      key: `match-${d.ticket_id}-${d.label}`,
+      key: `match-${draftOwner(d)}-${d.label}`,
       rank: 3,
       since: d.posted_at ?? now,
       verb: "Sent?",
@@ -414,7 +415,7 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
   }
   for (const d of sends) {
     list.push({
-      key: `send-${d.ticket_id}-${d.label}`,
+      key: `send-${draftOwner(d)}-${d.label}`,
       rank: 2,
       since: d.send_at ?? now,
       verb: "Send",
@@ -426,9 +427,9 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
       ticket: d.ticket_id,
       href: null,
       dim: null,
-      ok: { label: "Sent", data: { act: "sent", ticket: d.ticket_id, label: d.label } },
+      ok: { label: "Sent", data: { act: "sent", ticket: draftOwner(d), label: d.label } },
       undo: null,
-      later: { act: "draft-later", data: { ticket: d.ticket_id, label: d.label } },
+      later: { act: "draft-later", data: { ticket: draftOwner(d), label: d.label } },
     });
   }
   for (const w of waits) list.push(waitNeed(ctx, w));
@@ -929,7 +930,7 @@ function draftTabs(drafts: DraftRow[]): string {
 }
 
 function draftButtons(d: DraftRow): string {
-  const which = { ticket: d.ticket_id, label: d.label };
+  const which = { ticket: draftOwner(d), label: d.label };
   const mark =
     d.status === "draft"
       ? button("Sent", { act: "sent", ...which }, { cls: "primary", disabled: d.match_ref !== null })
@@ -1011,9 +1012,9 @@ function draftsSection(ctx: Ctx): string {
           : later
             ? pill(`send ${when(ctx, d.send_at ?? "")}`, "grey")
             : "";
-    return `<li class="draft${sent || later ? " is-dim" : ""}" data-key="d-${esc(d.ticket_id)}-${esc(d.label)}"${draftPanel(d)}>
+    return `<li class="draft${sent || later ? " is-dim" : ""}" data-key="d-${esc(draftOwner(d))}-${esc(d.label)}"${draftPanel(d)}>
 <div class="d-head">${ticketLink(d.ticket_id)}<span class="d-label">${line(ctx, d.label)}</span>${d.channel ? pill(d.channel, "teal") : ""}${state}<span class="d-actions">${draftButtons(d)}</span></div>
-<details class="d-fold" data-key="dfold-${esc(d.ticket_id)}-${esc(d.label)}"><summary><span class="d-line">${line(ctx, d.body)}</span><div class="d-body md">${markdown(ctx, d.body)}</div></summary></details>
+<details class="d-fold" data-key="dfold-${esc(draftOwner(d))}-${esc(d.label)}"><summary><span class="d-line">${line(ctx, d.body)}</span><div class="d-body md">${markdown(ctx, d.body)}</div></summary></details>
 </li>`;
   });
   return section("Drafts", null, draftList(drafts, rows), "drafts", draftTabs(drafts));
