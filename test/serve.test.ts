@@ -542,7 +542,7 @@ describe("serve", () => {
     assert.doesNotMatch(sent.html, /tell qa/);
     assert.equal(sent.needs, before.needs);
     const pageAfter = await (await fetch(`${server.url}/t/ENG-7?part=1`)).text();
-    assert.deepEqual(tabCounts(pageAfter, "drafts"), { open: page.open, all: (page.all ?? 0) + 1 });
+    assert.deepEqual(tabCounts(pageAfter, "drafts"), { open: page.open ?? 0, all: (page.all ?? 0) + 1 });
     assert.match(pageAfter, /data-key="td-tell qa" data-tab-panel="all" hidden>/);
     assert.match(pageAfter, /data-act="draft-unsent" data-ticket="ENG-7" data-label="tell qa">Not sent</);
 
@@ -1442,6 +1442,50 @@ describe("send later", () => {
     assert.doesNotMatch(await (await fetch(`${server.url}/?part=1`)).text(), /PR body/);
     assert.equal((await call("PUT", "/tickets/ENG-7/drafts/PR%20body", { body: "x", internal: false })).status, 200);
     assert.match(await (await fetch(`${server.url}/?part=1`)).text(), /data-key="send-ENG-7-PR body"/);
+  });
+
+  test("a ticket page hides empty parts: no tracker link, no dash rows, one line for empty sections, its only note open", async () => {
+    await hub(["ticket-new", "ENG-90", "Spec the cap"]);
+    await hub(["note", "ENG-90", "Design", "--stdin"], "## Problem\nExports loop.");
+    const page = await (await fetch(`${server.url}/t/ENG-90?part=1`)).text();
+    assert.doesNotMatch(page, /tracker ↗/);
+    assert.doesNotMatch(page, /<dd><span class="muted">–<\/span><\/dd>/);
+    assert.doesNotMatch(page, /<dt>Approve\?<\/dt>/);
+    assert.match(page, /<p class="none-line">No steps, items, waits or drafts<\/p>/);
+    assert.doesNotMatch(page, /class="(steps-sec|items-sec|waits-sec|drafts)"/);
+    assert.match(page, /<details data-key="note-Design" open>/);
+    assert.match(page, /data-copy="## Problem\nExports loop.">[\s\S]*?Copy markdown/);
+    assert.doesNotMatch(page, /Open as GitHub issue/);
+
+    await hub(["step", "add", "ENG-90", "write the spec"]);
+    await hub(["note", "ENG-90", "Notes", "--stdin"], "x");
+    const more = await (await fetch(`${server.url}/t/ENG-90?part=1`)).text();
+    assert.match(more, /<p class="none-line">No items, waits or drafts<\/p>/);
+    assert.match(more, /<details data-key="note-Design">/);
+    const tracked = await (await fetch(`${server.url}/t/ENG-42?part=1`)).text();
+    assert.match(
+      tracked,
+      /<a class="head-link" href="https:\/\/tracker.example.com\/acme\/issue\/ENG-42"[^>]*>tracker ↗<\/a>/,
+    );
+  });
+
+  test("a note opens as a GitHub issue in the ticket's repo or issueRepo; a body too long for a link is copied", async () => {
+    await hub(["note", "ENG-42", "Design", "--stdin"], "Keep tokens in a cookie.");
+    const page = await (await fetch(`${server.url}/t/ENG-42?part=1`)).text();
+    assert.match(
+      page,
+      /data-open="https:\/\/github.com\/acme\/web\/issues\/new\?title=ENG-42%3A%20Design&amp;body=Keep%20tokens%20in%20a%20cookie\."><svg[^>]*>[\s\S]*?<\/svg><span>Open as GitHub issue<\/span>/,
+    );
+    await hub(["ticket-new", "ENG-91", "No repo"]);
+    await hub(["note", "ENG-91", "Long", "--stdin"], "word ".repeat(3000));
+    assert.equal((await setConfigKey("issueRepo", '"acme/specs"')).status, 200);
+    const long = await (await fetch(`${server.url}/t/ENG-91?part=1`)).text();
+    assert.match(
+      long,
+      /data-copy="(word ){3000}"[^>]*data-open="https:\/\/github.com\/acme\/specs\/issues\/new\?title=ENG-91%3A%20Long"><svg[^>]*>[\s\S]*?<\/svg><span>Open as GitHub issue \(body copied/,
+    );
+    assert.equal((await setConfigKey("issueRepo", '"not a repo"')).status, 400);
+    assert.equal((await setConfigKey("issueRepo", '""')).status, 200);
   });
 
   test("a Send row opens its thread and has Copy & open; one with no thread says no link", async () => {

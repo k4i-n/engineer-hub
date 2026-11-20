@@ -38,6 +38,7 @@ export type Config = {
   githubReviewQuery: string;
   githubPrQuery: string;
   reviewAsk: string;
+  issueRepo: string;
   slackAlertChannels: string[];
   hiddenBlocks: string[];
   progressStyle: string;
@@ -51,6 +52,8 @@ export type Config = {
 };
 
 export type Layout = { top: string[]; left: string[]; right: string[] };
+
+export const REPO = /^[\w.-]+\/[\w.-]+$/;
 
 const SECTION_ID = /^section-[\p{L}\p{N}-]{1,60}$/u;
 
@@ -147,6 +150,7 @@ export const DEFAULTS: Config = {
   githubReviewQuery: "is:pr is:open review-requested:@me archived:false",
   githubPrQuery: "is:pr author:@me",
   reviewAsk: "Review this?",
+  issueRepo: "",
   slackAlertChannels: [],
   hiddenBlocks: [],
   progressStyle: "ring",
@@ -264,6 +268,9 @@ function semanticError(key: Key, value: unknown): string | undefined {
   }
   if (key === "githubPrQuery" && String(value).trim() === "") {
     return 'githubPrQuery is a GitHub search, e.g. "is:pr author:@me -repo:acme/noisy"';
+  }
+  if (key === "issueRepo" && String(value) !== "" && !REPO.test(String(value))) {
+    return 'issueRepo is a GitHub repo as owner/name, or "" to use only the ticket\'s repo';
   }
   if (key === "reviewAsk" && (String(value).includes("\n") || String(value).trim().length > MAX_ASK)) {
     return `reviewAsk is one line of at most ${MAX_ASK} chars, or "" for no question`;

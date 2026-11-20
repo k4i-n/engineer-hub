@@ -2,7 +2,7 @@ import type { AwayState } from "./away.ts";
 import type { Backup, BackupState } from "./backup.ts";
 import { area, bar, donut, half, legend, percent, ring, type Slice, stack } from "./charts.ts";
 import { byOrder, type Ctx, has, letters, openTickets, recentlyDone } from "./commands.ts";
-import { BLOCKS, type Config, DEFAULT_LAYOUT, type Layout, sectionId } from "./config.ts";
+import { BLOCKS, type Config, DEFAULT_LAYOUT, type Layout, REPO, sectionId } from "./config.ts";
 import {
   all,
   type CommentRow,
@@ -193,6 +193,8 @@ const ICON: Record<string, string> = {
   trash: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/>',
   merge:
     '<circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="12" r="2"/><path d="M6 7v10"/><path d="M8 5c5 0 8 2.5 8 7"/>',
+  copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>',
+  issue: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="1.5"/>',
   link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
   down: '<path d="m6 9 6 6 6-6"/>',
   logo: '<path d="M12 9.4V6.8M14.24 13.31l2.71 1.58M9.76 13.31l-2.71 1.58"/><circle cx="12" cy="12" r="2.6" class="core"/><circle cx="12" cy="5" r="1.8"/><circle cx="18.5" cy="15.8" r="1.8"/><circle cx="5.5" cy="15.8" r="1.8"/>',
@@ -1303,8 +1305,20 @@ ${col("right")}
 
 function field(ctx: Ctx, label: string, value: string | null, tone: Tone | null = null): string {
   const v = (value ?? "").trim();
-  if (v === "" || v === "-") return `<dt>${esc(label)}</dt><dd><span class="muted">–</span></dd>`;
+  if (v === "" || v === "-") return "";
   return `<dt>${esc(label)}</dt><dd class="md${tone ? ` tone-text-${tone}` : ""}">${markdown(ctx, v)}</dd>`;
+}
+
+const MAX_ISSUE_URL = 8000;
+
+function issueItem(ctx: Ctx, t: Ticket, n: NoteRow): string[] {
+  const own = (t.repo ?? "").trim();
+  const repo = REPO.test(own) ? own : ctx.config.issueRepo;
+  if (repo === "") return [];
+  const base = `https://github.com/${repo}/issues/new?title=${encodeURIComponent(`${t.id}: ${n.title}`)}`;
+  const full = `${base}&body=${encodeURIComponent(n.body)}`;
+  if (full.length <= MAX_ISSUE_URL) return [menuItem("issue", "Open as GitHub issue", { open: full })];
+  return [menuItem("issue", "Open as GitHub issue (body copied, too long for a link)", { copy: n.body, open: base })];
 }
 
 export function ticketBody(ctx: Ctx, id: string, live: Live): string {
@@ -1348,8 +1362,9 @@ export function ticketBody(ctx: Ctx, id: string, live: Live): string {
     menuItem("merge", "Merge into…", { act: "ticket-merge", ticket: t.id, ask: "Merge into", go: "/t/{value}" }),
     menuItem("trash", "Delete", { act: "ticket-delete", ticket: t.id, confirm: `Delete ${t.id}?`, go: "/" }),
   ]);
-  const head = `<div class="page-head">${priorityMark(t.tracker_priority)}${ticketLink(t.id)}<h1>${line(ctx, t.title ?? "")}</h1>${ticketMenu}${pill(DIR_LABEL[t.dir ?? ""] ?? t.dir ?? "", DIR_TONE[t.dir ?? ""] ?? "grey")}${trackerPill(t)}${link(t.tracker_url, "tracker ↗", "head-link")}</div>`;
-  const state = `<dl class="state">${field(ctx, "Status", t.status)}${field(ctx, "Next", t.next, "blue")}${field(ctx, "Approve?", t.gate, "amber")}${field(ctx, "Decide", t.decide, "amber")}${field(ctx, "Repo", [t.repo, t.branch].filter(Boolean).join(" · "))}${field(ctx, "PRs", t.prs)}${field(ctx, "Owner", t.owner)}</dl>`;
+  const head = `<div class="page-head">${priorityMark(t.tracker_priority)}${ticketLink(t.id)}<h1>${line(ctx, t.title ?? "")}</h1>${ticketMenu}${pill(DIR_LABEL[t.dir ?? ""] ?? t.dir ?? "", DIR_TONE[t.dir ?? ""] ?? "grey")}${trackerPill(t)}${t.tracker_url === null ? "" : link(t.tracker_url, "tracker ↗", "head-link")}</div>`;
+  const fields = `${field(ctx, "Status", t.status)}${field(ctx, "Next", t.next, "blue")}${field(ctx, "Approve?", t.gate, "amber")}${field(ctx, "Decide", t.decide, "amber")}${field(ctx, "Repo", [t.repo, t.branch].filter(Boolean).join(" · "))}${field(ctx, "PRs", t.prs)}${field(ctx, "Owner", t.owner)}`;
+  const state = fields === "" ? empty() : `<dl class="state">${fields}</dl>`;
   const openSteps = steps.filter((s) => s.done_at === null).length;
   const openItems = items.filter((i) => i.closed_at === null).length;
   const openWaits = waits.filter((w) => w.closed_at === null).length;
@@ -1436,9 +1451,11 @@ export function ticketBody(ctx: Ctx, id: string, live: Live): string {
         );
   const noteRows = notes.map(
     (n) =>
-      `<details data-key="note-${esc(n.title)}"><summary>${line(ctx, n.title)}</summary><div class="note-actions">${moreMenu(
+      `<details data-key="note-${esc(n.title)}"${notes.length === 1 ? " open" : ""}><summary>${line(ctx, n.title)}</summary><div class="note-actions">${moreMenu(
         `menu-note-${n.title}`,
         [
+          menuItem("copy", "Copy markdown", { copy: n.body }),
+          ...issueItem(ctx, t, n),
           menuItem("edit", "Rename", {
             act: "note-rename",
             ticket: t.id,
@@ -1455,11 +1472,55 @@ export function ticketBody(ctx: Ctx, id: string, live: Live): string {
         ],
       )}</div><div class="md">${markdown(ctx, n.body)}</div></details>`,
   );
+  const parts = [
+    {
+      name: "steps",
+      html: section("Steps", null, stepList, "steps-sec", openTabs("steps", openSteps, steps.length)),
+      n: steps.length,
+    },
+    {
+      name: "items",
+      html: section(
+        "Items",
+        null,
+        rowList(itemRows, openItems),
+        "items-sec",
+        openTabs("items", openItems, items.length),
+      ),
+      n: items.length,
+    },
+    {
+      name: "waits",
+      html: section(
+        "Waiting on",
+        null,
+        rowList(waitRows, openWaits),
+        "waits-sec",
+        openTabs("waits", openWaits, waits.length),
+      ),
+      n: waits.length,
+    },
+    {
+      name: "drafts",
+      html: section("Drafts", null, draftList(drafts, draftRows), "drafts", draftTabs(drafts)),
+      n: drafts.length,
+    },
+  ];
+  const shown = (names: string[]) =>
+    parts
+      .filter((s) => names.includes(s.name) && s.n > 0)
+      .map((s) => s.html)
+      .join("");
+  const none = parts.filter((s) => s.n === 0).map((s) => s.name);
+  const noneLine =
+    none.length === 0
+      ? ""
+      : `<p class="none-line">No ${none.length === 1 ? none[0] : `${none.slice(0, -1).join(", ")} or ${none.at(-1)}`}</p>`;
   return `${header(ctx, live, "ticket")}
 ${head}
 <main class="grid">
-<div class="col">${ticketNeeds}${section("State", null, state, "state-sec")}${section("Steps", null, stepList, "steps-sec", openTabs("steps", openSteps, steps.length))}${section("Timeline", null, timeline, "timeline", timelineTabs)}</div>
-<div class="col">${section("Items", null, rowList(itemRows, openItems), "items-sec", openTabs("items", openItems, items.length))}${section("Waiting on", null, rowList(waitRows, openWaits), "waits-sec", openTabs("waits", openWaits, waits.length))}${section("Drafts", null, draftList(drafts, draftRows), "drafts", draftTabs(drafts))}${section("Notes", notes.length, noteRows.length === 0 ? empty() : noteRows.join(""), "notes")}</div>
+<div class="col">${ticketNeeds}${section("State", null, state, "state-sec")}${shown(["steps"])}${section("Timeline", null, timeline, "timeline", timelineTabs)}</div>
+<div class="col">${shown(["items", "waits", "drafts"])}${section("Notes", notes.length, noteRows.length === 0 ? empty() : noteRows.join(""), "notes")}${noneLine}</div>
 </main>`;
 }
 

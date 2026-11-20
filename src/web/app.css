@@ -993,6 +993,11 @@ button.busy::after {
   padding: 0;
   background: none;
 }
+.none-line {
+  color: var(--muted);
+  font-size: 12.5px;
+  margin: 4px 4px 12px;
+}
 .md-table {
   max-width: 100%;
   overflow-x: auto;
