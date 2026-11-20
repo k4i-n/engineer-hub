@@ -1,7 +1,7 @@
 import type { AwayState } from "./away.ts";
 import type { Backup, BackupState } from "./backup.ts";
 import { area, bar, donut, half, legend, percent, ring, type Slice, stack } from "./charts.ts";
-import { byOrder, type Ctx, has, openTickets, recentlyDone } from "./commands.ts";
+import { byOrder, type Ctx, has, letters, openTickets, recentlyDone } from "./commands.ts";
 import { BLOCKS, type Config, DEFAULT_LAYOUT, type Layout, sectionId } from "./config.ts";
 import {
   all,
@@ -70,6 +70,7 @@ type Need = {
   panel?: string;
 };
 
+const NO_TEXT = "(no text)";
 const MAX_ACTIVITY = 40;
 const ACTIVITY_SHOWN = 5;
 const MAX_TIMELINE = 200;
@@ -336,6 +337,31 @@ function moreText(i: ItemRow): { body?: string; fold?: true } {
   return i.detail === null ? {} : { fold: true };
 }
 
+const TRACKER_NAME: [RegExp, string][] = [
+  [/(^|\.)linear\.app$/, "Linear"],
+  [/(^|\.)atlassian\.net$/, "Jira"],
+  [/(^|\.)github\.com$/, "GitHub"],
+];
+
+function trackerName(url: string | null): string {
+  const host = URL.parse(url ?? "")?.hostname ?? "";
+  return TRACKER_NAME.find(([pattern]) => pattern.test(host))?.[1] ?? "Tracker";
+}
+
+function trackerPill(t: Ticket): string {
+  const state = t.tracker_state?.trim() ?? "";
+  if (state === "" || letters(state) === letters(t.dir ?? "")) return "";
+  return pill(`${trackerName(t.tracker_url)}: ${state}`, "violet");
+}
+
+function itemTitle(i: ItemRow): string {
+  const title = i.title?.trim() ?? "";
+  if (title.endsWith(":")) return `${title} ${flat(i.body ?? "").slice(0, 200) || NO_TEXT}`;
+  if (title !== "") return title;
+  if (!/^https?:/.test(i.ref)) return i.ref;
+  return githubRef(i.ref) ?? [NO_TEXT, i.author].filter(Boolean).join(" · ");
+}
+
 function withoutTicket(title: string, ticket: string | null): string {
   if (ticket === null || !title.startsWith(ticket)) return title;
   const rest = title.slice(ticket.length).replace(/^[\s:–-]+/, "");
@@ -508,7 +534,7 @@ function sendNeed(ctx: Ctx, d: DraftRow): Need {
     sub: sourceLine([d.channel, d.ticket_id === null ? itemName(d.item) : null]),
     body: d.body,
     ...draftMore(ctx, [d], false),
-    ask: askChips("", [verdictPill(d), button("Copy", { copy: d.body }, { cls: "chip-btn" })]),
+    ask: askChips("", [verdictPill(d), draftButtons(d, "chip-btn")]),
     ticket: d.ticket_id,
     href: null,
     dim: later ? `send ${when(ctx, d.send_at ?? now)}` : null,
@@ -542,7 +568,7 @@ function itemNeed(ctx: Ctx, i: ItemRow): Need {
     since: i.first_seen,
     verb: v.verb,
     tone: v.tone,
-    title: linker(ctx)(url, withoutTicket(i.title ?? i.ref, i.ticket_id), "need-title"),
+    title: linker(ctx)(url, withoutTicket(itemTitle(i), i.ticket_id), "need-title"),
     sub: sourceLine([githubRef(url) ?? i.source, i.author, i.state, i.detail]),
     ...moreText(i),
     ...draftMore(ctx, drafts, true),
@@ -590,18 +616,22 @@ function needRow(ctx: Ctx, n: Need, pinned: boolean, showVerb: boolean | "inline
   const panel =
     n.panel === undefined ? "" : ` data-tab-panel="${n.panel}"${n.panel.split(" ").includes("open") ? "" : " hidden"}`;
   const folds = n.fold === true || n.body !== undefined || n.drafts !== undefined;
-  const caret = folds ? `<span class="n-caret">${svg("down")}</span>` : "";
-  const main = `<span class="need-line">${pin}${showVerb === "inline" ? `<span class="verb verb-inline">${esc(n.verb)}</span>` : ""}${n.title}${caret}</span><span class="need-sub">${dim}${n.sub}</span>`;
-  const more = `${n.body === undefined ? "" : `<div class="n-body md">${markdown(ctx, n.body)}</div>`}${n.drafts ?? ""}`;
-  const shown = folds
-    ? `<details class="n-fold" data-key="nfold-${esc(n.key)}"><summary>${main}</summary>${more}</details>`
-    : main;
-  return `<li class="${cls}" data-key="${esc(n.key)}"${href}${panel}>
+  const fold = folds ? ` data-fold-key="nfold-${esc(n.key)}"` : "";
+  const caret = folds
+    ? `<button type="button" class="n-caret" data-fold-toggle aria-expanded="false" title="Show more · space" aria-label="Show more">${svg("down")}</button>`
+    : `<span class="n-caret"></span>`;
+  const main = `<span class="need-main"><span class="need-line">${pin}${showVerb === "inline" ? `<span class="verb verb-inline">${esc(n.verb)}</span>` : ""}${n.title}</span><span class="need-sub">${dim}${n.sub}</span></span>`;
+  const ask = n.ask === "" ? "" : `<div class="n-ask">${n.ask}</div>`;
+  const body = n.body === undefined ? "" : `<div class="n-body md">${markdown(ctx, n.body)}</div>`;
+  const more = folds && body + (n.drafts ?? "") !== "" ? `<div class="n-more">${body}${n.drafts ?? ""}</div>` : "";
+  return `<li class="${cls}" data-key="${esc(n.key)}"${href}${panel}${fold}>
+${caret}
 ${showVerb === true ? `<span class="verb">${esc(n.verb)}</span>` : ""}
-<span class="need-main">${shown}${n.ask}</span>
+${main}
 <span class="need-ticket">${ticketLink(n.ticket)}</span>
 <span class="need-age">${esc(ago(ctx, n.since))}</span>
 ${rail(n, pinned, target)}
+${ask}${more}
 </li>`;
 }
 
@@ -1301,7 +1331,7 @@ export function ticketBody(ctx: Ctx, id: string, live: Live): string {
     menuItem("merge", "Merge into…", { act: "ticket-merge", ticket: t.id, ask: "Merge into", go: "/t/{value}" }),
     menuItem("trash", "Delete", { act: "ticket-delete", ticket: t.id, confirm: `Delete ${t.id}?`, go: "/" }),
   ]);
-  const head = `<div class="page-head">${priorityMark(t.tracker_priority)}${ticketLink(t.id)}<h1>${line(ctx, t.title ?? "")}</h1>${ticketMenu}${pill(DIR_LABEL[t.dir ?? ""] ?? t.dir ?? "", DIR_TONE[t.dir ?? ""] ?? "grey")}${t.tracker_state ? pill(t.tracker_state, "violet") : ""}${link(t.tracker_url, "tracker ↗", "head-link")}</div>`;
+  const head = `<div class="page-head">${priorityMark(t.tracker_priority)}${ticketLink(t.id)}<h1>${line(ctx, t.title ?? "")}</h1>${ticketMenu}${pill(DIR_LABEL[t.dir ?? ""] ?? t.dir ?? "", DIR_TONE[t.dir ?? ""] ?? "grey")}${trackerPill(t)}${link(t.tracker_url, "tracker ↗", "head-link")}</div>`;
   const state = `<dl class="state">${field(ctx, "Status", t.status)}${field(ctx, "Next", t.next, "blue")}${field(ctx, "Approve?", t.gate, "amber")}${field(ctx, "Decide", t.decide, "amber")}${field(ctx, "Repo", [t.repo, t.branch].filter(Boolean).join(" · "))}${field(ctx, "PRs", t.prs)}${field(ctx, "Owner", t.owner)}</dl>`;
   const openSteps = steps.filter((s) => s.done_at === null).length;
   const openItems = items.filter((i) => i.closed_at === null).length;

@@ -146,7 +146,7 @@ describe("github", () => {
     const page = await (await fetch(`${server.url}/?part=1`)).text();
     assert.match(
       page,
-      /data-key="nfold-item-\d+"><summary>(?:(?!<\/summary>)[\s\S])*<span class="n-caret">[\s\S]*?<\/summary><div class="n-body md"><p>Adds the <strong>cookie<\/strong> path\.<\/p><ul><li>one<\/li><li>two<\/li><\/ul><p>Notes<br>keeps Map&lt;string, number&gt;<\/p><\/div>/,
+      /data-fold-key="nfold-item-\d+">\s*<button type="button" class="n-caret" data-fold-toggle aria-expanded="false"(?:(?!<\/li>)[\s\S])*<div class="n-more"><div class="n-body md"><p>Adds the <strong>cookie<\/strong> path\.<\/p><ul><li>one<\/li><li>two<\/li><\/ul><p>Notes<br>keeps Map&lt;string, number&gt;<\/p><\/div>/,
     );
     assert.doesNotMatch(page, /describe the change/);
   });
@@ -950,6 +950,52 @@ describe("slack", () => {
     const settings = await (await fetch(`${server.url}/settings`)).text();
     assert.ok(settings.includes('data-config-input="slackAlertChannels" data-list value="#alerts-prod, #oncall"'));
     await assert.rejects(hub("config", "slackAlertChannels", '["Alerts Prod"]'), /not a Slack channel name/);
+  });
+
+  test("a bot message with no text is named by its block or attachment text, else (no text)", async () => {
+    await hub("config", "fetch", '{"github":false,"slack":true}');
+    await hub("config", "slackAlertChannels", '["#tech_platform"]');
+    answers.security = (args) =>
+      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+    const channel = { id: "C09", name: "tech_platform" };
+    const at = (t: string) => `https://acme.slack.com/archives/C09/p${t.replace(".", "")}`;
+    const [blocks, second, bare] = [ts(300), ts(200), ts(100)];
+    const ok = (body: unknown) => ({ status: 200, body: JSON.stringify({ ok: true, ...(body as object) }) });
+    httpAnswer = (url) => {
+      const u = new URL(url);
+      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, user: "khai" });
+      if (u.pathname === "/api/reactions.get") return ok({ message: { reactions: [] } });
+      if (u.pathname !== "/api/search.messages") return { status: 404, body: "" };
+      if (!(u.searchParams.get("query") ?? "").startsWith("in:#tech_platform"))
+        return ok({ messages: { matches: [] } });
+      const message = (t: string, extra: object) => ({
+        ts: t,
+        text: "",
+        permalink: at(t),
+        username: "Linear",
+        channel,
+        ...extra,
+      });
+      return ok({
+        messages: {
+          matches: [
+            message(blocks, {
+              blocks: [
+                { type: "section", text: { type: "mrkdwn", text: "ENG-9 moved to *Done*" } },
+                { type: "context", elements: [{ type: "mrkdwn", text: "by Ana" }] },
+              ],
+            }),
+            message(second, { attachments: [{ color: "#000" }, { text: "ENG-10 created" }] }),
+            message(bare, { files: [{ name: "a.png" }] }),
+          ],
+        },
+      });
+    };
+    assert.match(await hub("fetch", "slack"), /items: 3 new/);
+    const list = await hub("items", "--source", "slack");
+    assert.match(list, /#tech_platform · Linear: ENG-9 moved to \*Done\* by Ana \|/);
+    assert.match(list, /#tech_platform · Linear: ENG-10 created \|/);
+    assert.match(list, /#tech_platform · Linear: \(no text\) \|/);
   });
 
   test("my later reply in a mention's thread takes it off my list, in this fetch or a later one", async () => {

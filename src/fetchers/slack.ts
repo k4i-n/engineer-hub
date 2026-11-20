@@ -31,11 +31,12 @@ export const SLACK_KEY: KeySpec = {
 };
 
 type Channel = { id: string; name?: string; is_im?: boolean; is_mpim?: boolean; is_private?: boolean; user?: string };
-type Attachment = { fallback?: string; pretext?: string; title?: string; text?: string };
+type Attachment = { fallback?: string; pretext?: string; title?: string; text?: string; blocks?: unknown[] };
 type Match = {
   ts: string;
   text: string;
   attachments?: Attachment[];
+  blocks?: unknown[];
   permalink: string;
   user?: string;
   username?: string;
@@ -252,16 +253,33 @@ async function place(dir: Directory, me: string, c: Channel | undefined, fromMe:
 async function line(dir: Directory, me: string, myName: string, m: Match): Promise<string> {
   const where = await place(dir, myName, m.channel, m.user === me);
   const who = m.user === me ? "me" : m.user ? await dir.user(m.user) : (m.username ?? "someone");
-  const a = m.attachments?.[0];
-  const raw = m.text || a?.title || a?.pretext || a?.text || a?.fallback || "";
-  const text = (await readable(dir, raw)).replaceAll("\n", " ");
-  return cut(`${where ? `${where} · ` : ""}${who}: ${text}`, 200);
+  const attachments = m.attachments ?? [];
+  const raw =
+    m.text ||
+    attachments
+      .flatMap((a) => [a.title, a.pretext, a.text, a.fallback])
+      .find((t) => t !== undefined && t.trim() !== "") ||
+    blockText([m.blocks, attachments.map((a) => a.blocks)]);
+  const text = (await readable(dir, raw)).replaceAll("\n", " ").trim();
+  return cut(`${where ? `${where} · ` : ""}${who}: ${text || "(no text)"}`, 200);
+}
+
+function blockText(node: unknown): string {
+  return blockParts(node).join(" ").replace(/\s+/g, " ").trim();
+}
+
+function blockParts(node: unknown): string[] {
+  if (Array.isArray(node)) return node.flatMap(blockParts);
+  if (node === null || typeof node !== "object") return [];
+  const o = node as Record<string, unknown>;
+  const own = typeof o.text === "string" ? [o.text] : blockParts(o.text);
+  return [...own, ...blockParts(o.elements), ...blockParts(o.fields)];
 }
 
 async function full(dir: Directory, m: Match): Promise<string | undefined> {
   const parts = [m.text, ...(m.attachments ?? []).flatMap((a) => [a.pretext, a.title, a.text])];
   const said = [...new Set(parts.filter((p) => p !== undefined && p.trim() !== ""))].join("\n\n");
-  const raw = said || m.attachments?.[0]?.fallback || "";
+  const raw = said || m.attachments?.[0]?.fallback || blockText([m.blocks, m.attachments?.map((a) => a.blocks)]);
   return raw === "" ? undefined : clip(await readable(dir, raw), MAX_BODY);
 }
 

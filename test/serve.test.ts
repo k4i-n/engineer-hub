@@ -186,7 +186,7 @@ describe("serve", () => {
     const card = /data-group="prs"[\s\S]*?<\/section>/.exec(html)?.[0] ?? "";
     const row = (n: number) =>
       new RegExp(
-        `<li class="need tone-([a-z]+)"[^>]*>\\s*<span class="need-main"><span class="need-line"><span class="verb verb-inline">([^<]+)</span><a[^>]*>pr ${n}<`,
+        `<li class="need tone-([a-z]+)"[^>]*>\\s*<span class="n-caret"></span>\\s*<span class="need-main"><span class="need-line"><span class="verb verb-inline">([^<]+)</span><a[^>]*>pr ${n}<`,
       )
         .exec(card)
         ?.slice(1, 3);
@@ -199,11 +199,26 @@ describe("serve", () => {
     assert.deepEqual(row(307), ["grey", "Linked"]);
     assert.match(html, new RegExp(`data-needs-count="${before + 3}"`));
     assert.deepEqual(tabCounts(card, "needs-prs"), { open: 3, draft: 1, review: 1, all: 8 });
-    assert.match(card, /data-tab-panel="all" hidden>\s*<span class="need-main">[\s\S]*?>pr 306</);
-    assert.match(card, /data-tab-panel="all" hidden>\s*<span class="need-main">[\s\S]*?>pr 307</);
-    assert.match(card, /data-tab-panel="draft all" hidden>\s*<span class="need-main">[\s\S]*?>pr 301</);
-    assert.match(card, /data-tab-panel="review all" hidden>\s*<span class="need-main">[\s\S]*?>pr 302</);
-    assert.match(card, /data-tab-panel="open all">\s*<span class="need-main">[\s\S]*?>pr 303</);
+    assert.match(
+      card,
+      /data-tab-panel="all" hidden>\s*<span class="n-caret"><\/span>\s*<span class="need-main">[\s\S]*?>pr 306</,
+    );
+    assert.match(
+      card,
+      /data-tab-panel="all" hidden>\s*<span class="n-caret"><\/span>\s*<span class="need-main">[\s\S]*?>pr 307</,
+    );
+    assert.match(
+      card,
+      /data-tab-panel="draft all" hidden>\s*<span class="n-caret"><\/span>\s*<span class="need-main">[\s\S]*?>pr 301</,
+    );
+    assert.match(
+      card,
+      /data-tab-panel="review all" hidden>\s*<span class="n-caret"><\/span>\s*<span class="need-main">[\s\S]*?>pr 302</,
+    );
+    assert.match(
+      card,
+      /data-tab-panel="open all">\s*<span class="n-caret"><\/span>\s*<span class="need-main">[\s\S]*?>pr 303</,
+    );
   });
 
   test("needs cards, Today and Activity open on what is still to do, with the rest under All", async () => {
@@ -263,7 +278,7 @@ describe("serve", () => {
     assert.equal((items.all ?? 0) - (items.open ?? 0), 1);
     assert.match(
       page,
-      /data-tab-panel="all" hidden>\s*<span class="verb">[^<]+<\/span>\s*<span class="need-main"><span class="need-line"><a[^>]*>72</,
+      /data-tab-panel="all" hidden>\s*<span class="n-caret"><\/span>\s*<span class="verb">[^<]+<\/span>\s*<span class="need-main"><span class="need-line"><a[^>]*>72</,
     );
     const open = /<li class="need [^"]*" data-key="item-\d+"[^>]*>[\s\S]*?>71<[\s\S]*?<\/li>/.exec(page)?.[0] ?? "";
     assert.match(open, /data-act="item-done" data-id="\d+"/);
@@ -401,6 +416,73 @@ describe("serve", () => {
     assert.match(row, /chip-pop">.*pull\/4.*pull\/5/);
   });
 
+  test("the ticket page shows the tracker state only when it differs from the folder, named by its tracker", async () => {
+    const db = new DatabaseSync(dbFile);
+    const setTracker = (state: string) =>
+      db
+        .prepare("UPDATE ticket SET dir = 'inprogress', tracker_state = ?, tracker_url = ? WHERE id = 'ENG-7'")
+        .run(state, "https://linear.app/acme/issue/ENG-7");
+    const head = async () =>
+      /<div class="page-head">[\s\S]*?class="head-link"/.exec(
+        await (await fetch(`${server.url}/t/ENG-7?part=1`)).text(),
+      )?.[0] ?? "";
+    setTracker("In Progress");
+    assert.equal([...(await head()).matchAll(/class="pill /g)].length, 1);
+    setTracker("In Review");
+    assert.match(await head(), /<span class="pill tone-violet">Linear: In Review<\/span>/);
+    db.close();
+  });
+
+  test("an item with no title or an empty message is named (no text) with its sender, never by its url", async () => {
+    const slackUrl = "https://acme.slack.com/archives/C09/p1763350000123456";
+    await hub(
+      ["item", "put", "--stdin"],
+      [
+        JSON.stringify({ source: "slack", kind: "message", url: slackUrl, author: "Linear", needs_me: true }),
+        JSON.stringify({
+          source: "slack",
+          kind: "message",
+          url: `${slackUrl}9`,
+          title: "#tech_platform · Linear:",
+          needs_me: true,
+        }),
+      ].join("\n"),
+    );
+    const html = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.match(html, /class="need-title"[^>]*>\(no text\) · Linear</);
+    assert.match(html, /class="need-title"[^>]*>#tech_platform · Linear: \(no text\)</);
+    assert.doesNotMatch(html, /class="need-title"[^>]*>https:/);
+  });
+
+  test("a folding row has a chevron button and its body after the header cells; a plain row keeps an empty slot", async () => {
+    await hub(["set", "ENG-7", "decide", "pick one"]);
+    await hub(["draft", "ENG-7", "ask ops", "--stdin"], "a long body");
+    const html = await (await fetch(`${server.url}/?part=1`)).text();
+    const row = /<li[^>]*data-key="send-ENG-7-ask ops"[\s\S]*?<\/li>/.exec(html)?.[0] ?? "";
+    assert.match(
+      row,
+      /data-fold-key="nfold-send-ENG-7-ask ops">\s*<button type="button" class="n-caret" data-fold-toggle aria-expanded="false"[\s\S]*?<span class="need-main">[\s\S]*?<span class="need-ticket">[\s\S]*?<span class="need-age">[\s\S]*?<span class="rail">[\s\S]*?<div class="n-ask">[\s\S]*?<div class="n-more"><div class="n-body md"><p>a long body<\/p><\/div><\/div>\s*<\/li>/,
+    );
+    assert.match(row, /class="chip-btn" data-copy="a long body">Copy</);
+    assert.match(row, /class="chip-btn primary" data-act="sent" data-ticket="ENG-7" data-label="ask ops">Sent</);
+    await hub(
+      ["item", "put", "--stdin"],
+      JSON.stringify({
+        source: "github",
+        kind: "review_request",
+        url: "https://github.com/acme/web/pull/9",
+        title: "Plain",
+        needs_me: true,
+      }),
+    );
+    const after = await (await fetch(`${server.url}/?part=1`)).text();
+    const plain = /<li[^>]*data-key="item-\d+"[^>]*>\s*<span class="n-caret"><\/span>(?:(?!<\/li>)[\s\S])*>Plain</.exec(
+      after,
+    );
+    assert.ok(plain);
+    assert.doesNotMatch(plain[0], /data-fold-key/);
+  });
+
   test("ticket priority shows as bars before the id, urgent as a filled mark, none as an empty slot", async () => {
     const db = new DatabaseSync(dbFile);
     const setPriority = (id: string, priority: string | null) =>
@@ -486,7 +568,7 @@ describe("serve", () => {
     );
     assert.match(row, /<div class="n-body n-draft md"><p>LGTM<\/p><\/div>/);
     assert.doesNotMatch(home, new RegExp(`data-key="send-${pr}`));
-    assert.equal([...home.matchAll(/data-act="sent"[^>]*data-label="review"/g)].length, 1);
+    assert.equal([...home.matchAll(/class="chip-btn primary" data-act="sent"[^>]*data-label="review"/g)].length, 1);
     const needs = (html: string) => Number(/data-needs-count="(\d+)"/.exec(html)?.[1]);
     const id = /data-key="item-(\d+)"/.exec(row)?.[1] ?? "";
 
@@ -494,7 +576,7 @@ describe("serve", () => {
     const snoozed = await (await fetch(`${server.url}/?part=1`)).text();
     const reply = /data-group="reply"[\s\S]*?<\/section>/.exec(snoozed)?.[0] ?? "";
     assert.match(reply, new RegExp(`data-key="send-${pr}-review"[\\s\\S]*?<span class="need-sub">acme/web#140</span>`));
-    assert.equal([...snoozed.matchAll(/data-act="sent"[^>]*data-label="review"/g)].length, 1);
+    assert.equal([...snoozed.matchAll(/class="chip-btn primary" data-act="sent"[^>]*data-label="review"/g)].length, 1);
     assert.equal(needs(snoozed), needs(home));
     assert.equal((await call("POST", `/items/${id}/reopen`, {})).status, 200);
 
@@ -544,7 +626,7 @@ describe("serve", () => {
     const comment =
       /<li><code class="d-path">src\/limit\.ts:12<\/code><div class="d-cbody md"><p>Make it configurable\.<\/p><\/div><button type="button" class="chip-btn" data-copy="Make it configurable\.">Copy<\/button><\/li>/;
     const home = await (await fetch(`${server.url}/?part=1`)).text();
-    const send = new RegExp(`data-key="send-${pr}-review"[\\s\\S]*?class="need-age"`).exec(home)?.[0] ?? "";
+    const send = new RegExp(`data-key="send-${pr}-review"[\\s\\S]*?</li>`).exec(home)?.[0] ?? "";
     assert.match(send, /<span class="pill tone-orange">request changes<\/span>/);
     assert.match(send, comment);
 
@@ -554,8 +636,7 @@ describe("serve", () => {
     );
     const after = await (await fetch(`${server.url}/?part=1`)).text();
     assert.doesNotMatch(after, new RegExp(`data-key="send-${pr}`));
-    const row =
-      /<li[^>]*data-key="item-\d+"(?:(?!<\/li>)[\s\S])*Cap limits[\s\S]*?class="need-age"/.exec(after)?.[0] ?? "";
+    const row = /<li[^>]*data-key="item-\d+"(?:(?!<\/li>)[\s\S])*Cap limits[\s\S]*?<\/li>/.exec(after)?.[0] ?? "";
     assert.match(row, /<div class="n-body n-draft md"><p>Close\.<\/p><\/div>/);
     assert.match(row, /<span class="pill tone-orange">request changes<\/span>/);
     assert.match(row, comment);
@@ -574,7 +655,7 @@ describe("serve", () => {
     assert.match(html, /<span class="need-title">use <code>retry_after<\/code> or <strong>backoff<\/strong>\?<\/span>/);
     assert.match(
       html,
-      /<details class="n-fold" data-key="nfold-decide-ENG-7"><summary><span class="need-line"><span class="need-title">use <code>retry_after[\s\S]*?<\/span><span class="n-caret"><svg[^>]*>[\s\S]*?<\/svg><\/span><\/span><span class="need-sub">[^<]*<\/span><\/summary><\/details>/,
+      /data-fold-key="nfold-decide-ENG-7">\s*<button type="button" class="n-caret" data-fold-toggle aria-expanded="false"[^>]*><svg[^>]*>[\s\S]*?<\/svg><\/button>\s*<span class="need-main"><span class="need-line"><span class="need-title">use <code>retry_after[\s\S]*?<\/span><\/span><span class="need-sub">[^<]*<\/span><\/span>/,
     );
     const page = await (await fetch(`${server.url}/t/ENG-7?part=1`)).text();
     assert.match(
@@ -1264,7 +1345,7 @@ describe("send later", () => {
     assert.match(reply, /data-key="send-ENG-7-due now"[\s\S]*?data-copy="ping product"/);
     assert.match(
       reply,
-      /data-key="nfold-send-ENG-7-due now"><summary>[\s\S]*?<\/summary><div class="n-body md"><p>ping product<\/p><\/div><\/details>/,
+      /data-fold-key="nfold-send-ENG-7-due now">(?:(?!<\/li>)[\s\S])*<div class="n-more"><div class="n-body md"><p>ping product<\/p><\/div><\/div>/,
     );
     assert.match(reply, /data-act="sent" data-ticket="ENG-7" data-label="due now"/);
     assert.match(reply, /data-act="draft-later" data-ticket="ENG-7" data-label="due now" data-for="tomorrow"/);
