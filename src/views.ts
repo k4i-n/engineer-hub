@@ -61,6 +61,7 @@ type Need = {
   undo: Data | null;
   later: Later | null;
   ignore?: number;
+  detach?: { id: number; ticket: string };
   fyi?: boolean;
   section?: string;
   panel?: string;
@@ -254,6 +255,7 @@ function rail(n: Need, pinned: boolean, target: string | null): string {
     ...(target === null ? [] : [menuItem("open", "Open", { open: target }, "↵")]),
     ...(n.href !== null && /^https?:/.test(n.href) ? [menuItem("link", "Copy link", { copy: n.href })] : []),
     ...(n.ignore === undefined ? [] : [menuItem("ignore", "Ignore this PR", { act: "item-ignore", id: n.ignore })]),
+    ...(n.detach === undefined ? [] : [menuItem("ignore", "Detach", { act: "item-detach", ...n.detach })]),
   ];
   return `<span class="rail">${first}${clock}<details class="menu" data-key="menu-${esc(n.key)}"><summary class="ic ic-more" title="More" aria-label="More">${svg("more")}</summary><div class="menu-pop">${items.join("")}</div></details></span>`;
 }
@@ -345,7 +347,6 @@ function sourceLine(parts: (string | null)[]): string {
 }
 
 function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
-  const link = linker(ctx);
   const now = nowIso(ctx.now);
   const dayStart = startOfToday(ctx);
   const { from } = span(ctx.config.horizon, ctx.now, ctx.config.timezone);
@@ -378,38 +379,8 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
   const cards = sections(ctx);
   const list: Need[] = [];
   for (const i of items) {
-    const v = itemVerb(i);
     const section = cards.get(i.source);
-    const snoozed = i.snoozed_until !== null && i.snoozed_until > now;
-    const dim =
-      i.ignored !== null
-        ? "ignored"
-        : i.closed_at !== null
-          ? "done"
-          : snoozed
-            ? `until ${when(ctx, i.snoozed_until ?? now)}`
-            : null;
-    const url = i.url ?? (/^https?:/.test(i.ref) ? i.ref : null);
-    list.push({
-      key: `item-${i.id}`,
-      rank: v.rank,
-      since: i.first_seen,
-      verb: v.verb,
-      tone: v.tone,
-      title: link(url, withoutTicket(i.title ?? i.ref, i.ticket_id), "need-title"),
-      sub: sourceLine([githubRef(url) ?? i.source, i.author, i.state, i.detail]),
-      ...moreText(i),
-      ask: "",
-      ticket: i.ticket_id,
-      href: url,
-      dim,
-      ok: { label: "Done", data: { act: "item-done", id: i.id } },
-      undo: dim === null ? null : { act: i.ignored === null ? "item-reopen" : "item-unignore", id: i.id },
-      later: dim === null ? { act: "item-snooze", data: { id: i.id } } : null,
-      ...((i.kind === "review_request" || i.kind === "pr") && i.ignored === null ? { ignore: i.id } : {}),
-      ...(i.needs_me === 0 ? { fyi: true } : {}),
-      ...(section === undefined ? {} : { section: sectionId(section) }),
-    });
+    list.push({ ...itemNeed(ctx, i), ...(section === undefined ? {} : { section: sectionId(section) }) });
   }
   for (const d of matches) {
     const where = d.channel ? ` in ${d.channel}` : "";
@@ -535,6 +506,40 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
   return list.sort(
     (a, b) => byPin(a, b) || a.rank - b.rank || a.since.localeCompare(b.since) || a.key.localeCompare(b.key),
   );
+}
+
+function itemNeed(ctx: Ctx, i: ItemRow): Need {
+  const now = nowIso(ctx.now);
+  const v = itemVerb(i);
+  const snoozed = i.snoozed_until !== null && i.snoozed_until > now;
+  const dim =
+    i.ignored !== null
+      ? "ignored"
+      : i.closed_at !== null
+        ? "done"
+        : snoozed
+          ? `until ${when(ctx, i.snoozed_until ?? now)}`
+          : null;
+  const url = i.url ?? (/^https?:/.test(i.ref) ? i.ref : null);
+  return {
+    key: `item-${i.id}`,
+    rank: v.rank,
+    since: i.first_seen,
+    verb: v.verb,
+    tone: v.tone,
+    title: linker(ctx)(url, withoutTicket(i.title ?? i.ref, i.ticket_id), "need-title"),
+    sub: sourceLine([githubRef(url) ?? i.source, i.author, i.state, i.detail]),
+    ...moreText(i),
+    ask: "",
+    ticket: i.ticket_id,
+    href: url,
+    dim,
+    ok: { label: "Done", data: { act: "item-done", id: i.id } },
+    undo: dim === null ? null : { act: i.ignored === null ? "item-reopen" : "item-unignore", id: i.id },
+    later: dim === null ? { act: "item-snooze", data: { id: i.id } } : null,
+    ...((i.kind === "review_request" || i.kind === "pr") && i.ignored === null ? { ignore: i.id } : {}),
+    ...(i.needs_me === 0 ? { fyi: true } : {}),
+  };
 }
 
 function waitNeed(ctx: Ctx, w: WaitRow): Need {
@@ -923,6 +928,15 @@ function draftTabs(drafts: DraftRow[]): string {
   return openTabs("drafts", openDrafts(drafts), drafts.length);
 }
 
+function draftButtons(d: DraftRow): string {
+  const which = { ticket: d.ticket_id, label: d.label };
+  const mark =
+    d.status === "draft"
+      ? button("Sent", { act: "sent", ...which }, { cls: "primary", disabled: d.match_ref !== null })
+      : button("Not sent", { act: "draft-unsent", ...which });
+  return `${button("Copy", { copy: d.sent_text ?? d.body })}${mark}`;
+}
+
 function draftPanel(d: DraftRow): string {
   return d.status === "draft" ? ` data-tab-panel="open all"` : ` data-tab-panel="all" hidden`;
 }
@@ -998,7 +1012,7 @@ function draftsSection(ctx: Ctx): string {
             ? pill(`send ${when(ctx, d.send_at ?? "")}`, "grey")
             : "";
     return `<li class="draft${sent || later ? " is-dim" : ""}" data-key="d-${esc(d.ticket_id)}-${esc(d.label)}"${draftPanel(d)}>
-<div class="d-head">${ticketLink(d.ticket_id)}<span class="d-label">${line(ctx, d.label)}</span>${d.channel ? pill(d.channel, "teal") : ""}${state}<span class="d-actions">${button("Copy", { copy: d.body })}${sent ? button("Not sent", { act: "draft-unsent", ticket: d.ticket_id, label: d.label }) : button("Sent", { act: "sent", ticket: d.ticket_id, label: d.label }, { cls: "primary", disabled: d.match_ref !== null })}</span></div>
+<div class="d-head">${ticketLink(d.ticket_id)}<span class="d-label">${line(ctx, d.label)}</span>${d.channel ? pill(d.channel, "teal") : ""}${state}<span class="d-actions">${draftButtons(d)}</span></div>
 <details class="d-fold" data-key="dfold-${esc(d.ticket_id)}-${esc(d.label)}"><summary><span class="d-line">${line(ctx, d.body)}</span><div class="d-body md">${markdown(ctx, d.body)}</div></summary></details>
 </li>`;
   });
@@ -1176,7 +1190,7 @@ export function ticketBody(ctx: Ctx, id: string, live: Live): string {
   const steps = all<StepRow>(ctx.db, "SELECT * FROM step WHERE ticket_id = ? ORDER BY n", id);
   const items = all<ItemRow>(
     ctx.db,
-    "SELECT * FROM item WHERE ticket_id = ? ORDER BY closed_at IS NOT NULL, id DESC",
+    "SELECT * FROM item WHERE ticket_id = ? ORDER BY closed_at IS NOT NULL, needs_me DESC, id DESC",
     id,
   );
   const waits = all<WaitRow>(
@@ -1245,18 +1259,19 @@ export function ticketBody(ctx: Ctx, id: string, live: Live): string {
               )}</li>`,
           )
           .join("")}${openRows(openSteps)}</ol>`;
-  const itemRows = items.map((i) => {
-    const v = itemVerb(i);
-    return `<li class="need tone-${v.tone}${i.closed_at ? " is-dim" : ""}" data-key="ti-${i.id}"${i.closed_at ? ' data-tab-panel="all" hidden' : ""}><span class="verb">${esc(v.verb)}</span><span class="need-main">${link(i.url ?? (/^https?:/.test(i.ref) ? i.ref : null), i.title ?? i.ref, "need-title")}<span class="need-sub">${sourceLine([githubRef(i.url) ?? i.source, i.state, i.ignored ? "ignored" : i.closed_at ? "closed" : null])}</span></span>${moreMenu(`menu-ti-${i.id}`, [menuItem("ignore", "Detach", { act: "item-detach", id: i.id, ticket: t.id })])}</li>`;
-  });
   const pinned = pins(ctx.db);
+  const itemRows = items.map((i) => {
+    const n = itemNeed(ctx, i);
+    const panel = i.closed_at === null ? {} : { panel: "all" };
+    return needRow(ctx, { ...n, ticket: null, detach: { id: i.id, ticket: t.id }, ...panel }, pinned.has(n.key));
+  });
   const waitRows = waits.map((w) => {
     const n = waitNeed(ctx, w);
     return needRow(ctx, { ...n, ticket: null, ...(w.closed_at === null ? {} : { panel: "all" }) }, pinned.has(n.key));
   });
   const draftRows = drafts.map(
     (d) =>
-      `<li class="draft" data-key="td-${esc(d.label)}"${draftPanel(d)}><div class="d-head"><span class="d-label">${line(ctx, d.label)}</span>${pill(d.status, d.status === "draft" ? "blue" : "green")}${d.channel ? pill(d.channel, "teal") : ""}<span class="d-actions">${button("Copy", { copy: d.sent_text ?? d.body })}${moreMenu(
+      `<li class="draft" data-key="td-${esc(d.label)}"${draftPanel(d)}><div class="d-head"><span class="d-label">${line(ctx, d.label)}</span>${pill(d.status, d.status === "draft" ? "blue" : "green")}${d.channel ? pill(d.channel, "teal") : ""}<span class="d-actions">${draftButtons(d)}${moreMenu(
         `menu-td-${d.label}`,
         [
           menuItem("edit", "Rename", {
@@ -1266,18 +1281,22 @@ export function ticketBody(ctx: Ctx, id: string, live: Live): string {
             ask: "Label",
             "ask-value": d.label,
           }),
-          d.status === "draft"
-            ? menuItem("trash", "Remove", {
-                act: "draft-remove",
-                ticket: t.id,
-                label: d.label,
-                confirm: `Remove draft "${d.label}"?`,
-              })
-            : menuItem("undo", "Not sent", { act: "draft-unsent", ticket: t.id, label: d.label }),
+          ...(d.status === "draft"
+            ? [
+                menuItem("trash", "Remove", {
+                  act: "draft-remove",
+                  ticket: t.id,
+                  label: d.label,
+                  confirm: `Remove draft "${d.label}"?`,
+                }),
+              ]
+            : []),
         ],
       )}</span></div><div class="d-body md">${markdown(ctx, d.sent_text ?? d.body)}</div></li>`,
   );
-  const own = needs(ctx, [t]).filter((n) => n.ticket === t.id && needsYou(n) && !n.key.startsWith("wait-"));
+  const own = needs(ctx, [t]).filter(
+    (n) => n.ticket === t.id && needsYou(n) && !n.key.startsWith("wait-") && !n.key.startsWith("item-"),
+  );
   const ticketNeeds =
     own.length === 0
       ? ""
