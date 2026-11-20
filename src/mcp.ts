@@ -15,6 +15,7 @@ import { HubError } from "./util.ts";
 export const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"];
 
 const NOT_TOOLS = [
+  "away_test",
   "find",
   "pin",
   "config",

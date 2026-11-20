@@ -7,9 +7,10 @@ import { afterEach, beforeEach, describe, test } from "node:test";
 import { Away, awayState, collapse, slackSafe } from "../src/away.ts";
 import type { Ctx } from "../src/commands.ts";
 import { loadConfig, setConfig } from "../src/config.ts";
-import { type ItemRow, openDb } from "../src/db.ts";
+import { all, type ItemRow, openDb } from "../src/db.ts";
 import * as items from "../src/items.ts";
 import type { System } from "../src/keys.ts";
+import { type Server, serve } from "../src/serve.ts";
 
 const MIN = 60_000;
 const HOOK = "https://hooks.slack.com/services/T0/B0/secret";
@@ -249,5 +250,41 @@ describe("collapse and escaping", () => {
 
   test("Slack control characters are escaped", () => {
     assert.equal(slackSafe("<!channel> & <http://x|y>"), "&lt;!channel&gt; &amp; &lt;http://x|y&gt;");
+  });
+});
+
+describe("dashboard", () => {
+  let server: Server;
+
+  beforeEach(async () => {
+    db.close();
+    server = await serve({
+      dbPath: join(dir, "hub.db"),
+      port: 0,
+      now: () => new Date(clock),
+      env: {},
+      system: sys(),
+      fetchers: [],
+      awayCheckMs: 3_600_000,
+    });
+    db = openDb(join(dir, "hub.db"));
+  });
+
+  afterEach(async () => {
+    await server.close();
+  });
+
+  test("Settings shows the Away section and Test posts through the API", async () => {
+    const html = await (await fetch(`${server.url}/settings?part=1`)).text();
+    assert.match(html, /Ping when away/);
+    assert.match(html, /data-act="away-test"/);
+    const r = await fetch(`${server.url}/api/v1/away/test`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+      body: "{}",
+    });
+    assert.equal(r.status, 200);
+    assert.deepEqual(posts, ["hub: test"]);
+    assert.equal(all<ItemRow>(db, "SELECT * FROM item").length, 0);
   });
 });

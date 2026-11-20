@@ -1,3 +1,4 @@
+import type { AwayState } from "./away.ts";
 import type { Backup, BackupState } from "./backup.ts";
 import { area, bar, donut, half, legend, percent, ring, type Slice, stack } from "./charts.ts";
 import { byOrder, type Ctx, has, openTickets, recentlyDone } from "./commands.ts";
@@ -1426,7 +1427,56 @@ function lastBackup(ctx: Ctx, newest: Backup | undefined): string {
   return `<span class="src-state" title="${esc(newest.path)}">${esc(newest.name)} · ${esc(agoText(ctx, newest.at))}</span>`;
 }
 
-export function settingsBody(ctx: Ctx, live: Live, db: DbInfo, fetching: Fetching[] = []): string {
+export type AwayView = AwayState & { hasUrl: boolean | null; command: string };
+
+function awayRows(ctx: Ctx, away: AwayView): string {
+  const c = ctx.config;
+  const stored = away.hasUrl === null ? "–" : away.hasUrl ? "stored" : "not stored";
+  const last =
+    away.error !== null
+      ? `<span class="src-state tone-red">${esc(away.error)}</span>`
+      : away.lastPing === null
+        ? `<span class="src-state">none yet</span>`
+        : `<span class="src-state" title="${esc(away.lastText ?? "")}">${esc(agoText(ctx, away.lastPing))}</span>`;
+  return (
+    row("Ping when away", toggle("awayPing", c.awayPing)) +
+    row(
+      "Away after",
+      segmented("awayAfter", c.awayAfter, [
+        ["5m", "5 min"],
+        ["10m", "10 min"],
+        ["15m", "15 min"],
+        ["30m", "30 min"],
+      ]),
+      !c.awayPing,
+    ) +
+    row(
+      "At most every",
+      segmented("awayEvery", c.awayEvery, [
+        ["15m", "15 min"],
+        ["30m", "30 min"],
+        ["1h", "1 hour"],
+        ["2h", "2 hours"],
+      ]),
+      !c.awayPing,
+    ) +
+    row(
+      "Webhook",
+      `<span class="src-state">${esc(stored)}</span>${button("Test", { act: "away-test" })}${away.hasUrl === true ? "" : codeBlock(away.command)}`,
+    ) +
+    row("Last ping", last, !c.awayPing)
+  );
+}
+
+const NO_AWAY: AwayView = { lastPing: null, lastText: null, error: null, hasUrl: null, command: "" };
+
+export function settingsBody(
+  ctx: Ctx,
+  live: Live,
+  db: DbInfo,
+  fetching: Fetching[] = [],
+  away: AwayView = NO_AWAY,
+): string {
   const c = ctx.config;
   const shortcuts: [string, string][] = [
     ["j / k", "next / previous row"],
@@ -1497,6 +1547,7 @@ ${section(
   "set-sec",
 )}
 ${section("Notifications", null, row("New items", toggle("notifyNew", c.notifyNew)) + row("Sound", toggle("notifySound", c.notifySound)), "set-sec")}
+${section("Away", null, awayRows(ctx, away), "set-sec")}
 ${section(
   "Appearance",
   null,

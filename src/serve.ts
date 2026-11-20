@@ -5,6 +5,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { AddressInfo } from "node:net";
 import { dirname, resolve } from "node:path";
 import { type Args, checkFields, findRoute, openapi, queryArgs, runRoute } from "./api.ts";
+import { Away, awayState, webhookCommand } from "./away.ts";
 import { type Backup, backup, backupDir, checkRestorable, listBackups, replaceDb } from "./backup.ts";
 import type { Ctx, Result } from "./commands.ts";
 import { loadConfig } from "./config.ts";
@@ -25,6 +26,7 @@ export type ServeOptions = {
   autoSyncCheckMs?: number;
   fetchCheckMs?: number;
   backupCheckMs?: number;
+  awayCheckMs?: number;
   system?: System;
   fetchers?: Fetcher[];
 };
@@ -44,6 +46,7 @@ const OUTPUT_TAIL = 2_000;
 const AUTO_SYNC_CHECK_MS = 60_000;
 const FETCH_CHECK_MS = 15_000;
 const BACKUP_CHECK_MS = 10 * 60_000;
+const AWAY_CHECK_MS = 60_000;
 
 const VERSION = (JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string })
   .version;
@@ -151,11 +154,17 @@ export function serve(options: ServeOptions): Promise<Server> {
     if (options.now().getTime() - last >= every) startSync("agent");
   }, options.autoSyncCheckMs ?? AUTO_SYNC_CHECK_MS);
   autoSync.unref();
-  const runner = new Runner(options.fetchers ?? FETCHERS, options.system ?? system(options.env), ctx, broadcast);
+  const sys = options.system ?? system(options.env);
+  const runner = new Runner(options.fetchers ?? FETCHERS, sys, ctx, broadcast);
   const fetchTimer = setInterval(() => {
     runner.tick().catch(() => {});
   }, options.fetchCheckMs ?? FETCH_CHECK_MS);
   fetchTimer.unref();
+  const away = new Away(sys, ctx);
+  const awayTimer = setInterval(() => {
+    away.check().catch(() => {});
+  }, options.awayCheckMs ?? AWAY_CHECK_MS);
+  awayTimer.unref();
   const folder = () => backupDir(ctx().config.backupDir, options.dbPath);
   const saveBackupState = (name: string | null, error: string | null) => {
     const state = JSON.stringify({ at: nowIso(options.now()), name, error });
@@ -253,6 +262,7 @@ export function serve(options: ServeOptions): Promise<Server> {
     const [program = "", ...args] = command;
     const end = await runCommand(program, args);
     agent = { status: end.ok ? "finished" : "failed", at: nowIso(options.now()), detail: end.detail };
+    await away.check();
     return end;
   }
 
@@ -372,6 +382,10 @@ export function serve(options: ServeOptions): Promise<Server> {
     syncStatus: () => sync,
     startSync: (what: string) => ({ started: startSync(what), status: sync }),
     fetchNow: (source: string | null) => runner.now(source),
+    awayTest: async (): Promise<Result> => {
+      const text = await away.test();
+      return { text, json: { posted: true } };
+    },
     backupBefore: (what: "delete" | "merge") =>
       backup(db, folder(), options.now(), Number.POSITIVE_INFINITY, `-before-${what}`).name,
     backupNow: (): Result => {
@@ -436,6 +450,7 @@ export function serve(options: ServeOptions): Promise<Server> {
               schema: schema ?? SCHEMA_VERSION,
             },
             fetching(c, runner),
+            { ...awayState(c), hasUrl: away.hasUrl, command: webhookCommand(sys.platform) },
           );
         } else {
           const id = decodeURIComponent(url.pathname.slice(3));
@@ -477,6 +492,7 @@ export function serve(options: ServeOptions): Promise<Server> {
     clearInterval(autoSync);
     clearInterval(fetchTimer);
     clearInterval(backupTimer);
+    clearInterval(awayTimer);
     child?.kill("SIGTERM");
     for (const client of clients) client.end();
     server.closeAllConnections();
@@ -492,6 +508,7 @@ export function serve(options: ServeOptions): Promise<Server> {
       clearInterval(autoSync);
       clearInterval(fetchTimer);
       clearInterval(backupTimer);
+      clearInterval(awayTimer);
       db.close();
       watch.close();
       reject(error);

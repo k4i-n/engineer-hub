@@ -22,6 +22,7 @@ export type Hooks = {
   syncStatus: () => unknown;
   startSync: (what: string) => { started: boolean; status: unknown };
   fetchNow: (source: string | null) => Promise<Result>;
+  awayTest: () => Promise<Result>;
   backupNow: () => Result;
   backupBefore: (what: "delete" | "merge") => string;
   backups: () => Result;
@@ -802,6 +803,13 @@ export const ROUTES: Route[] = [
       return { text: r.started ? "sync started" : "a sync is running", json: r.status, exitCode: r.started ? 0 : 1 };
     },
     status: (result) => (result.exitCode === 1 ? 409 : 202),
+  },
+  {
+    name: "away_test",
+    method: "POST",
+    path: "/away/test",
+    about: "Post a test message to the webhook that away pings use.",
+    run: (_ctx, _a, hooks) => hooks.awayTest(),
   },
   {
     name: "backup",
