@@ -303,7 +303,7 @@ describe("serve", () => {
   test("settings show the database and save config through the same checks as the CLI", async () => {
     const html = await (await fetch(`${server.url}/settings`)).text();
     assert.ok(html.includes(dbFile));
-    assert.match(html, /Schema<\/span><div class="set-control">v16/);
+    assert.match(html, /Schema<\/span><div class="set-control">v17/);
     const titles = [...html.matchAll(/<h2><button type="button" class="fold" data-fold="([^"]+)"/g)].map((m) => m[1]);
     assert.deepEqual(titles, ["Sources", "Agent", "Away", "Database", "Behavior", "Dashboard", "Keyboard"]);
     assert.equal(html.match(/<div class="col">/g)?.length, 1);
@@ -486,6 +486,34 @@ describe("serve", () => {
     const page = await (await fetch(`${server.url}/t/ENG-7?part=1`)).text();
     assert.match(page, new RegExp(`data-key="td-${pr}-review"`));
     assert.match(page, new RegExp(`data-act="sent" data-ticket="${pr}" data-label="review"`));
+  });
+
+  test("an item's question shows Yes and No on its row, and the answer stays on the row and in the log", async () => {
+    const pr = "https://github.com/acme/web/pull/141";
+    await hub(
+      ["item", "put", "--stdin"],
+      JSON.stringify({ source: "github", kind: "review_request", url: pr, title: "Retry webhooks", needs_me: true }),
+    );
+    await hub(["item", "ask", pr, "Review", "this?"]);
+    const row = async () => {
+      const home = await (await fetch(`${server.url}/?part=1`)).text();
+      return /<li[^>]*data-key="item-\d+"(?:(?!<\/li>)[\s\S])*Retry webhooks[\s\S]*?<\/li>/.exec(home)?.[0] ?? "";
+    };
+    assert.match(
+      await row(),
+      /<span class="ask"><span>Review this\?<\/span><button[^>]*data-act="item-answer"[^>]*data-answer="yes"/,
+    );
+    const id = /data-key="item-(\d+)"/.exec(await row())?.[1] ?? "";
+    const answered = await fetch(`${server.url}/api/v1/items/${id}/answer`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${server.token}`, "x-hub-actor": "human" },
+      body: JSON.stringify({ answer: "yes" }),
+    });
+    assert.equal(answered.status, 200);
+    assert.match(await row(), /<span class="ask"><span>Review this\? Yes<\/span><\/span>/);
+    assert.match(await hub(["brief"]), /yes to "Review this\?": review_request Retry webhooks/);
+    assert.equal((await call("POST", `/items/${id}/unanswer`, {})).status, 200);
+    assert.match(await row(), /data-act="item-answer"/);
   });
 
   test("a ticket page marks its drafts sent like the dashboard", async () => {
@@ -1108,6 +1136,8 @@ describe("mcp", () => {
       "ticket_merge",
       "source_set",
       "source_remove",
+      "item_answer",
+      "item_unanswer",
     ]) {
       assert.ok(!names.includes(gone), gone);
     }
@@ -1121,6 +1151,7 @@ describe("mcp", () => {
       "posted",
       "match",
       "step_done",
+      "item_ask",
     ]) {
       assert.ok(names.includes(kept), kept);
     }

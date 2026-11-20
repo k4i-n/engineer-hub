@@ -380,6 +380,9 @@ describe("collapse and escaping", () => {
     away_why: null,
     body: null,
     detail: null,
+    ask: null,
+    ask_answer: null,
+    ask_at: null,
     ...over,
   });
 

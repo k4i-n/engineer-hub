@@ -597,6 +597,30 @@ export const ROUTES: Route[] = [
     run: (ctx, a) => items.detach(ctx, str(a, "key")),
   },
   {
+    name: "item_ask",
+    method: "POST",
+    path: "/items/{key}/ask",
+    about:
+      'Put a yes/no question to the human on an item, such as "Review this?" on a review request; the answer shows on the item and in brief. An empty question removes it.',
+    body: { question: { type: "string", required: true, about: "one line, ending in ?" } },
+    run: (ctx, a) => items.ask(ctx, str(a, "key"), str(a, "question")),
+  },
+  {
+    name: "item_answer",
+    method: "POST",
+    path: "/items/{key}/answer",
+    about: "The human answers an item's question.",
+    body: { answer: { type: "string", required: true, about: "yes or no" } },
+    run: (ctx, a) => items.answer(ctx, str(a, "key"), str(a, "answer")),
+  },
+  {
+    name: "item_unanswer",
+    method: "POST",
+    path: "/items/{key}/unanswer",
+    about: "Take back the answer to an item's question.",
+    run: (ctx, a) => items.unanswer(ctx, str(a, "key")),
+  },
+  {
     name: "waits",
     method: "GET",
     path: "/waits",
@@ -988,6 +1012,11 @@ const HUMAN_NOTES: Record<string, (ctx: Ctx, a: Args) => Note | null> = {
   item_reopen: (ctx, a) => itemNote(ctx, str(a, "key"), "back in the list"),
   item_ignore: (ctx, a) => itemNote(ctx, str(a, "key"), "ignored"),
   item_unignore: (ctx, a) => itemNote(ctx, str(a, "key"), "shown again"),
+  item_answer: (ctx, a) => {
+    const i = items.findItem(ctx.db, str(a, "key"));
+    return { ticket: i.ticket_id, text: `${str(a, "answer")} to "${i.ask ?? ""}": ${i.kind} ${i.title ?? i.ref}` };
+  },
+  item_unanswer: (ctx, a) => itemNote(ctx, str(a, "key"), "answer taken back"),
   wait_close: (ctx, a) => waitNote(ctx, str(a, "wait"), "answered"),
   wait_reopen: (ctx, a) => waitNote(ctx, str(a, "wait"), "waiting again"),
   posted: (ctx, a) => draftNote(ctx, a, `sent draft "${str(a, "label")}"`),
