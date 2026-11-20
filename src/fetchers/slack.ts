@@ -315,6 +315,7 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
   }
   for (const m of mentions) {
     if (m.user === me || seen.has(spot(m))) continue;
+    if (m.channel !== undefined && inDm(m.channel) && (await dir.fromApp(m))) continue;
     seen.add(spot(m));
     out.push({
       source: "slack",

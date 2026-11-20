@@ -924,7 +924,11 @@ describe("slack", () => {
       said(ts(81), "USLACKBOT", "reminder: standup", { id: "D04", is_im: true }, link("D04", ts(81))),
       { ...said(ts(82), "U8", "new comment", { id: "D05", is_im: true }, link("D05", ts(82))), bot_id: "B1" },
     ];
-    let mentions = [said(lgtm, "U6", `<@${ME}> looks good`, web, link("C02", lgtm, posted))];
+    let mentions = [
+      said(lgtm, "U6", `<@${ME}> looks good`, web, link("C02", lgtm, posted)),
+      said(ts(83), "U7", `<@${ME}> your deploy finished`, { id: "D03", is_im: true }, link("D03", ts(83))),
+      { ...said(ts(84), "U8", `<@${ME}> was assigned`, { id: "D05", is_im: true }, link("D05", ts(84))), bot_id: "B1" },
+    ];
     let inOps = [
       { ts: parent, text: "deploy?", user: "U5" },
       { ts: ts(3 * 86_400), text: "on it", user: ME },
@@ -968,7 +972,7 @@ describe("slack", () => {
     assert.match(needs, /slack\/message \| needs you \| #web · Yui: @U0ME looks good \| mention/);
     assert.doesNotMatch(needs, /not a DM|build is green|mine/);
     const all = await hub("items", "--source", "slack");
-    assert.doesNotMatch(all, /build finished|standup|new comment/);
+    assert.doesNotMatch(all, /build finished|standup|new comment|deploy finished|was assigned/);
     assert.match(all, /DM · Ken: build is green \| replied/);
     assert.equal(all.match(/looks good/g)?.length, 1);
 
