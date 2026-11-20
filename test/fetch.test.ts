@@ -150,6 +150,37 @@ describe("github", () => {
     assert.doesNotMatch(page, /describe the change/);
   });
 
+  test("a PR row shows its size, a base other than the default branch, comments, reviews and who it waits on", async () => {
+    const facts = {
+      additions: 120,
+      deletions: 30,
+      changedFiles: 1,
+      totalCommentsCount: 3,
+      repository: { defaultBranchRef: { name: "main" } },
+      latestReviews: {
+        nodes: [
+          { state: "APPROVED", author: { login: "bo" } },
+          { state: "PENDING", author: null },
+        ],
+      },
+      reviewRequests: { nodes: [{ requestedReviewer: { login: "cy" } }, { requestedReviewer: { name: "web-team" } }] },
+    };
+    answers.gh = graphql(
+      [PR("https://github.com/acme/web/pull/7", { ...facts, baseRefName: "release/1.2" })],
+      [PR("https://github.com/acme/web/pull/8", { ...facts, baseRefName: "main", reviewDecision: "APPROVED" })],
+    );
+    await hub("fetch", "github");
+    const page = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.match(
+      page,
+      /acme\/web#7 · ana · open · \+120 −30 · 1 file · into release\/1\.2 · 3 comments · bo approved · waiting on cy, web-team</,
+    );
+    assert.match(
+      page,
+      /acme\/web#8 · ana · approved · \+120 −30 · 1 file · 3 comments · bo approved · waiting on cy, web-team</,
+    );
+  });
+
   test("the user's open PRs get a status: draft, in review, commented, changes requested, checks failing, approved", async () => {
     answers.gh = graphql(
       [],
@@ -176,7 +207,7 @@ describe("github", () => {
     assert.match(needs, /title of 203/);
     const query = (calls.find((c) => c[1] === "api") ?? []).join(" ");
     assert.match(query, /isDraft/);
-    assert.match(query, /latestReviews\(first: 20\) \{ nodes \{ state \} \}/);
+    assert.match(query, /latestReviews\(first: 20\) \{ nodes \{ state author \{ login \} \} \}/);
   });
 
   test("a stored PR that search no longer returns is looked up by URL, so a missed merge does not stay in review", async () => {
