@@ -263,8 +263,8 @@ export const ROUTES: Route[] = [
     name: "drafts",
     method: "GET",
     path: "/drafts",
-    about: "Open drafts, or every draft of one ticket.",
-    query: { ticket: { type: "string", about: "ticket id" } },
+    about: "Open drafts, or every draft of one ticket or item.",
+    query: { ticket: { type: "string", about: "ticket id, or an item's url or ref" } },
     run: (ctx, a) => commands.drafts(ctx, opt(a, "ticket") ?? undefined),
   },
   {
@@ -278,17 +278,31 @@ export const ROUTES: Route[] = [
     name: "draft_save",
     method: "PUT",
     path: "/tickets/{id}/drafts/{label}",
-    about: "Write a draft for the human to post.",
+    about:
+      "Write a draft for the human to post. id is the ticket, or the item's url or ref when the draft answers an item with no ticket.",
     body: {
       body: { type: "string", required: true, about: "text" },
       channel: { type: "string", about: "where it goes" },
+      item: {
+        type: "string",
+        about:
+          "url or ref of the item it answers (a PR, review request or message); its row shows the draft; empty clears it",
+      },
       send_at: {
         type: "string",
         about: "when the human should send it: 30m, 4h, tomorrow, 12:00, tomorrow 12:00 or YYYY-MM-DD HH:MM",
       },
     },
     run: (ctx, a) =>
-      commands.draft(ctx, str(a, "id"), str(a, "label"), str(a, "body"), opt(a, "channel"), opt(a, "send_at")),
+      commands.draft(
+        ctx,
+        str(a, "id"),
+        str(a, "label"),
+        str(a, "body"),
+        opt(a, "channel"),
+        opt(a, "send_at"),
+        opt(a, "item"),
+      ),
   },
   {
     name: "posted",
@@ -963,6 +977,11 @@ function waitNote(ctx: Ctx, key: string, verb: string): Note | null {
   return w === undefined ? null : { ticket: w.ticket_id, text: `${verb}: ${w.who} ${w.url}` };
 }
 
+function draftNote(ctx: Ctx, a: Args, text: string): Note {
+  const { ticket, on } = commands.draftTicket(ctx, str(a, "id"), str(a, "label"));
+  return { ticket, text: `${text}${on}` };
+}
+
 const HUMAN_NOTES: Record<string, (ctx: Ctx, a: Args) => Note | null> = {
   item_close: (ctx, a) => itemNote(ctx, str(a, "key"), "done"),
   item_snooze: (ctx, a) => itemNote(ctx, str(a, "key"), `later (${opt(a, "for") ?? "1d"})`),
@@ -971,23 +990,18 @@ const HUMAN_NOTES: Record<string, (ctx: Ctx, a: Args) => Note | null> = {
   item_unignore: (ctx, a) => itemNote(ctx, str(a, "key"), "shown again"),
   wait_close: (ctx, a) => waitNote(ctx, str(a, "wait"), "answered"),
   wait_reopen: (ctx, a) => waitNote(ctx, str(a, "wait"), "waiting again"),
-  posted: (_ctx, a) => ({ ticket: str(a, "id"), text: `sent draft "${str(a, "label")}"` }),
+  posted: (ctx, a) => draftNote(ctx, a, `sent draft "${str(a, "label")}"`),
   gate_reopen: (_ctx, a) => ({ ticket: str(a, "id"), text: "gate answer taken back" }),
   wait_unpinged: (ctx, a) => waitNote(ctx, str(a, "wait"), "ping taken back"),
-  draft_send_at: (_ctx, a) => ({ ticket: str(a, "id"), text: `draft "${str(a, "label")}" send time set back` }),
-  unposted: (_ctx, a) => ({ ticket: str(a, "id"), text: `draft "${str(a, "label")}" not sent` }),
-  draft_later: (_ctx, a) => ({
-    ticket: str(a, "id"),
-    text: `send draft "${str(a, "label")}" later (${opt(a, "for") ?? "tomorrow"})`,
-  }),
+  draft_send_at: (ctx, a) => draftNote(ctx, a, `draft "${str(a, "label")}" send time set back`),
+  unposted: (ctx, a) => draftNote(ctx, a, `draft "${str(a, "label")}" not sent`),
+  draft_later: (ctx, a) => draftNote(ctx, a, `send draft "${str(a, "label")}" later (${opt(a, "for") ?? "tomorrow"})`),
   ticket_order: (_ctx, a) => ({
     ticket: str(a, "id"),
     text: a.place === 0 ? "taken out of the order" : `put at #${a.place as number} in its folder`,
   }),
-  match: (_ctx, a) =>
-    a.answer === undefined
-      ? null
-      : { ticket: str(a, "id"), text: `draft "${str(a, "label")}" match: ${str(a, "answer")}` },
+  match: (ctx, a) =>
+    a.answer === undefined ? null : draftNote(ctx, a, `draft "${str(a, "label")}" match: ${str(a, "answer")}`),
 };
 
 export async function runRoute(ctx: Ctx, route: Route, args: Args, hooks: Hooks, human: boolean): Promise<Result> {

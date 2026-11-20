@@ -4,7 +4,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { DEFAULTS } from "./config.ts";
 import { HubError } from "./util.ts";
 
-export const SCHEMA_VERSION = "14";
+export const SCHEMA_VERSION = "15";
 
 export type Ticket = {
   id: string;
@@ -53,7 +53,10 @@ export type ScriptRow = {
 };
 
 export type DraftRow = {
-  ticket_id: string;
+  id: number;
+  ticket_id: string | null;
+  item: string | null;
+  closed_item: number | null;
   label: string;
   body: string;
   status: string;
@@ -65,6 +68,7 @@ export type DraftRow = {
   match_text: string | null;
   match_ref: string | null;
   send_at: string | null;
+  created_at: string | null;
 };
 export type ItemRow = {
   id: number;
@@ -147,6 +151,9 @@ CREATE TRIGGER ${fts}_au AFTER UPDATE ON ${table} BEGIN
 END;`;
 }
 
+const DRAFT_ITEM_INDEX = `CREATE INDEX draft_item ON draft(item);
+CREATE UNIQUE INDEX draft_item_label ON draft(item, label) WHERE ticket_id IS NULL;`;
+
 const SCHEMA = `
 CREATE TABLE ticket(
   id TEXT PRIMARY KEY,
@@ -160,7 +167,8 @@ CREATE TABLE note(id INTEGER PRIMARY KEY, ticket_id TEXT, title TEXT, body TEXT,
   UNIQUE(ticket_id, title));
 CREATE TABLE draft(id INTEGER PRIMARY KEY, ticket_id TEXT, label TEXT, body TEXT, status TEXT, channel TEXT, posted_at TEXT,
   sent_text TEXT, sent_ref TEXT, answer TEXT, match_text TEXT, match_ref TEXT, send_at TEXT,
-  created_at TEXT, updated_at TEXT, UNIQUE(ticket_id, label));
+  created_at TEXT, updated_at TEXT, item TEXT, closed_item INTEGER, UNIQUE(ticket_id, label));
+${DRAFT_ITEM_INDEX}
 CREATE TABLE item(id INTEGER PRIMARY KEY, source TEXT NOT NULL, ref TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, title TEXT,
   url TEXT, state TEXT, author TEXT, ticket_id TEXT, needs_me INTEGER NOT NULL DEFAULT 0,
   first_seen TEXT NOT NULL, changed_at TEXT NOT NULL, closed_at TEXT, snoozed_until TEXT, ignored TEXT,
@@ -208,6 +216,11 @@ DELETE FROM config WHERE key = 'ignoreRepos';`,
   },
   "12": { to: "13", sql: "ALTER TABLE item ADD COLUMN body TEXT;" },
   "13": { to: "14", sql: "ALTER TABLE item ADD COLUMN detail TEXT;" },
+  "14": {
+    to: "15",
+    sql: `ALTER TABLE draft ADD COLUMN item TEXT; ALTER TABLE draft ADD COLUMN closed_item INTEGER;
+${DRAFT_ITEM_INDEX}`,
+  },
 };
 
 function excludeIgnoredRepos(key: "githubReviewQuery" | "githubPrQuery", kind: string): string {
@@ -270,6 +283,10 @@ export function one<T>(db: DatabaseSync, sql: string, ...params: SQLInputValue[]
 
 export function all<T>(db: DatabaseSync, sql: string, ...params: SQLInputValue[]): T[] {
   return db.prepare(sql).all(...params) as unknown as T[];
+}
+
+export function draftOwner(d: DraftRow): string {
+  return d.ticket_id ?? d.item ?? "";
 }
 
 export function getTicket(db: DatabaseSync, id: string): Ticket {

@@ -34,7 +34,7 @@ read:   ticket <id> | board [regex] | next | gates | changed --since <YYYY-MM-DD
         steps <id>
 write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent] [--ref <url>]
         note <id> <title> (--file <path> | --stdin) [--kind detail] | note-rm <id> <title> | note-mv <id> <title> <new title>
-        draft <id> <label> (--file <path> | --stdin) [--channel <c>] [--send-at <when>]
+        draft <id | item url> <label> (--file <path> | --stdin) [--channel <c>] [--send-at <when>] [--item <url>]
         draft-rm <id> <label> (unsent only) | draft-mv <id> <label> <new label>
         draft-later <id> <label> [--for 1h|tomorrow|tomorrow 12:00]
         match <id> <label> --ref <url> (--file | --stdin) | match <id> <label> (yes | no)
@@ -74,6 +74,7 @@ const OPTIONS = {
   rev: { type: "string" },
   file: { type: "string" },
   channel: { type: "string" },
+  item: { type: "string" },
   at: { type: "string" },
   answer: { type: "string" },
   title: { type: "string" },
@@ -114,6 +115,7 @@ type Values = {
   rev?: string;
   file?: string;
   channel?: string;
+  item?: string;
   at?: string;
   answer?: string;
   title?: string;
@@ -258,6 +260,7 @@ const COMMANDS: Record<string, Handler> = {
       body: body(v, io),
       ...(v.channel === undefined ? {} : { channel: v.channel }),
       ...(v["send-at"] === undefined ? {} : { send_at: v["send-at"] }),
+      ...(v.item === undefined ? {} : { item: v.item }),
     });
   },
   "note-rm": (a) =>

@@ -303,7 +303,7 @@ describe("serve", () => {
   test("settings show the database and save config through the same checks as the CLI", async () => {
     const html = await (await fetch(`${server.url}/settings`)).text();
     assert.ok(html.includes(dbFile));
-    assert.match(html, /Schema<\/span><div class="set-control">v14/);
+    assert.match(html, /Schema<\/span><div class="set-control">v15/);
     const titles = [...html.matchAll(/<h2><button type="button" class="fold" data-fold="([^"]+)"/g)].map((m) => m[1]);
     assert.deepEqual(titles, ["Sources", "Agent", "Away", "Database", "Behavior", "Dashboard", "Keyboard"]);
     assert.equal(html.match(/<div class="col">/g)?.length, 1);
@@ -459,6 +459,33 @@ describe("serve", () => {
     assert.match(pageAfter.html, /data-key="td-tell qa" data-tab-panel="all" hidden>/);
     assert.match(homeAfter.html, /data-key="d-[^"]+" data-tab-panel="open all">/);
     assert.match(pageAfter.html, /<li class="empty" data-tab-panel="open">—<\/li>/);
+  });
+
+  test("an item row shows its open drafts with Copy and Sent, and the ticket page shows drafts of its items", async () => {
+    const pr = "https://github.com/acme/web/pull/140";
+    await hub(
+      ["item", "put", "--stdin"],
+      JSON.stringify({ source: "github", kind: "review_request", url: pr, title: "Cap exports", needs_me: true }),
+    );
+    await hub(["draft", pr, "review", "--stdin"], "LGTM");
+    const home = await (await fetch(`${server.url}/?part=1`)).text();
+    const row =
+      /<li[^>]*data-key="item-\d+"[\s\S]*?<\/li>/.exec(home.slice(home.indexOf("Cap exports") - 2000))?.[0] ?? "";
+    assert.match(row, /<span class="chip tone-teal" title="draft">review<\/span>/);
+    assert.match(row, /class="chip-btn" data-copy="LGTM">Copy</);
+    assert.match(
+      row,
+      new RegExp(`class="chip-btn primary" data-act="sent" data-ticket="${pr}" data-label="review">Sent<`),
+    );
+    assert.match(
+      home,
+      new RegExp(`data-key="d-${pr}-review"[^>]*>\\n<div class="d-head"><a [^>]*class="d-item"[^>]*>acme/web#140</a>`),
+    );
+
+    await hub(["item", "attach", pr, "ENG-7"]);
+    const page = await (await fetch(`${server.url}/t/ENG-7?part=1`)).text();
+    assert.match(page, new RegExp(`data-key="td-${pr}-review"`));
+    assert.match(page, new RegExp(`data-act="sent" data-ticket="${pr}" data-label="review"`));
   });
 
   test("a ticket page marks its drafts sent like the dashboard", async () => {

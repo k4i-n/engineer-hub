@@ -2,6 +2,7 @@ import type { Ctx, Result } from "./commands.ts";
 import {
   all,
   type DraftRow,
+  draftOwner,
   type EventRow,
   type ItemRow,
   one,
@@ -65,9 +66,10 @@ export function brief(ctx: Ctx): Result {
   );
   const draftLine = (d: DraftRow) =>
     [
-      d.ticket_id,
+      draftOwner(d),
       d.label,
       d.channel ?? "-",
+      ...(d.ticket_id !== null && d.item !== null ? [`for ${d.item}`] : []),
       ...(d.send_at ? [`send ${shown(d.send_at)}`] : []),
       firstLine(d.body),
     ].join(" | ");
