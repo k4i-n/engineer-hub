@@ -25,7 +25,7 @@ import { esc, renderLine, renderMarkdown } from "./markdown.ts";
 import { pins } from "./pins.ts";
 import { sections } from "./scripts.ts";
 import { progress } from "./steps.ts";
-import { nowIso, nowTs, sinceDate, startOfDayIso, today } from "./util.ts";
+import { githubRef, nowIso, nowTs, sinceDate, startOfDayIso, today } from "./util.ts";
 
 export const BRAND = "EngineerHub";
 
@@ -300,11 +300,6 @@ function section(title: string, count: number | null, body: string, cls: string,
 
 function empty(): string {
   return `<p class="empty">—</p>`;
-}
-
-function githubRef(url: string | null): string | null {
-  const m = /github\.com\/([^/]+\/[^/]+)\/(?:pull|issues)\/(\d+)/.exec(url ?? "");
-  return m ? `${m[1]}#${m[2]}` : null;
 }
 
 function prTone(state: string | null): { verb: string; tone: Tone } {
