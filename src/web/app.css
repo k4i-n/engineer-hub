@@ -995,7 +995,8 @@ button.busy::after {
   gap: 6px;
 }
 .d-body,
-.d-line {
+.d-line,
+.n-body {
   font-weight: 400;
   margin: 8px 0 0;
   padding: 8px 10px;
@@ -1270,6 +1271,7 @@ a.chip-btn:hover {
 .ngroup,
 .cleared,
 .d-fold,
+.n-fold,
 .more-fold {
   padding: 0;
   border-top: 0;
@@ -1280,12 +1282,14 @@ a.chip-btn:hover {
 .ngroup > summary,
 .cleared > summary,
 .d-fold > summary,
+.n-fold > summary,
 .more-fold > summary {
   list-style: none;
 }
 .ngroup > summary::-webkit-details-marker,
 .cleared > summary::-webkit-details-marker,
 .d-fold > summary::-webkit-details-marker,
+.n-fold > summary::-webkit-details-marker,
 .more-fold > summary::-webkit-details-marker {
   display: none;
 }
@@ -1364,6 +1368,37 @@ a.chip-btn:hover {
 .d-fold[open] .d-line,
 .d-fold:not([open]) .d-body {
   display: none;
+}
+.n-fold {
+  min-width: 0;
+}
+.n-fold > summary {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-weight: inherit;
+}
+.n-caret {
+  flex: none;
+  display: inline-flex;
+  color: var(--muted);
+  transform: rotate(-90deg);
+}
+.n-fold[open] .n-caret {
+  transform: none;
+}
+.n-caret svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.n-fold[open] :is(.need-title, .need-sub) {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .search {
   position: relative;
