@@ -326,9 +326,9 @@ function flat(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
-function moreText(i: ItemRow): { body?: string } {
-  if (i.body === null || flat(i.title ?? "").includes(flat(i.body))) return {};
-  return { body: i.body };
+function moreText(i: ItemRow): { body?: string; fold?: true } {
+  if (i.body !== null && !flat(i.title ?? "").includes(flat(i.body))) return { body: i.body };
+  return i.detail === null ? {} : { fold: true };
 }
 
 function withoutTicket(title: string, ticket: string | null): string {
