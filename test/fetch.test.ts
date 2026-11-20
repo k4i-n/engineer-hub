@@ -424,6 +424,40 @@ describe("github", () => {
     assert.match(await hub("items", "--needs-me"), /noisy\/pull\/1/);
   });
 
+  test("a new review request asks reviewAsk at once; an empty reviewAsk and an ignored repo ask nothing", async () => {
+    const asked = "https://github.com/acme/web/pull/7";
+    answers.gh = graphql([PR(asked)], []);
+    await hub("fetch", "github");
+    assert.match(await hub("items", "--needs-me"), /pull\/7 \| ask: Review this\? \(no answer yet\)$/m);
+    const page = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.match(page, /<span class="ask"><span>Review this\?<\/span><button[^>]*data-act="item-answer"/);
+
+    await hub("config", "reviewAsk", '""');
+    await hub("config", "githubReviewQuery", '"is:pr is:open review-requested:@me -repo:acme/noisy"');
+    answers.gh = graphql(
+      [PR(asked), PR("https://github.com/acme/web/pull/8"), PR("https://github.com/acme/noisy/pull/1")],
+      [],
+    );
+    await hub("fetch", "github");
+    const all = await hub("items", "--all");
+    assert.match(all, /web\/pull\/8$/m);
+    assert.match(all, /noisy\/pull\/1 \| ignored$/m);
+    assert.match(all, /web\/pull\/7 \| ask: Review this\? \(no answer yet\)$/m);
+  });
+
+  test("a review request done and then requested again reopens with its earlier answer", async () => {
+    const pr = "https://github.com/acme/web/pull/7";
+    answers.gh = graphql([PR(pr)], []);
+    await hub("fetch", "github");
+    await hub("item", "answer", pr, "yes");
+    answers.gh = graphql([], []);
+    await hub("fetch", "github");
+    assert.doesNotMatch(await hub("items", "--needs-me"), /pull\/7/);
+    answers.gh = graphql([PR(pr)], []);
+    await hub("fetch", "github");
+    assert.match(await hub("items", "--needs-me"), /pull\/7 \| ask: Review this\? yes$/m);
+  });
+
   test("without gh the source shows the error and Settings says how to fix it", async () => {
     assert.match(await hub("fetch"), /^github: gh is not installed$/);
     assert.match(await hub("sources"), /github \| last sync .* \| error: gh is not installed/);

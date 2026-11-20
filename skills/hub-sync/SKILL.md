@@ -29,7 +29,7 @@ Hub matches the engineer's own GitHub reviews to drafts on that PR itself; leave
 
 For each tracked item with no ticket whose title or link clearly belongs to an open ticket from the brief, `item_attach` it. When unsure, leave it.
 
-For each open review request with no `ask:` in its brief line, `item_ask` with `question: "Review this?"`. An answer shows as `ask: Review this? yes` (or `no`) and under "from you"; review only on yes, never answer it yourself.
+Hub asks "Review this?" on every new review request itself; do not ask it. An answer shows as `ask: Review this? yes` (or `no`) and under "from you"; review only on yes, never answer it yourself.
 
 ## 4. Sources hub does not fetch
 

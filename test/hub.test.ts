@@ -553,7 +553,7 @@ describe("items", () => {
     assert.equal(await ok("item", "put", "--stdin"), "items: 0 new, 0 changed, 2 unchanged");
     assert.equal(
       await ok("items", "--needs-me"),
-      `#3 github/review_request | needs you | ENG-7: cap exports | open | ENG-7 | ${review}`,
+      `#3 github/review_request | needs you | ENG-7: cap exports | open | ENG-7 | ${review} | ask: Review this? (no answer yet)`,
     );
     assert.match(await ok("events", "ENG-7"), /\[sync\] New Review request ENG-7: cap exports/);
 
@@ -1013,14 +1013,14 @@ describe("db", () => {
     db.close();
     assert.throws(
       () => serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] }),
-      /has schema v1, this hub needs v19: move the file aside and re-import/,
+      /has schema v1, this hub needs v20: move the file aside and re-import/,
     );
     server = await serve({ dbPath: join(dir, "other.db"), port: 0, now: () => now, env: {}, fetchers: [] });
   });
 });
 
 describe("schema upgrade", () => {
-  test("a v2 database gains draft.send_at, the script table, ticket.position and item.ignored, source.warning, item.detached, script_source.enabled and section, item verdicts, item.body and item.detail, draft.item, draft.closed_item and draft.match_no, item.ask, draft.verdict and draft comments, draft.internal, and becomes v19, when hub serve opens it", async () => {
+  test("a v2 database gains draft.send_at, the script table, ticket.position and item.ignored, source.warning, item.detached, script_source.enabled and section, item verdicts, item.body and item.detail, draft.item, draft.closed_item and draft.match_no, item.ask, draft.verdict and draft comments, draft.internal, and becomes v20, when hub serve opens it", async () => {
     await imported();
     await server.close();
     const db = new DatabaseSync(dbFile);
@@ -1029,7 +1029,7 @@ describe("schema upgrade", () => {
     );
     db.close();
     server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] });
-    assert.equal(sql<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'")[0]?.value, "19");
+    assert.equal(sql<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'")[0]?.value, "20");
     assert.equal(
       sql<{ n: number }>("SELECT count(*) AS n FROM draft WHERE item IS NOT NULL OR internal != 0")[0]?.n,
       0,
@@ -1074,6 +1074,35 @@ describe("schema upgrade to v11", () => {
     );
     assert.equal(await ok("config", "githubPrQuery"), 'githubPrQuery = "is:pr author:@me -repo:acme/web"');
     assert.equal(sql<{ n: number }>("SELECT count(*) AS n FROM config WHERE key = 'ignoreRepos'")[0]?.n, 0);
+  });
+});
+
+describe("schema upgrade to v20", () => {
+  test("open review requests with no question get reviewAsk; closed, ignored and asked ones keep theirs", async () => {
+    await server.close();
+    const db = new DatabaseSync(dbFile);
+    const insert = db.prepare(
+      `INSERT INTO item(source, ref, kind, first_seen, changed_at, closed_at, ignored, ask)
+       VALUES ('github', ?, ?, '2026-11-20T00:00:00Z', '2026-11-20T00:00:00Z', ?, ?, ?)`,
+    );
+    insert.run("open", "review_request", null, null, null);
+    insert.run("closed", "review_request", "2026-11-20T01:00:00Z", null, null);
+    insert.run("ignored", "review_request", "2026-11-20T01:00:00Z", "item", null);
+    insert.run("asked", "review_request", null, null, "Approve as is?");
+    insert.run("pr", "pr", null, null, null);
+    db.exec("UPDATE meta SET value = '19' WHERE key = 'schema_version'");
+    db.close();
+    server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] });
+    const asks = Object.fromEntries(
+      sql<{ ref: string; ask: string | null }>("SELECT ref, ask FROM item").map((r) => [r.ref, r.ask]),
+    );
+    assert.deepEqual(asks, {
+      open: "Review this?",
+      closed: null,
+      ignored: null,
+      asked: "Approve as is?",
+      pr: null,
+    });
   });
 });
 
@@ -1326,6 +1355,56 @@ describe("brief for judging", () => {
     await ok("posted", "ENG-7", "tell web", "--ref", "https://acme.slack.com/archives/C1/p1763350000000100", "--stdin");
     assert.match(await ok("brief"), /to judge, the user's sent messages: none/);
     assert.match(await ok("items", "--all", "--source", "slack"), /shipped it \| sent \| https:\S+ \| closed/);
+  });
+});
+
+describe("review question", () => {
+  const put = (url: string, extra: object = {}) => {
+    stdin = JSON.stringify({ source: "github", kind: "review_request", url, state: "open", needs_me: true, ...extra });
+    return ok("item", "put", "--stdin");
+  };
+
+  test("a fetch never overwrites an agent's question or the human's answer", async () => {
+    await imported();
+    const own = "https://github.com/acme/web/pull/140";
+    const answered = "https://github.com/acme/web/pull/141";
+    await put(own);
+    await put(answered);
+    await ok("item", "ask", own, "Approve", "as", "is?");
+    await ok("item", "answer", answered, "yes");
+    await put(own, { title: "renamed" });
+    await put(answered, { title: "renamed too" });
+    const needs = await ok("items", "--needs-me");
+    assert.match(needs, /pull\/140 \| ask: Approve as is\? \(no answer yet\)$/m);
+    assert.match(needs, /pull\/141 \| ask: Review this\? yes$/m);
+  });
+
+  test("No to reviewAsk closes the item and unanswer reopens it; No to another question does not close", async () => {
+    await imported();
+    const pr = "https://github.com/acme/web/pull/142";
+    const other = "https://github.com/acme/web/pull/143";
+    await put(pr);
+    await put(other);
+    await ok("item", "ask", other, "Approve", "as", "is?");
+    await ok("item", "answer", pr, "no");
+    await ok("item", "answer", other, "no");
+    assert.doesNotMatch(await ok("items", "--needs-me"), /pull\/142/);
+    assert.match(await ok("items", "--needs-me"), /pull\/143 \| ask: Approve as is\? no$/m);
+    assert.match(await ok("items", "--all"), /pull\/142 \| ask: Review this\? no \| closed$/m);
+    await ok("item", "unanswer", pr);
+    assert.match(await ok("items", "--needs-me"), /pull\/142 \| ask: Review this\? \(no answer yet\)$/m);
+
+    await ok("item", "close", pr);
+    now = new Date(now.getTime() + 60_000);
+    await ok("item", "answer", pr, "no");
+    await ok("item", "unanswer", pr);
+    assert.match(await ok("items", "--all"), /pull\/142 \| ask: Review this\? \(no answer yet\) \| closed$/m);
+  });
+
+  test("reviewAsk is one line of at most 200 chars", async () => {
+    assert.match((await hub("config", "reviewAsk", JSON.stringify("x".repeat(201)))).err, /one line of at most 200/);
+    assert.match((await hub("config", "reviewAsk", '"a\\nb"')).err, /one line of at most 200/);
+    assert.equal(await ok("config", "reviewAsk", '"Look at this?"'), 'reviewAsk = "Look at this?"');
   });
 });
 

@@ -319,7 +319,7 @@ describe("serve", () => {
   test("settings show the database and save config through the same checks as the CLI", async () => {
     const html = await (await fetch(`${server.url}/settings`)).text();
     assert.ok(html.includes(dbFile));
-    assert.match(html, /Schema<\/span><div class="set-control">v19/);
+    assert.match(html, /Schema<\/span><div class="set-control">v20/);
     const titles = [...html.matchAll(/<h2><button type="button" class="fold" data-fold="([^"]+)"/g)].map((m) => m[1]);
     assert.deepEqual(titles, ["Sources", "Agent", "Away", "Database", "Behavior", "Dashboard", "Keyboard"]);
     assert.equal(html.match(/<div class="col">/g)?.length, 1);
@@ -596,14 +596,14 @@ describe("serve", () => {
       ["item", "put", "--stdin"],
       JSON.stringify({ source: "github", kind: "review_request", url: pr, title: "Retry webhooks", needs_me: true }),
     );
-    await hub(["item", "ask", pr, "Review", "this?"]);
+    await hub(["item", "ask", pr, "Retry", "first?"]);
     const row = async () => {
       const home = await (await fetch(`${server.url}/?part=1`)).text();
       return /<li[^>]*data-key="item-\d+"(?:(?!<\/li>)[\s\S])*Retry webhooks[\s\S]*?<\/li>/.exec(home)?.[0] ?? "";
     };
     assert.match(
       await row(),
-      /<span class="ask"><span>Review this\?<\/span><button[^>]*data-act="item-answer"[^>]*data-answer="yes"/,
+      /<span class="ask"><span>Retry first\?<\/span><button[^>]*data-act="item-answer"[^>]*data-answer="yes"/,
     );
     const id = /data-key="item-(\d+)"/.exec(await row())?.[1] ?? "";
     const answered = await fetch(`${server.url}/api/v1/items/${id}/answer`, {
@@ -612,10 +612,43 @@ describe("serve", () => {
       body: JSON.stringify({ answer: "yes" }),
     });
     assert.equal(answered.status, 200);
-    assert.match(await row(), /<span class="ask"><span>Review this\? Yes<\/span><\/span>/);
-    assert.match(await hub(["brief"]), /yes to "Review this\?": review_request Retry webhooks/);
+    assert.match(await row(), /<span class="ask"><span>Retry first\? Yes<\/span><\/span>/);
+    assert.match(await hub(["brief"]), /answered: #\d+ Retry first\? yes \(acme\/web#141\)/);
     assert.equal((await call("POST", `/items/${id}/unanswer`, {})).status, 200);
     assert.match(await row(), /data-act="item-answer"/);
+  });
+
+  test("a human answer to a review request reaches moved once, and No closes the row until Undo", async () => {
+    const pr = "https://github.com/acme/web/pull/150";
+    await hub(
+      ["item", "put", "--stdin"],
+      JSON.stringify({ source: "github", kind: "review_request", url: pr, title: "Cache tokens", needs_me: true }),
+    );
+    await hub(["moved", "--as", "agent-1"]);
+    const id = /^#(\d+)/m.exec(await hub(["items", "--needs-me"]))?.[1] ?? "";
+    const answer = (value: string) =>
+      fetch(`${server.url}/api/v1/items/${id}/answer`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${server.token}`, "x-hub-actor": "human" },
+        body: JSON.stringify({ answer: value }),
+      });
+    assert.equal((await answer("yes")).status, 200);
+    assert.match(
+      await hub(["moved", "--as", "agent-1"]),
+      new RegExp(`you: answered: #${id} Review this\\? yes \\(acme/web#150\\)`),
+    );
+    assert.equal(await hub(["moved", "--as", "agent-1"]), "");
+
+    assert.equal((await call("POST", `/items/${id}/unanswer`, {})).status, 200);
+    assert.equal((await answer("no")).status, 200);
+    assert.doesNotMatch(await hub(["items", "--needs-me"]), /pull\/150/);
+    const home = await (await fetch(`${server.url}/?part=1`)).text();
+    const row = new RegExp(`<li[^>]*data-key="item-${id}"[^>]*>(?:(?!<\\/li>)[\\s\\S])*<\\/li>`).exec(home)?.[0] ?? "";
+    assert.match(row, /<span class="dim-label">done<\/span>/);
+    assert.match(row, new RegExp(`data-act="item-unanswer" data-id="${id}"`));
+    assert.match(row, /Review this\? No/);
+    assert.equal((await call("POST", `/items/${id}/unanswer`, {})).status, 200);
+    assert.match(await hub(["items", "--needs-me"]), /pull\/150 \| ask: Review this\? \(no answer yet\)$/m);
   });
 
   test("a review draft shows its verdict and each file:line comment with Copy", async () => {
@@ -972,7 +1005,7 @@ describe("serve", () => {
     assert.ok(minutes > 58 && minutes <= 60, `snoozed ${minutes} minutes`);
     assert.equal((await call("POST", `/items/${id}/snooze`, { for: "soon" })).status, 400);
     assert.equal((await call("POST", `/items/${id}/close`, {})).status, 200);
-    assert.match(await hub(["items", "--all"]), /pull\/9 \| closed$/m);
+    assert.match(await hub(["items", "--all"]), /pull\/9 \| ask: Review this\? \(no answer yet\) \| closed$/m);
 
     await hub(["draft", "ENG-7", "ask product", "--stdin"], "Can we cap exports?");
     assert.equal(
