@@ -22,7 +22,7 @@ import { esc, renderLine, renderMarkdown } from "./markdown.ts";
 import { pins } from "./pins.ts";
 import { sections } from "./scripts.ts";
 import { progress } from "./steps.ts";
-import { cut, nowIso, nowTs, sinceDate, startOfDayIso, today } from "./util.ts";
+import { nowIso, nowTs, sinceDate, startOfDayIso, today } from "./util.ts";
 
 export const BRAND = "EngineerHub";
 
@@ -340,7 +340,8 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
   const items = all<ItemRow>(
     ctx.db,
     `SELECT * FROM item WHERE (needs_me = 1 OR (kind = 'pr' AND (coalesce(state, '') NOT IN ('merged', 'closed') OR (state = 'merged' AND changed_at >= ?))))
-       AND ignored IS NULL AND (closed_at IS NULL OR closed_at >= ?)`,
+       AND ignored IS NULL AND (closed_at IS NULL OR closed_at >= ?)
+       OR ignored = 'item' AND coalesce(state, '') NOT IN ('merged', 'closed', 'done')`,
     from,
     dayStart,
   );
@@ -368,7 +369,14 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
     const v = itemVerb(i);
     const section = cards.get(i.source);
     const snoozed = i.snoozed_until !== null && i.snoozed_until > now;
-    const dim = i.closed_at !== null ? "done" : snoozed ? `until ${when(ctx, i.snoozed_until ?? now)}` : null;
+    const dim =
+      i.ignored !== null
+        ? "ignored"
+        : i.closed_at !== null
+          ? "done"
+          : snoozed
+            ? `until ${when(ctx, i.snoozed_until ?? now)}`
+            : null;
     const url = i.url ?? (/^https?:/.test(i.ref) ? i.ref : null);
     list.push({
       key: `item-${i.id}`,
@@ -383,9 +391,9 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
       href: url,
       dim,
       ok: { label: "Done", data: { act: "item-done", id: i.id } },
-      undo: dim === null ? null : { act: "item-reopen", id: i.id },
+      undo: dim === null ? null : { act: i.ignored === null ? "item-reopen" : "item-unignore", id: i.id },
       later: dim === null ? { act: "item-snooze", data: { id: i.id } } : null,
-      ...(i.kind === "review_request" || i.kind === "pr" ? { ignore: i.id } : {}),
+      ...((i.kind === "review_request" || i.kind === "pr") && i.ignored === null ? { ignore: i.id } : {}),
       ...(i.needs_me === 0 ? { fyi: true } : {}),
       ...(section === undefined ? {} : { section: sectionId(section) }),
     });
@@ -1384,17 +1392,6 @@ function addSourceRow(): string {
   return row("Add", codeBlock("hub source add <name> --every 5m -- <program>"));
 }
 
-function ignoredRows(ctx: Ctx): string {
-  const list = all<ItemRow>(ctx.db, "SELECT * FROM item WHERE ignored = 'item' ORDER BY id").map(
-    (i) =>
-      `<li><span class="ign-name">${esc(githubRef(i.url) ?? i.source)} · ${esc(cut(i.title ?? i.ref, 80))}</span>${button("Undo", { act: "item-unignore", id: i.id })}</li>`,
-  );
-  return row(
-    "Ignored",
-    list.length === 0 ? `<span class="muted">–</span>` : `<ul class="ignored">${list.join("")}</ul>`,
-  );
-}
-
 function lastBackup(ctx: Ctx, newest: Backup | undefined): string {
   const state = backupState(ctx);
   if (state?.error != null) return `<span class="src-state tone-red">${esc(state.error)}</span>`;
@@ -1528,7 +1525,6 @@ ${section(
       `<input class="text" data-config-input="slackAlertChannels" data-list value="${esc(c.slackAlertChannels.map((n) => `#${n.replace(/^#/, "")}`).join(", "))}" spellcheck="false">`,
       c.fetch.slack !== true,
     ) +
-    ignoredRows(ctx) +
     row(
       "Every",
       segmented("fetchEvery", c.fetchEvery, [

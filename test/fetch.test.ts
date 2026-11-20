@@ -275,7 +275,7 @@ describe("github", () => {
     assert.ok(settings.includes(`data-config-input="githubPrQuery" value="${narrow}"`));
   });
 
-  test("an ignored PR stays out whatever changes, hub items --all still lists it, and unignore brings it back", async () => {
+  test("an ignored PR stays out whatever changes, dimmed in its card's All tab with Undo and in hub items --all, until unignored", async () => {
     const mine = "https://github.com/acme/web/pull/101";
     answers.gh = graphql([], [PR(mine, { reviewDecision: "APPROVED" })]);
     await hub("fetch", "github");
@@ -287,11 +287,12 @@ describe("github", () => {
     await hub("fetch", "github");
     assert.doesNotMatch(await hub("items", "--needs-me"), /pull\/101/);
     assert.match(await hub("items", "--all"), /pull\/101 \| ignored$/m);
-    assert.doesNotMatch(await (await fetch(`${server.url}/?part=1`)).text(), /pull\/101/);
+    const page = await (await fetch(`${server.url}/?part=1`)).text();
     assert.match(
-      await (await fetch(`${server.url}/settings`)).text(),
-      /title of 101<\/span>[^<]*<button[^>]*data-act="item-unignore"/,
+      page,
+      /<li class="need tone-\w+ is-dim" data-key="item-\d+"[^>]*>[\s\S]*?title of 101[\s\S]*?<span class="dim-label">ignored<\/span>[\s\S]*?data-act="item-unignore"/,
     );
+    assert.doesNotMatch(await (await fetch(`${server.url}/settings`)).text(), /Ignored/);
     await hub("item", "unignore", mine);
     assert.match(await hub("items", "--needs-me"), /pull\/101/);
   });
