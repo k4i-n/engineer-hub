@@ -93,7 +93,8 @@ function store(key, value) {
 }
 
 const TODAY_SHOWN = 3;
-let inPlace = new Set();
+const LEAVE_MS = 4000;
+const leaving = new Map();
 
 function foldGroups() {
   const closed = new Set(stored("hub.closedGroups", []));
@@ -116,12 +117,26 @@ function foldSections() {
 }
 
 function markCleared() {
-  const kept = new Set();
-  for (const li of app.querySelectorAll("details.ngroup > ul.needs-list > li")) {
-    if (li.classList.contains("is-dim") && !inPlace.has(li.dataset.key)) li.dataset.tabPanel = "all";
-    else kept.add(li.dataset.key);
-  }
-  inPlace = kept;
+  for (const li of app.querySelectorAll("details.ngroup > ul.needs-list > li.is-dim")) li.dataset.tabPanel = "all";
+}
+
+function shownKeys() {
+  return new Set([...app.querySelectorAll("li[data-key]")].filter((li) => !li.hidden).map((li) => li.dataset.key));
+}
+
+function leave(key) {
+  leaving.set(
+    key,
+    setTimeout(() => {
+      leaving.delete(key);
+      applyTab();
+    }, LEAVE_MS),
+  );
+}
+
+function stay(key) {
+  clearTimeout(leaving.get(key));
+  leaving.delete(key);
 }
 
 function foldToday() {
@@ -144,11 +159,11 @@ function foldToday() {
   }
 }
 
-function afterRender(first) {
+function afterRender(first, shown) {
   foldGroups();
   foldSections();
   markCleared();
-  applyTab();
+  applyTab(shown);
   foldToday();
   const keys = needKeys();
   const section = app.querySelector("[data-needs-count]");
@@ -193,6 +208,7 @@ async function refresh() {
     const boxFocused = document.activeElement === box;
     const caret = box?.selectionStart ?? null;
     const focusKey = document.activeElement?.closest?.("[data-key]")?.dataset.key;
+    const shown = shownKeys();
     app.innerHTML = html;
     for (const d of app.querySelectorAll("details[data-key]")) if (open.has(d.dataset.key)) d.open = true;
     for (const e of app.querySelectorAll("[data-keep-scroll][data-key]")) e.scrollTop = scroll.get(e.dataset.key) ?? 0;
@@ -208,7 +224,7 @@ async function refresh() {
     }
     if (focusKey && !boxFocused)
       app.querySelector(`[data-key="${CSS.escape(focusKey)}"] button`)?.focus({ preventScroll: true });
-    afterRender(false);
+    afterRender(false, shown);
   } finally {
     busy = false;
     if (again) {
@@ -387,7 +403,7 @@ function currentTab(bar) {
   return buttons.some((b) => b.dataset.tab === saved) ? saved : buttons[0]?.dataset.tab;
 }
 
-function applyTab() {
+function applyTab(shown = new Set()) {
   for (const bar of app.querySelectorAll("[data-tabs]")) {
     const buttons = [...bar.querySelectorAll("[data-tab]")];
     const current = currentTab(bar);
@@ -396,8 +412,15 @@ function applyTab() {
       b.classList.toggle("on", on);
       b.setAttribute("aria-selected", String(on));
     }
-    for (const el of bar.closest("section")?.querySelectorAll("[data-tab-panel]") ?? [])
-      el.hidden = !el.dataset.tabPanel.split(" ").includes(current);
+    for (const el of bar.closest("section")?.querySelectorAll("[data-tab-panel]") ?? []) {
+      const key = el.dataset.key;
+      const out = !el.dataset.tabPanel.split(" ").includes(current);
+      if (!out) stay(key);
+      else if (shown.has(key) && !leaving.has(key)) leave(key);
+      const stays = out && leaving.has(key);
+      el.hidden = out && !stays;
+      el.classList.toggle("leaving", stays);
+    }
   }
 }
 
