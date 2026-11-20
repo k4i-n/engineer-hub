@@ -97,7 +97,36 @@ afterEach(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+async function askBoth(): Promise<void> {
+  await hub(["set", "ENG-42", "gate", "Merge #101?"]);
+  await hub(["set", "ENG-42", "decide", "Keep refresh tokens in a cookie or a header?"]);
+}
+
 describe("serve", () => {
+  test("only a gate or decide that is a question asks and counts; a rule shows on the ticket and lint lists it", async () => {
+    const home = async () => {
+      const html = await (await fetch(`${server.url}/?part=1`)).text();
+      return { html, needs: Number(/data-needs-count="(\d+)"/.exec(html)?.[1]) };
+    };
+    const rules = await home();
+    assert.doesNotMatch(rules.html, /data-key="(gate|decide)-ENG-42"/);
+    assert.match(await (await call("GET", "/lint")).text(), /ENG-42: gate is not a question/);
+
+    await hub(["set", "ENG-42", "gate", "Khai go per deploy"]);
+    await hub(["set", "ENG-42", "decide", "Merge #1648?"]);
+    const one = await home();
+    assert.doesNotMatch(one.html, /data-key="gate-ENG-42"/);
+    assert.match(one.html, /data-key="decide-ENG-42"/);
+    assert.equal(one.needs, rules.needs + 1);
+    const page = await (await fetch(`${server.url}/t/ENG-42?part=1`)).text();
+    assert.match(page, /<dt>Rule<\/dt><dd class="md"><p>Khai go per deploy<\/p><\/dd><dt>Decide<\/dt>/);
+
+    await hub(["set", "ENG-42", "gate", "Merge #1648?"]);
+    const asked = await home();
+    assert.match(asked.html, /data-key="gate-ENG-42"[\s\S]*?data-act="gate" data-ticket="ENG-42" data-answer="yes"/);
+    assert.equal(asked.needs, rules.needs + 2);
+  });
+
   test("index and ticket pages render from the DB; a part request returns the body only", async () => {
     const index = await fetch(`${server.url}/`);
     assert.equal(index.status, 200);
@@ -111,7 +140,6 @@ describe("serve", () => {
       html,
       /href="\/t\/ENG-42" title="ENG-42">ENG-42<\/a><span class="t-title">Sync login sessions across devices/,
     );
-    assert.match(html, /waiting on design review/);
     assert.match(index.headers.get("content-security-policy") ?? "", /script-src 'self'/);
     assert.match(html, /<script src="\/app.js" defer><\/script>/);
     assert.match(html, /<div class="news" aria-live="polite" hidden><\/div>/);
@@ -124,10 +152,12 @@ describe("serve", () => {
     const ticket = await (await fetch(`${server.url}/t/ENG-42`)).text();
     assert.match(ticket, /<h1>Sync login sessions across devices<\/h1>/);
     assert.match(ticket, /Timeline/);
+    assert.match(ticket, /<dt>Rule<\/dt><dd class="md"><p>waiting on design review<\/p><\/dd>/);
     assert.equal((await fetch(`${server.url}/t/NOPE-1`)).status, 404);
   });
 
   test("needs you ranks by kind, keeps done rows in place dimmed with undo, and answers gates", async () => {
+    await askBoth();
     const lines = [
       {
         source: "github",
@@ -815,6 +845,7 @@ describe("serve", () => {
   });
 
   test("the overview sits in the top row and counts needs, steps, tickets and steps done per day", async () => {
+    await askBoth();
     await hub(["step", "add", "ENG-42", "write the migration"]);
     await hub(["step", "add", "ENG-42", "ship it"]);
     await hub(["step", "done", "ENG-42", "1"]);

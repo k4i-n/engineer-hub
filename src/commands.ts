@@ -41,6 +41,10 @@ export function has(value: string | null): value is string {
   return value !== null && value.trim() !== "" && value.trim() !== "-";
 }
 
+export function asks(value: string | null): value is string {
+  return has(value) && /[?？]$/.test(value.trim());
+}
+
 function rank(priority: string | null): number {
   return PRIORITY_RANK[(priority ?? "").trim().toLowerCase()] ?? 4;
 }
@@ -501,6 +505,11 @@ export function lint(ctx: Ctx): Result {
   for (const t of openTickets(ctx).sort((a, b) => a.id.localeCompare(b.id))) {
     for (const field of ["status", "next", "owner"] as const) {
       if (!t[field]?.trim()) findings.push(`${t.id}: missing ${field}`);
+    }
+    for (const field of ["gate", "decide"] as const) {
+      if (has(t[field]) && !asks(t[field])) {
+        findings.push(`${t.id}: ${field} is not a question (no ?), so it shows as a rule and asks nothing`);
+      }
     }
     for (const field of LIMITED_FIELDS) {
       const value = t[field];
