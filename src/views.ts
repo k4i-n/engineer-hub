@@ -1497,6 +1497,58 @@ export function settingsBody(
 <main class="grid settings">
 <div class="col">
 ${section(
+  "Sources",
+  null,
+  sourceRows(ctx, fetching) +
+    addSourceRow() +
+    row(
+      "Review requests",
+      `<input class="text" data-config-input="githubReviewQuery" value="${esc(c.githubReviewQuery)}" spellcheck="false">`,
+      c.fetch.github !== true,
+    ) +
+    row(
+      "My PRs",
+      `<input class="text" data-config-input="githubPrQuery" value="${esc(c.githubPrQuery)}" spellcheck="false">`,
+      c.fetch.github !== true,
+    ) +
+    row(
+      "Alert channels",
+      `<input class="text" data-config-input="slackAlertChannels" data-list value="${esc(c.slackAlertChannels.map((n) => `#${n.replace(/^#/, "")}`).join(", "))}" spellcheck="false">`,
+      c.fetch.slack !== true,
+    ) +
+    row(
+      "Every",
+      segmented("fetchEvery", c.fetchEvery, [
+        ["1m", "1 min"],
+        ["5m", "5 min"],
+        ["15m", "15 min"],
+        ["30m", "30 min"],
+      ]),
+      !fetching.some((f) => f.script === null && f.on),
+    ),
+  "set-sec",
+)}
+${section("Away", null, awayRows(ctx, away), "set-sec")}
+${section("Notifications", null, row("New items", toggle("notifyNew", c.notifyNew)) + row("Sound", toggle("notifySound", c.notifySound)), "set-sec")}
+${section(
+  "Agent",
+  null,
+  row("Auto sync", toggle("autoSync", c.autoSync)) +
+    row(
+      "Every",
+      segmented("syncEvery", c.syncEvery, [
+        ["15m", "15 min"],
+        ["30m", "30 min"],
+        ["1h", "1 hour"],
+        ["2h", "2 hours"],
+        ["4h", "4 hours"],
+      ]),
+      !c.autoSync,
+    ) +
+    row("Command", codeBlock(JSON.stringify(c.syncCommand))),
+  "set-sec",
+)}
+${section(
   "Dashboard",
   null,
   row(
@@ -1548,8 +1600,6 @@ ${section(
     ),
   "set-sec",
 )}
-${section("Notifications", null, row("New items", toggle("notifyNew", c.notifyNew)) + row("Sound", toggle("notifySound", c.notifySound)), "set-sec")}
-${section("Away", null, awayRows(ctx, away), "set-sec")}
 ${section(
   "Appearance",
   null,
@@ -1562,59 +1612,6 @@ ${section(
     ]),
   ) +
     row("Time zone", `<input class="text" data-config-input="timezone" value="${esc(c.timezone)}" spellcheck="false">`),
-  "set-sec",
-)}
-${section("Keyboard", null, `<dl class="keys">${shortcuts.map(([k, v]) => `<dt><kbd>${esc(k)}</kbd></dt><dd>${esc(v)}</dd>`).join("")}</dl>`, "set-sec")}
-</div>
-<div class="col">
-${section(
-  "Agent",
-  null,
-  row("Auto sync", toggle("autoSync", c.autoSync)) +
-    row(
-      "Every",
-      segmented("syncEvery", c.syncEvery, [
-        ["15m", "15 min"],
-        ["30m", "30 min"],
-        ["1h", "1 hour"],
-        ["2h", "2 hours"],
-        ["4h", "4 hours"],
-      ]),
-      !c.autoSync,
-    ) +
-    row("Command", codeBlock(JSON.stringify(c.syncCommand))),
-  "set-sec",
-)}
-${section(
-  "Sources",
-  null,
-  sourceRows(ctx, fetching) +
-    addSourceRow() +
-    row(
-      "Review requests",
-      `<input class="text" data-config-input="githubReviewQuery" value="${esc(c.githubReviewQuery)}" spellcheck="false">`,
-      c.fetch.github !== true,
-    ) +
-    row(
-      "My PRs",
-      `<input class="text" data-config-input="githubPrQuery" value="${esc(c.githubPrQuery)}" spellcheck="false">`,
-      c.fetch.github !== true,
-    ) +
-    row(
-      "Alert channels",
-      `<input class="text" data-config-input="slackAlertChannels" data-list value="${esc(c.slackAlertChannels.map((n) => `#${n.replace(/^#/, "")}`).join(", "))}" spellcheck="false">`,
-      c.fetch.slack !== true,
-    ) +
-    row(
-      "Every",
-      segmented("fetchEvery", c.fetchEvery, [
-        ["1m", "1 min"],
-        ["5m", "5 min"],
-        ["15m", "15 min"],
-        ["30m", "30 min"],
-      ]),
-      !fetching.some((f) => f.script === null && f.on),
-    ),
   "set-sec",
 )}
 ${section(
@@ -1651,6 +1648,7 @@ ${section(
     row("Last", `${lastBackup(ctx, db.backups[0])}${button("Back up now", { act: "backup" })}`),
   "set-sec",
 )}
+${section("Keyboard", null, `<dl class="keys">${shortcuts.map(([k, v]) => `<dt><kbd>${esc(k)}</kbd></dt><dd>${esc(v)}</dd>`).join("")}</dl>`, "set-sec")}
 </div>
 </main>`;
 }
