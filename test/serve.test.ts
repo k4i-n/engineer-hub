@@ -145,7 +145,7 @@ describe("serve", () => {
     const before = await (await fetch(`${server.url}/?part=1`)).text();
     assert.deepEqual(groups(before).slice(0, 2), ["fix", "review"]);
     assert.doesNotMatch(before, /class="stat /);
-    assert.match(before, /data-needs-count="4"/);
+    assert.match(before, /data-needs-count="5"/);
     const id = /data-act="item-done" data-id="(\d+)"/.exec(before)?.[1] ?? "";
     await call("POST", `/items/${id}/close`, {});
     const after = await (await fetch(`${server.url}/?part=1`)).text();
@@ -154,7 +154,7 @@ describe("serve", () => {
       after,
       /is-dim[^>]*data-key="item-\d+"[\s\S]*?<span class="dim-label">done<\/span>[\s\S]*?<span class="rail"><button[^>]*data-act="item-reopen"[^>]*data-hotkey="u"/,
     );
-    assert.match(after, /data-needs-count="3"/);
+    assert.match(after, /data-needs-count="4"/);
     assert.equal((await call("POST", "/tickets/ENG-42/gate", { answer: "yes" })).status, 200);
     assert.match(await (await fetch(`${server.url}/?part=1`)).text(), /<span class="dim-label">yes<\/span>/);
   });
@@ -304,7 +304,7 @@ describe("serve", () => {
   test("settings show the database and save config through the same checks as the CLI", async () => {
     const html = await (await fetch(`${server.url}/settings`)).text();
     assert.ok(html.includes(dbFile));
-    assert.match(html, /Schema<\/span><div class="set-control">v18/);
+    assert.match(html, /Schema<\/span><div class="set-control">v19/);
     const titles = [...html.matchAll(/<h2><button type="button" class="fold" data-fold="([^"]+)"/g)].map((m) => m[1]);
     assert.deepEqual(titles, ["Sources", "Agent", "Away", "Database", "Behavior", "Dashboard", "Keyboard"]);
     assert.equal(html.match(/<div class="col">/g)?.length, 1);
@@ -430,36 +430,42 @@ describe("serve", () => {
     );
   });
 
-  test("Drafts on the dashboard and the ticket page open on unsent drafts, with sent ones under All", async () => {
-    const counts = async (path: string) => {
-      const html = await (await fetch(`${server.url}${path}`)).text();
-      const bar = /data-tabs="drafts">[\s\S]*?<\/span>/.exec(html)?.[0] ?? "";
-      const tab = (name: string) =>
-        Number(new RegExp(`data-tab="${name}" aria-selected="[a-z]+">[A-Za-z]+ <b>(\\d+)</b>`).exec(bar)?.[1]);
-      return { open: tab("open"), all: tab("all"), html };
+  test("an unsent ticket draft is a Send row under Reply's Open tab; once sent it stays on the ticket page only", async () => {
+    const home = async () => {
+      const html = await (await fetch(`${server.url}/?part=1`)).text();
+      return {
+        html,
+        reply: /data-group="reply"[\s\S]*?<\/section>/.exec(html)?.[0] ?? "",
+        needs: Number(/data-needs-count="(\d+)"/.exec(html)?.[1]),
+      };
     };
-    const home = await counts("/?part=1");
+    const counts = async (path: string) => tabCounts(await (await fetch(`${server.url}${path}`)).text(), "drafts");
+    const before = await home();
     const page = await counts("/t/ENG-7?part=1");
-    assert.match(
-      home.html,
-      /data-fold="Drafts" aria-expanded="true">Drafts<\/button><\/h2><span class="tabs" role="tablist" data-tabs="drafts"><button[^>]*data-tab="open" aria-selected="true">Open/,
-    );
+    assert.doesNotMatch(before.html, /data-block="drafts"|data-fold="Drafts"/);
     for (const key of ["Overview", "Tickets", "Today", "Activity"])
-      assert.match(home.html, new RegExp(`<h2><button type="button" class="fold" data-fold="${key}"`));
-    await hub(["draft", "ENG-7", "tell qa", "--stdin"], "fix is on staging");
+      assert.match(before.html, new RegExp(`<h2><button type="button" class="fold" data-fold="${key}"`));
+
+    await hub(["draft", "ENG-7", "tell qa", "--stdin", "--channel", "#qa"], "fix is on staging");
+    const drafted = await home();
+    assert.match(
+      drafted.reply,
+      /<li class="need tone-teal" data-key="send-ENG-7-tell qa"[^>]*>[\s\S]*?<span class="need-title">tell qa<\/span>[\s\S]*?<span class="need-sub">#qa<\/span>[\s\S]*?data-copy="fix is on staging"/,
+    );
+    assert.equal(drafted.needs, before.needs + 1);
+    assert.equal(tabCounts(drafted.html, "needs-reply").open, (tabCounts(before.html, "needs-reply").open ?? 0) + 1);
+
     await hub(["posted", "ENG-7", "tell qa"]);
-    const homeAfter = await counts("/?part=1");
-    const pageAfter = await counts("/t/ENG-7?part=1");
-    assert.deepEqual([homeAfter.open, homeAfter.all], [home.open, home.all + 1]);
-    assert.deepEqual([pageAfter.open, pageAfter.all], [page.open, page.all + 1]);
-    assert.match(homeAfter.html, /data-act="draft-unsent" data-ticket="ENG-7" data-label="tell qa">Not sent</);
-    assert.match(pageAfter.html, /data-act="draft-unsent" data-ticket="ENG-7" data-label="tell qa">Not sent</);
+    const sent = await home();
+    assert.doesNotMatch(sent.html, /tell qa/);
+    assert.equal(sent.needs, before.needs);
+    const pageAfter = await (await fetch(`${server.url}/t/ENG-7?part=1`)).text();
+    assert.deepEqual(tabCounts(pageAfter, "drafts"), { open: page.open, all: (page.all ?? 0) + 1 });
+    assert.match(pageAfter, /data-key="td-tell qa" data-tab-panel="all" hidden>/);
+    assert.match(pageAfter, /data-act="draft-unsent" data-ticket="ENG-7" data-label="tell qa">Not sent</);
+
     assert.equal((await call("POST", "/tickets/ENG-7/drafts/tell%20qa/unposted", {})).status, 200);
-    assert.deepEqual(await counts("/?part=1").then((c) => [c.open, c.all]), [home.open + 1, home.all + 1]);
-    assert.match(homeAfter.html, /data-key="d-ENG-7-tell qa" data-tab-panel="all" hidden>[\s\S]*?wording pending/);
-    assert.match(pageAfter.html, /data-key="td-tell qa" data-tab-panel="all" hidden>/);
-    assert.match(homeAfter.html, /data-key="d-[^"]+" data-tab-panel="open all">/);
-    assert.match(pageAfter.html, /<li class="empty" data-tab-panel="open">—<\/li>/);
+    assert.match((await home()).reply, /data-key="send-ENG-7-tell qa"/);
   });
 
   test("an item row shows its open drafts with Copy and Sent, and the ticket page shows drafts of its items", async () => {
@@ -478,10 +484,23 @@ describe("serve", () => {
       row,
       new RegExp(`class="chip-btn primary" data-act="sent" data-ticket="${pr}" data-label="review">Sent<`),
     );
-    assert.match(
-      home,
-      new RegExp(`data-key="d-${pr}-review"[^>]*>\\n<div class="d-head"><a [^>]*class="d-item"[^>]*>acme/web#140</a>`),
-    );
+    assert.match(row, /<div class="n-body n-draft md"><p>LGTM<\/p><\/div>/);
+    assert.doesNotMatch(home, new RegExp(`data-key="send-${pr}`));
+    assert.equal([...home.matchAll(/data-act="sent"[^>]*data-label="review"/g)].length, 1);
+    const needs = (html: string) => Number(/data-needs-count="(\d+)"/.exec(html)?.[1]);
+    const id = /data-key="item-(\d+)"/.exec(row)?.[1] ?? "";
+
+    assert.equal((await call("POST", `/items/${id}/snooze`, { for: "1h" })).status, 200);
+    const snoozed = await (await fetch(`${server.url}/?part=1`)).text();
+    const reply = /data-group="reply"[\s\S]*?<\/section>/.exec(snoozed)?.[0] ?? "";
+    assert.match(reply, new RegExp(`data-key="send-${pr}-review"[\\s\\S]*?<span class="need-sub">acme/web#140</span>`));
+    assert.equal([...snoozed.matchAll(/data-act="sent"[^>]*data-label="review"/g)].length, 1);
+    assert.equal(needs(snoozed), needs(home));
+    assert.equal((await call("POST", `/items/${id}/reopen`, {})).status, 200);
+
+    assert.equal((await call("POST", `/items/${id}/close`, {})).status, 200);
+    assert.match(await (await fetch(`${server.url}/?part=1`)).text(), new RegExp(`data-key="send-${pr}-review"`));
+    assert.equal((await call("POST", `/items/${id}/reopen`, {})).status, 200);
 
     await hub(["item", "attach", pr, "ENG-7"]);
     const page = await (await fetch(`${server.url}/t/ENG-7?part=1`)).text();
@@ -522,16 +541,24 @@ describe("serve", () => {
     const file = join(dir, "comments.json");
     writeFileSync(file, JSON.stringify([{ path: "src/limit.ts", line: 12, body: "Make it configurable." }]));
     await hub(["draft", pr, "review", "--stdin", "--verdict", "request_changes", "--comments", file], "Close.");
+    const comment =
+      /<li><code class="d-path">src\/limit\.ts:12<\/code><div class="d-cbody md"><p>Make it configurable\.<\/p><\/div><button type="button" class="chip-btn" data-copy="Make it configurable\.">Copy<\/button><\/li>/;
     const home = await (await fetch(`${server.url}/?part=1`)).text();
-    const row = new RegExp(`data-key="d-${pr}-review"[\\s\\S]*?</li>`).exec(home)?.[0] ?? "";
-    assert.match(
-      row,
-      /<span class="pill tone-orange">request changes<\/span><span class="pill tone-grey">1 comment<\/span>/,
+    const send = new RegExp(`data-key="send-${pr}-review"[\\s\\S]*?class="need-age"`).exec(home)?.[0] ?? "";
+    assert.match(send, /<span class="pill tone-orange">request changes<\/span>/);
+    assert.match(send, comment);
+
+    await hub(
+      ["item", "put", "--stdin"],
+      JSON.stringify({ source: "github", kind: "review_request", url: pr, title: "Cap limits", needs_me: true }),
     );
-    assert.match(
-      row,
-      /<li><code class="d-path">src\/limit\.ts:12<\/code><div class="d-cbody md"><p>Make it configurable\.<\/p><\/div><button type="button" class="chip-btn" data-copy="Make it configurable\.">Copy<\/button><\/li>/,
-    );
+    const after = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.doesNotMatch(after, new RegExp(`data-key="send-${pr}`));
+    const row =
+      /<li[^>]*data-key="item-\d+"(?:(?!<\/li>)[\s\S])*Cap limits[\s\S]*?class="need-age"/.exec(after)?.[0] ?? "";
+    assert.match(row, /<div class="n-body n-draft md"><p>Close\.<\/p><\/div>/);
+    assert.match(row, /<span class="pill tone-orange">request changes<\/span>/);
+    assert.match(row, comment);
   });
 
   test("a ticket page marks its drafts sent like the dashboard", async () => {
@@ -560,15 +587,15 @@ describe("serve", () => {
     await hub(["draft", "ENG-7", "ask `ops`", "--stdin"], "Run:\n```\nmake db\n```");
     await hub(["note", "ENG-7", "about **limits**", "--stdin"], "body");
     const html = await (await fetch(`${server.url}/?part=1`)).text();
-    assert.match(html, /<span class="d-label">ask <code>ops<\/code><\/span>/);
-    assert.match(html, /<span class="d-line">Run: <code>make db<\/code><\/span>/);
-    assert.match(html, /<div class="d-body md"><p>Run:<\/p><pre><code>make db<\/code><\/pre><\/div>/);
+    assert.match(html, /<span class="need-title">ask <code>ops<\/code><\/span>/);
+    assert.match(html, /<div class="n-body md"><p>Run:<\/p><pre><code>make db<\/code><\/pre><\/div>/);
     assert.match(html, /data-copy="Run:\n```\nmake db\n```"/);
     const page = await (await fetch(`${server.url}/t/ENG-7?part=1`)).text();
+    assert.match(page, /<span class="d-label">ask <code>ops<\/code><\/span>/);
     assert.match(page, /<summary>about <strong>limits<\/strong><\/summary>/);
   });
 
-  test("the page shows each thing once: no ticket id twice, no Sent? draft in Drafts", async () => {
+  test("the page shows each thing once: no ticket id twice, a Sent? draft has no Send row", async () => {
     await hub(
       ["item", "put", "--stdin"],
       JSON.stringify({
@@ -588,8 +615,8 @@ describe("serve", () => {
     );
     const html = await (await fetch(`${server.url}/?part=1`)).text();
     assert.match(html, />banner<\/a>/);
-    const drafts = /<section class="drafts">[\s\S]*?<\/section>/.exec(html)?.[0] ?? "";
-    assert.doesNotMatch(drafts, /ask product/);
+    assert.match(html, /data-key="match-ENG-7-ask product"/);
+    assert.doesNotMatch(html, /data-key="send-ENG-7-ask product"/);
     assert.doesNotMatch(html, /class="live"/);
   });
 
@@ -634,7 +661,7 @@ describe("serve", () => {
     const html = await (await fetch(`${server.url}/?part=1`)).text();
     const top = /data-col="top">([\s\S]*?)<\/div>\s*<div class="col" data-col="left">/.exec(html)?.[1] ?? "";
     assert.match(top, /data-block="overview"/);
-    assert.match(top, /<span class="tile-title">Needs you<\/span>[\s\S]*?<div class="hero">2<\/div>/);
+    assert.match(top, /<span class="tile-title">Needs you<\/span>[\s\S]*?<div class="hero">3<\/div>/);
     assert.match(top, /<b>50%<\/b><small>1 of 2 steps<\/small>/);
     assert.match(top, /<title>In progress 1<\/title>/);
     assert.match(top, /<span class="tile-title">Steps done<\/span><\/div><div class="hero">1<\/div>/);
@@ -1226,7 +1253,7 @@ describe("mcp", () => {
 });
 
 describe("send later", () => {
-  test("a draft due to send is a Send row under Reply, a later one waits dimmed in Drafts", async () => {
+  test("a draft due to send is a Send row under Reply's Open tab, a later one waits dimmed under All with its time", async () => {
     await hub(["draft", "ENG-7", "due now", "--stdin", "--send-at", "1m"], "ping product");
     await hub(["draft", "ENG-7", "for later", "--stdin", "--send-at", "2026-12-31 12:00"], "year end");
     const db = new DatabaseSync(dbFile);
@@ -1241,18 +1268,46 @@ describe("send later", () => {
     );
     assert.match(reply, /data-act="sent" data-ticket="ENG-7" data-label="due now"/);
     assert.match(reply, /data-act="draft-later" data-ticket="ENG-7" data-label="due now" data-for="tomorrow"/);
-    const drafts = /<section class="drafts">[\s\S]*?<\/section>/.exec(html)?.[0] ?? "";
-    assert.doesNotMatch(drafts, /due now/);
+    assert.match(reply, /<li class="need tone-teal" data-key="send-ENG-7-due now"/);
     assert.match(
-      drafts,
-      /class="draft is-dim"[^>]*>[\s\S]*?for later[\s\S]*?send 12-31 12:00|class="draft is-dim"[^>]*>[\s\S]*?for later[\s\S]*?send 2026-12-31 12:00/,
+      reply,
+      /<li class="need tone-teal is-dim" data-key="send-ENG-7-for later"[\s\S]*?<span class="dim-label">send 12-31 12:00<\/span>/,
     );
     const later = await call("POST", `/tickets/ENG-7/drafts/${encodeURIComponent("due now")}/later`, { for: "1h" });
     assert.equal(later.status, 200);
-    assert.doesNotMatch(
-      /data-group="reply"[\s\S]*?<\/section>/.exec(await (await fetch(`${server.url}/?part=1`)).text())?.[0] ?? "",
-      /due now/,
+    const moved = /data-group="reply"[\s\S]*?<\/section>/.exec(await (await fetch(`${server.url}/?part=1`)).text());
+    assert.match(moved?.[0] ?? "", /<li class="need tone-teal is-dim" data-key="send-ENG-7-due now"/);
+  });
+
+  test("a draft for an item hub has no row is a Send row; an internal draft shows on its ticket page only", async () => {
+    await hub(["draft", "https://github.com/acme/web/pull/150", "review", "--stdin"], "Looks good.");
+    await hub(["draft", "ENG-7", "PR body", "--stdin", "--internal"], "Adds a cap.");
+    const html = await (await fetch(`${server.url}/?part=1`)).text();
+    const reply = /data-group="reply"[\s\S]*?<\/section>/.exec(html)?.[0] ?? "";
+    assert.match(reply, /<li class="need tone-teal" data-key="send-https:\/\/github.com\/acme\/web\/pull\/150-review"/);
+    assert.doesNotMatch(html, /PR body/);
+    const page = await (await fetch(`${server.url}/t/ENG-7?part=1`)).text();
+    assert.match(page, /data-key="td-PR body"/);
+    await hub(["draft", "ENG-7", "PR body", "--stdin"], "Adds a cap, configurable.");
+    assert.doesNotMatch(await (await fetch(`${server.url}/?part=1`)).text(), /PR body/);
+    assert.equal((await call("PUT", "/tickets/ENG-7/drafts/PR%20body", { body: "x", internal: false })).status, 200);
+    assert.match(await (await fetch(`${server.url}/?part=1`)).text(), /data-key="send-ENG-7-PR body"/);
+  });
+
+  test("a stored layout and hidden list that still name the Drafts card render and save", async () => {
+    const db = new DatabaseSync(dbFile);
+    db.prepare("INSERT OR REPLACE INTO config(key, value) VALUES (?, ?)").run(
+      "layout",
+      JSON.stringify({ top: ["overview"], left: ["today", "drafts"], right: ["reply"] }),
     );
+    db.prepare("INSERT OR REPLACE INTO config(key, value) VALUES (?, ?)").run("hiddenBlocks", '["drafts"]');
+    db.close();
+    const html = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.match(html, /data-block="today"/);
+    assert.doesNotMatch(html, /data-block="drafts"/);
+    const settings = await (await fetch(`${server.url}/settings?part=1`)).text();
+    assert.doesNotMatch(settings, /drafts/i);
+    assert.equal((await setConfigKey("hiddenBlocks", '["activity"]')).status, 200);
   });
 
   test("brief lists what the human did on the dashboard since the last brief, once", async () => {

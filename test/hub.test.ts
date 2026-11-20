@@ -1013,24 +1013,27 @@ describe("db", () => {
     db.close();
     assert.throws(
       () => serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] }),
-      /has schema v1, this hub needs v18: move the file aside and re-import/,
+      /has schema v1, this hub needs v19: move the file aside and re-import/,
     );
     server = await serve({ dbPath: join(dir, "other.db"), port: 0, now: () => now, env: {}, fetchers: [] });
   });
 });
 
 describe("schema upgrade", () => {
-  test("a v2 database gains draft.send_at, the script table, ticket.position and item.ignored, source.warning, item.detached, script_source.enabled and section, item verdicts, item.body and item.detail, draft.item, draft.closed_item and draft.match_no, item.ask, draft.verdict and draft comments, and becomes v18, when hub serve opens it", async () => {
+  test("a v2 database gains draft.send_at, the script table, ticket.position and item.ignored, source.warning, item.detached, script_source.enabled and section, item verdicts, item.body and item.detail, draft.item, draft.closed_item and draft.match_no, item.ask, draft.verdict and draft comments, draft.internal, and becomes v19, when hub serve opens it", async () => {
     await imported();
     await server.close();
     const db = new DatabaseSync(dbFile);
     db.exec(
-      "ALTER TABLE draft DROP COLUMN send_at; DROP TABLE script_source; ALTER TABLE ticket DROP COLUMN position; ALTER TABLE item DROP COLUMN ignored; ALTER TABLE source DROP COLUMN warning; ALTER TABLE item DROP COLUMN detached; ALTER TABLE item DROP COLUMN judged_at; ALTER TABLE item DROP COLUMN away_ping; ALTER TABLE item DROP COLUMN away_why; ALTER TABLE item DROP COLUMN body; ALTER TABLE item DROP COLUMN detail; DROP INDEX draft_item; DROP INDEX draft_item_label; ALTER TABLE draft DROP COLUMN item; ALTER TABLE draft DROP COLUMN closed_item; ALTER TABLE draft DROP COLUMN match_no; ALTER TABLE item DROP COLUMN ask; ALTER TABLE item DROP COLUMN ask_answer; ALTER TABLE item DROP COLUMN ask_at; ALTER TABLE draft DROP COLUMN verdict; ALTER TABLE draft DROP COLUMN match_verdict; DROP TABLE draft_comment; UPDATE meta SET value = '2' WHERE key = 'schema_version'",
+      "ALTER TABLE draft DROP COLUMN send_at; DROP TABLE script_source; ALTER TABLE ticket DROP COLUMN position; ALTER TABLE item DROP COLUMN ignored; ALTER TABLE source DROP COLUMN warning; ALTER TABLE item DROP COLUMN detached; ALTER TABLE item DROP COLUMN judged_at; ALTER TABLE item DROP COLUMN away_ping; ALTER TABLE item DROP COLUMN away_why; ALTER TABLE item DROP COLUMN body; ALTER TABLE item DROP COLUMN detail; DROP INDEX draft_item; DROP INDEX draft_item_label; ALTER TABLE draft DROP COLUMN item; ALTER TABLE draft DROP COLUMN closed_item; ALTER TABLE draft DROP COLUMN match_no; ALTER TABLE item DROP COLUMN ask; ALTER TABLE item DROP COLUMN ask_answer; ALTER TABLE item DROP COLUMN ask_at; ALTER TABLE draft DROP COLUMN verdict; ALTER TABLE draft DROP COLUMN match_verdict; DROP TABLE draft_comment; ALTER TABLE draft DROP COLUMN internal; UPDATE meta SET value = '2' WHERE key = 'schema_version'",
     );
     db.close();
     server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] });
-    assert.equal(sql<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'")[0]?.value, "18");
-    assert.equal(sql<{ n: number }>("SELECT count(*) AS n FROM draft WHERE item IS NOT NULL")[0]?.n, 0);
+    assert.equal(sql<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'")[0]?.value, "19");
+    assert.equal(
+      sql<{ n: number }>("SELECT count(*) AS n FROM draft WHERE item IS NOT NULL OR internal != 0")[0]?.n,
+      0,
+    );
     assert.equal(
       sql<{ n: number }>(
         "SELECT count(*) AS n FROM item WHERE judged_at IS NOT NULL OR body IS NOT NULL OR detail IS NOT NULL",
@@ -1061,7 +1064,8 @@ describe("schema upgrade to v11", () => {
       ALTER TABLE item DROP COLUMN body; ALTER TABLE item DROP COLUMN detail; DROP INDEX draft_item; DROP INDEX draft_item_label;
       ALTER TABLE draft DROP COLUMN item; ALTER TABLE draft DROP COLUMN closed_item; ALTER TABLE draft DROP COLUMN match_no;
       ALTER TABLE item DROP COLUMN ask; ALTER TABLE item DROP COLUMN ask_answer; ALTER TABLE item DROP COLUMN ask_at;
-      ALTER TABLE draft DROP COLUMN verdict; ALTER TABLE draft DROP COLUMN match_verdict; DROP TABLE draft_comment; UPDATE meta SET value = '10' WHERE key = 'schema_version'`);
+      ALTER TABLE draft DROP COLUMN verdict; ALTER TABLE draft DROP COLUMN match_verdict; DROP TABLE draft_comment;
+      ALTER TABLE draft DROP COLUMN internal; UPDATE meta SET value = '10' WHERE key = 'schema_version'`);
     db.close();
     server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] });
     assert.equal(
