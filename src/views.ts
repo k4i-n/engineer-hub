@@ -322,6 +322,15 @@ function itemVerb(i: ItemRow): { verb: string; tone: Tone; rank: number } {
   return { verb: KIND_NAME[i.kind] ?? i.kind, tone: "grey", rank: 9 };
 }
 
+function flat(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function moreText(i: ItemRow): { body?: string } {
+  if (i.body === null || flat(i.title ?? "").includes(flat(i.body))) return {};
+  return { body: i.body };
+}
+
 function withoutTicket(title: string, ticket: string | null): string {
   if (ticket === null || !title.startsWith(ticket)) return title;
   const rest = title.slice(ticket.length).replace(/^[\s:–-]+/, "");
@@ -389,6 +398,7 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
       tone: v.tone,
       title: link(url, withoutTicket(i.title ?? i.ref, i.ticket_id), "need-title"),
       sub: sourceLine([githubRef(url) ?? i.source, i.author, i.state]),
+      ...moreText(i),
       ask: "",
       ticket: i.ticket_id,
       href: url,

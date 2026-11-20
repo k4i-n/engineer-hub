@@ -2,7 +2,7 @@ import type { Ctx } from "../commands.ts";
 import { all, type ItemRow, type WaitRow } from "../db.ts";
 import type { Fetched, Fetcher } from "../fetch.ts";
 import { type KeySpec, keyedCall, type System, type Way } from "../keys.ts";
-import { cut, HubError } from "../util.ts";
+import { clip, cut, HubError } from "../util.ts";
 import { keyCheck, keyWay } from "./keyed.ts";
 
 const FIRST_LOOK_S = 2 * 86_400;
@@ -11,6 +11,7 @@ const THREAD_LOOK_S = 3 * DAY_S;
 const THREADS = 20;
 const DONE_REACTIONS = new Set(["white_check_mark", "heavy_check_mark", "ballot_box_with_check", "done"]);
 const RECHECK = 30;
+const MAX_BODY = 4000;
 const NO_SCOPE = new Set(["missing_scope", "no_permission", "not_allowed_token_type"]);
 const SLACKBOT = "USLACKBOT";
 
@@ -257,6 +258,13 @@ async function line(dir: Directory, me: string, myName: string, m: Match): Promi
   return cut(`${where ? `${where} · ` : ""}${who}: ${text}`, 200);
 }
 
+async function full(dir: Directory, m: Match): Promise<string | undefined> {
+  const parts = [m.text, ...(m.attachments ?? []).flatMap((a) => [a.pretext, a.title, a.text])];
+  const said = [...new Set(parts.filter((p) => p !== undefined && p.trim() !== ""))].join("\n\n");
+  const raw = said || m.attachments?.[0]?.fallback || "";
+  return raw === "" ? undefined : clip(await readable(dir, raw), MAX_BODY);
+}
+
 async function search(sys: System, way: Way, query: string): Promise<Match[]> {
   const r = await slackGet<Answer & { messages?: { matches: Match[] } }>(sys, way, "search.messages", {
     query,
@@ -308,6 +316,7 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
       kind: "alert",
       url: m.permalink,
       title: await line(dir, me, myName, m),
+      body: await full(dir, m),
       author: m.user ? await dir.user(m.user) : m.username,
       state: "alert",
       needs_me: true,
@@ -322,6 +331,7 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
       kind: "message",
       url: m.permalink,
       title: await line(dir, me, myName, m),
+      body: await full(dir, m),
       author: m.user ? await dir.user(m.user) : m.username,
       state: "mention",
       needs_me: true,
@@ -340,6 +350,7 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
       kind: "message",
       url: m.permalink,
       title: await line(dir, me, myName, m),
+      body: await full(dir, m),
       author: m.user ? await dir.user(m.user) : m.username,
       state,
       needs_me: true,
@@ -410,8 +421,10 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
     });
     const reply = r.messages.find((m) => m.user !== me && Number(m.ts) > Number(askedAt) && m.ts !== thread.ts);
     let title: string | null = null;
+    let body: string | undefined;
     if (reply !== undefined) {
-      title = `${w.who} answered: ${(await readable(dir, reply.text)).replaceAll("\n", " ")}`;
+      body = await full(dir, reply);
+      title = `${w.who} answered: ${(body ?? "").replaceAll("\n", " ")}`;
     } else {
       const asked = messageOf(w.url);
       const got = asked === null ? null : await dir.reactions(asked.channel, asked.ts);
@@ -427,6 +440,7 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
       kind: "thread",
       url: w.url,
       title: cut(title, 200),
+      body,
       author: w.who,
       ticket: w.ticket_id,
       state: "answered",

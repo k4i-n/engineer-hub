@@ -70,6 +70,10 @@ export function sendTime(now: Date, value: string, timezone: string, hour: numbe
   return new Date(when).toISOString();
 }
 
+export function clip(value: string, max: number): string {
+  return value.length <= max ? value : `${value.slice(0, max - 3)}...`;
+}
+
 export function cut(value: string, max: number): string {
   const line = value.replace(/\s*\n\s*/g, " ");
   if (line.length <= max) return line;

@@ -211,6 +211,7 @@ function sampleGroup(kind: string, place: string, author: string, count: number)
     judged_at: null,
     away_ping: null,
     away_why: null,
+    body: null,
   };
   return { item, ids: Array.from({ length: count }, (_, i) => i) };
 }

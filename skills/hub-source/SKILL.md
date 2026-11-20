@@ -21,7 +21,7 @@ Each line:
 {"kind":"alert","ref":"<service>:<id>","url":"<link a human opens>","title":"<one line>","state":"<the service's state>","needs_me":true}
 ```
 
-`kind` is one of pr, issue, review_request, thread, message, mail, alert, doc, run, other. `ref` is unique and stable per thing; the same ref again updates the row. `source` defaults to the source name. Add `ticket` only when the id is known; a ticket id in the title attaches by itself.
+`kind` is one of pr, issue, review_request, thread, message, mail, alert, doc, run, other. `ref` is unique and stable per thing; the same ref again updates the row. `source` defaults to the source name. Add `ticket` only when the id is known; a ticket id in the title attaches by itself. Add `body` with the full text (the alert's description, the message) when the title cuts it.
 
 ## 3. The key
 

@@ -2,11 +2,12 @@ import type { Ctx } from "../commands.ts";
 import { all, one } from "../db.ts";
 import type { Fetched, Fetcher } from "../fetch.ts";
 import { type KeySpec, keyedCall, type System } from "../keys.ts";
-import { cut, HubError } from "../util.ts";
+import { clip, cut, HubError } from "../util.ts";
 import { keyCheck, keyWay } from "./keyed.ts";
 
 const FIRST_LOOK_MS = 2 * 86_400_000;
 const CLOSED_STATES = ["completed", "canceled"];
+const MAX_BODY = 4000;
 
 export const LINEAR_KEY: KeySpec = {
   source: "linear",
@@ -19,7 +20,7 @@ const LINEAR_ID = /^([A-Z][A-Z0-9]*)-(\d+)$/;
 
 const QUERY = `query($since: DateTimeOrDuration!, $comments: CommentFilter!) {
   issues(filter: { assignee: { isMe: { eq: true } }, updatedAt: { gt: $since } }, first: 50) {
-    nodes { identifier title url updatedAt priorityLabel assignee { name } state { name type } }
+    nodes { identifier title description url updatedAt priorityLabel assignee { name } state { name type } }
   }
   notifications(filter: { createdAt: { gt: $since } }, first: 50) {
     nodes {
@@ -35,6 +36,7 @@ const QUERY = `query($since: DateTimeOrDuration!, $comments: CommentFilter!) {
 type Issue = {
   identifier: string;
   title: string;
+  description?: string | null;
   url: string;
   updatedAt?: string;
   priorityLabel?: string;
@@ -53,6 +55,11 @@ type Answer = {
   data?: { issues: { nodes: Issue[] }; notifications: { nodes: Note[] }; comments: { nodes: Comment[] } } | null;
   errors?: { message: string }[];
 };
+
+function body(text: string | null | undefined): string | undefined {
+  const trimmed = (text ?? "").trim();
+  return trimmed === "" ? undefined : clip(trimmed, MAX_BODY);
+}
 
 function hasTicket(ctx: Ctx, id: string): boolean {
   return one(ctx.db, "SELECT 1 FROM ticket WHERE id = ?", id) !== undefined;
@@ -91,6 +98,7 @@ async function fetchLinear(sys: System, ctx: Ctx, cursor: string | null): Promis
       kind: "issue",
       url: i.url,
       title: `${i.identifier} ${i.title}`,
+      body: body(i.description),
       state: i.state?.name,
       needs_me: !closed && !hasTicket(ctx, i.identifier),
     };
@@ -104,6 +112,7 @@ async function fetchLinear(sys: System, ctx: Ctx, cursor: string | null): Promis
       ref: n.comment?.url ?? `${n.issue.url}#mention-${n.createdAt}`,
       url: n.comment?.url ?? n.issue.url,
       title: `${n.issue.identifier} ${n.actor?.name ?? "someone"} mentioned you${said}`,
+      body: body(n.comment?.body),
       author: n.actor?.name,
       state: "mention",
       needs_me: true,
@@ -119,6 +128,7 @@ async function fetchLinear(sys: System, ctx: Ctx, cursor: string | null): Promis
       ref: c.url,
       url: c.url,
       title: `${c.issue.identifier} ${who} commented: ${cut(c.body.replaceAll("\n", " "), 160)}`,
+      body: body(c.body),
       author: who,
       state: "comment",
       needs_me: true,
