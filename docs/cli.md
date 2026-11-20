@@ -20,7 +20,7 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 | `hub steps <id>` | the ticket's steps, done ones ticked, with their evidence |
 | `hub brief` | what a sync needs to judge new messages: sources and cursors, open tickets, unsent drafts, drafts sent with wording pending, waits, tracked items (each section capped at 40 lines) |
 | `hub day [date] [--full]` | the rev and RESUME block of a day plan (today, else the latest); `--full` gives the whole plan |
-| `hub lint` | open tickets missing status, next or owner, or over a limit; exit 1 if any |
+| `hub lint` | open tickets missing status, next or owner, over a limit, or with a gate or decide that is not a question (no `?`); exit 1 if any |
 | `hub config [key]` | effective config |
 
 | Write | Does |

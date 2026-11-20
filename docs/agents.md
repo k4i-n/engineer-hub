@@ -26,7 +26,7 @@ With the hub MCP tools connected (plugin or `/mcp`), put this in the agent's ins
 
 ```
 Cold start for a ticket: brief, then board or ticket. Read a note only when the next action needs it (note).
-During work: log what changed, readings and decisions; ticket_set next (one action) and gate (a decision waiting on the human); link every PR, run, thread or doc touched.
+During work: log what changed, readings and decisions; ticket_set next (one action) and gate (a decision waiting on the human, as a question ending in "?"; a standing rule such as "go per deploy" or a condition is not a gate: it shows as a plain Rule line and asks nothing); link every PR, run, thread or doc touched.
 Waiting on someone: wait_add with ping_after; waits with due says whom to ping.
 Drafts for humans to post: draft_save; a review or reply to a PR, review request or message gets item (its url; for a Slack reply, the thread's permalink, never a description like "the owners thread", so the dashboard can open it), and id is that url when there is no ticket; a PR review adds verdict and comments [{path, line, body}]; text for the agent's own use (a PR body) gets internal: true, so it stays off the dashboard; when posted: posted with the wording actually sent and its permalink.
 Daily plan: day to resume; day_set after writing it. To change an existing plan: day with full, merge, day_set with its rev. Longer content: note_save.
