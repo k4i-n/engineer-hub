@@ -138,6 +138,18 @@ describe("github", () => {
     assert.ok(calls.some((c) => c.includes(`mine=is:pr author:@me updated:>=${cursor}`)));
   });
 
+  test("a PR's description is kept without template comments and unfolds under its row", async () => {
+    const body = "<!-- describe the change -->\nAdds the **cookie** path.\n\n- one\n- two";
+    answers.gh = graphql([PR("https://github.com/acme/web/pull/7", { body })], []);
+    await hub("fetch", "github");
+    const page = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.match(
+      page,
+      /data-key="nbody-item-\d+"><summary><span class="n-line">Adds the <strong>cookie<\/strong> path\. one two<\/span><div class="n-body md"><p>Adds the <strong>cookie<\/strong> path\.<\/p><ul><li>one<\/li><li>two<\/li><\/ul><\/div>/,
+    );
+    assert.doesNotMatch(page, /describe the change/);
+  });
+
   test("the user's open PRs get a status: draft, in review, commented, changes requested, checks failing, approved", async () => {
     answers.gh = graphql(
       [],
@@ -417,6 +429,7 @@ describe("linear", () => {
           {
             identifier: "ENG-63",
             title: "Export times out",
+            description: "CSV export of **50k rows** hits the 30s limit.",
             url: "https://linear.app/acme/issue/ENG-63",
             state: { name: "Triage", type: "triage" },
           },
@@ -467,6 +480,12 @@ describe("linear", () => {
       needs,
       /linear\/message \| needs you \| ENG-42 Yui mentioned you: can you check the cookie path\? \| mention \| ENG-42/,
     );
+    const page = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.match(
+      page,
+      /<div class="n-body md"><p>CSV export of <strong>50k rows<\/strong> hits the 30s limit\.<\/p><\/div>/,
+    );
+    assert.equal([...page.matchAll(/data-key="nbody-/g)].length, 1);
   });
 
   test("new comments from others on my issues and tickets are Reply items on the ticket timeline", async () => {
@@ -798,7 +817,9 @@ describe("slack", () => {
             {
               ts: bot,
               text: "",
-              attachments: [{ title: "API 5xx above 2%", fallback: "[FIRING] API 5xx" }],
+              attachments: [
+                { title: "API 5xx above 2%", text: "rate 2.4%\nservice api", fallback: "[FIRING] API 5xx" },
+              ],
               permalink: at(bot),
               username: "Grafana",
               channel: alerts,
@@ -842,6 +863,7 @@ describe("slack", () => {
     assert.doesNotMatch(await hub("items", "--source", "slack"), /slack\/alert[^\n]*looking/);
     const page = await (await fetch(server.url)).text();
     assert.match(page, /data-group="fix"(?:(?!<\/section>)[\s\S])*API 5xx above 2%/);
+    assert.match(page, /<div class="n-body md"><p>API 5xx above 2%<\/p><p>rate 2\.4%<br>service api<\/p><\/div>/);
     const settings = await (await fetch(`${server.url}/settings`)).text();
     assert.ok(settings.includes('data-config-input="slackAlertChannels" data-list value="#alerts-prod, #oncall"'));
     await assert.rejects(hub("config", "slackAlertChannels", '["Alerts Prod"]'), /not a Slack channel name/);

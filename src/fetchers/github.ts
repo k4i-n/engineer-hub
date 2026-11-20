@@ -2,7 +2,7 @@ import type { Ctx } from "../commands.ts";
 import { all, type ItemRow } from "../db.ts";
 import type { Check, Fetched, Fetcher } from "../fetch.ts";
 import { lastLine, type System } from "../keys.ts";
-import { HubError } from "../util.ts";
+import { clip, HubError } from "../util.ts";
 
 const FIRST_LOOK_MS = 2 * 86_400_000;
 const MAX_BODY = 4000;
@@ -55,6 +55,11 @@ async function graphql<T>(sys: System, fields: string[]): Promise<T> {
   return answer.data;
 }
 
+function body(pr: Pr): string | undefined {
+  const text = (pr.body ?? "").replace(/<!--[\s\S]*?-->/g, "").trim();
+  return text === "" ? undefined : clip(text, MAX_BODY);
+}
+
 function context(pr: Pr): string {
   return [pr.headRefName ?? "", (pr.body ?? "").slice(0, MAX_BODY)].join("\n");
 }
@@ -96,6 +101,7 @@ async function fetchGithub(sys: System, ctx: Ctx, cursor: string | null): Promis
     state: "open",
     needs_me: true,
     context: context(pr),
+    body: body(pr),
   }));
   const open = new Set(requested.map((pr) => pr.url));
   const tracked = all<ItemRow>(
@@ -138,6 +144,7 @@ async function fetchGithub(sys: System, ctx: Ctx, cursor: string | null): Promis
       state: s.state,
       needs_me: s.needsMe && pr.viewerDidAuthor === true,
       context: context(pr),
+      body: body(pr),
     });
   }
   return { items: out, cursor: started };
