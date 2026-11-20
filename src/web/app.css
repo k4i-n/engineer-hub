@@ -2271,6 +2271,14 @@ kbd {
     grid-column: 1 / -1;
     grid-row: 2;
   }
+  .tabs {
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .tabs .tab {
+    flex: none;
+  }
   .need-title,
   .need-sub {
     white-space: normal;
