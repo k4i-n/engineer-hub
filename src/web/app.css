@@ -994,6 +994,27 @@ button.busy::after {
   font-weight: 560;
   min-width: 0;
 }
+.d-comments {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.d-comments li {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  font-size: 13px;
+}
+.d-cbody > * {
+  margin: 0;
+}
+.d-path {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
 .d-actions {
   margin-left: auto;
   display: flex;

@@ -304,7 +304,7 @@ describe("serve", () => {
   test("settings show the database and save config through the same checks as the CLI", async () => {
     const html = await (await fetch(`${server.url}/settings`)).text();
     assert.ok(html.includes(dbFile));
-    assert.match(html, /Schema<\/span><div class="set-control">v17/);
+    assert.match(html, /Schema<\/span><div class="set-control">v18/);
     const titles = [...html.matchAll(/<h2><button type="button" class="fold" data-fold="([^"]+)"/g)].map((m) => m[1]);
     assert.deepEqual(titles, ["Sources", "Agent", "Away", "Database", "Behavior", "Dashboard", "Keyboard"]);
     assert.equal(html.match(/<div class="col">/g)?.length, 1);
@@ -515,6 +515,23 @@ describe("serve", () => {
     assert.match(await hub(["brief"]), /yes to "Review this\?": review_request Retry webhooks/);
     assert.equal((await call("POST", `/items/${id}/unanswer`, {})).status, 200);
     assert.match(await row(), /data-act="item-answer"/);
+  });
+
+  test("a review draft shows its verdict and each file:line comment with Copy", async () => {
+    const pr = "https://github.com/acme/web/pull/142";
+    const file = join(dir, "comments.json");
+    writeFileSync(file, JSON.stringify([{ path: "src/limit.ts", line: 12, body: "Make it configurable." }]));
+    await hub(["draft", pr, "review", "--stdin", "--verdict", "request_changes", "--comments", file], "Close.");
+    const home = await (await fetch(`${server.url}/?part=1`)).text();
+    const row = new RegExp(`data-key="d-${pr}-review"[\\s\\S]*?</li>`).exec(home)?.[0] ?? "";
+    assert.match(
+      row,
+      /<span class="pill tone-orange">request changes<\/span><span class="pill tone-grey">1 comment<\/span>/,
+    );
+    assert.match(
+      row,
+      /<li><code class="d-path">src\/limit\.ts:12<\/code><div class="d-cbody md"><p>Make it configurable\.<\/p><\/div><button type="button" class="chip-btn" data-copy="Make it configurable\.">Copy<\/button><\/li>/,
+    );
   });
 
   test("a ticket page marks its drafts sent like the dashboard", async () => {

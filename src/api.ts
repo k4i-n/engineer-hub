@@ -288,21 +288,23 @@ export const ROUTES: Route[] = [
         about:
           "url or ref of the item it answers (a PR, review request or message); its row shows the draft; empty clears it",
       },
+      verdict: { type: "string", about: "for a PR review: approve, request_changes or comment; empty clears it" },
+      comments: {
+        type: "array",
+        about:
+          "for a PR review: [{path, line, body}], one per file:line comment; replaces the draft's comments, [] clears them",
+      },
       send_at: {
         type: "string",
         about: "when the human should send it: 30m, 4h, tomorrow, 12:00, tomorrow 12:00 or YYYY-MM-DD HH:MM",
       },
     },
     run: (ctx, a) =>
-      commands.draft(
-        ctx,
-        str(a, "id"),
-        str(a, "label"),
-        str(a, "body"),
-        opt(a, "channel"),
-        opt(a, "send_at"),
-        opt(a, "item"),
-      ),
+      commands.draft(ctx, str(a, "id"), str(a, "label"), str(a, "body"), opt(a, "channel"), opt(a, "send_at"), {
+        item: opt(a, "item"),
+        verdict: opt(a, "verdict"),
+        comments: a.comments,
+      }),
   },
   {
     name: "posted",

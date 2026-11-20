@@ -4,7 +4,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { DEFAULTS } from "./config.ts";
 import { HubError } from "./util.ts";
 
-export const SCHEMA_VERSION = "17";
+export const SCHEMA_VERSION = "18";
 
 export type Ticket = {
   id: string;
@@ -68,9 +68,12 @@ export type DraftRow = {
   match_text: string | null;
   match_ref: string | null;
   match_no: string | null;
+  verdict: string | null;
+  match_verdict: string | null;
   send_at: string | null;
   created_at: string | null;
 };
+export type CommentRow = { draft_id: number; pos: number; path: string; line: number; body: string };
 export type ItemRow = {
   id: number;
   source: string;
@@ -158,6 +161,9 @@ END;`;
 const DRAFT_ITEM_INDEX = `CREATE INDEX draft_item ON draft(item);
 CREATE UNIQUE INDEX draft_item_label ON draft(item, label) WHERE ticket_id IS NULL;`;
 
+const DRAFT_COMMENT = `CREATE TABLE draft_comment(id INTEGER PRIMARY KEY, draft_id INTEGER NOT NULL, pos INTEGER NOT NULL,
+  path TEXT NOT NULL, line INTEGER NOT NULL, body TEXT NOT NULL, UNIQUE(draft_id, pos));`;
+
 const SCHEMA = `
 CREATE TABLE ticket(
   id TEXT PRIMARY KEY,
@@ -171,7 +177,9 @@ CREATE TABLE note(id INTEGER PRIMARY KEY, ticket_id TEXT, title TEXT, body TEXT,
   UNIQUE(ticket_id, title));
 CREATE TABLE draft(id INTEGER PRIMARY KEY, ticket_id TEXT, label TEXT, body TEXT, status TEXT, channel TEXT, posted_at TEXT,
   sent_text TEXT, sent_ref TEXT, answer TEXT, match_text TEXT, match_ref TEXT, send_at TEXT,
-  created_at TEXT, updated_at TEXT, item TEXT, closed_item INTEGER, match_no TEXT, UNIQUE(ticket_id, label));
+  created_at TEXT, updated_at TEXT, item TEXT, closed_item INTEGER, match_no TEXT,
+  verdict TEXT, match_verdict TEXT, UNIQUE(ticket_id, label));
+${DRAFT_COMMENT}
 ${DRAFT_ITEM_INDEX}
 CREATE TABLE item(id INTEGER PRIMARY KEY, source TEXT NOT NULL, ref TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, title TEXT,
   url TEXT, state TEXT, author TEXT, ticket_id TEXT, needs_me INTEGER NOT NULL DEFAULT 0,
@@ -230,6 +238,11 @@ ${DRAFT_ITEM_INDEX}`,
   "16": {
     to: "17",
     sql: "ALTER TABLE item ADD COLUMN ask TEXT; ALTER TABLE item ADD COLUMN ask_answer TEXT; ALTER TABLE item ADD COLUMN ask_at TEXT;",
+  },
+  "17": {
+    to: "18",
+    sql: `ALTER TABLE draft ADD COLUMN verdict TEXT; ALTER TABLE draft ADD COLUMN match_verdict TEXT;
+${DRAFT_COMMENT}`,
   },
 };
 
