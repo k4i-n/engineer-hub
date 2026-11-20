@@ -1493,7 +1493,7 @@ export function settingsBody(
     ["Esc", "back"],
   ];
   return `${header(ctx, live, "settings")}
-<div class="page-head"><h1>Settings</h1></div>
+<div class="page-head set-head"><h1>Settings</h1></div>
 <main class="grid settings">
 <div class="col">
 ${section(
@@ -1528,8 +1528,6 @@ ${section(
     ),
   "set-sec",
 )}
-${section("Away", null, awayRows(ctx, away), "set-sec")}
-${section("Notifications", null, row("New items", toggle("notifyNew", c.notifyNew)) + row("Sound", toggle("notifySound", c.notifySound)), "set-sec")}
 ${section(
   "Agent",
   null,
@@ -1548,72 +1546,7 @@ ${section(
     row("Command", codeBlock(JSON.stringify(c.syncCommand))),
   "set-sec",
 )}
-${section(
-  "Dashboard",
-  null,
-  row(
-    "Progress",
-    segmented("progressStyle", c.progressStyle, [
-      ["ring", "Ring", ring(65, 16, 3, false)],
-      ["half", "Half", half(65, 22, 3.5, false)],
-      ["bar", "Bar", bar(65)],
-    ]),
-  ) +
-    row("Period", rangeControl(c)) +
-    row(
-      "Later until",
-      segmented(
-        "laterHour",
-        c.laterHour,
-        [7, 8, 9, 10].map((h) => [h, `${h}:00`]),
-      ),
-    ) +
-    row("Blocks", blockChips(c.hiddenBlocks, sectionGroups(ctx))) +
-    row(
-      "Layout",
-      button("Reset", { config: "layout", value: JSON.stringify(DEFAULT_LAYOUT) }) +
-        button("Show all", { config: "hiddenBlocks", value: "[]" }, { disabled: c.hiddenBlocks.length === 0 }),
-    ),
-  "set-sec",
-)}
-${section(
-  "Open links",
-  null,
-  row(
-    "Slack",
-    segmented("openSlackIn", c.openSlackIn, [
-      ["browser", "Browser"],
-      ["app", "Slack app"],
-    ]),
-  ) +
-    row(
-      "Slack team ID",
-      `<input class="text" data-config-input="slackTeamId" value="${esc(c.slackTeamId)}" placeholder="T01ABCDEF" spellcheck="false">`,
-      c.openSlackIn !== "app",
-    ) +
-    row(
-      "Linear",
-      segmented("openLinearIn", c.openLinearIn, [
-        ["browser", "Browser"],
-        ["app", "Linear app"],
-      ]),
-    ),
-  "set-sec",
-)}
-${section(
-  "Appearance",
-  null,
-  row(
-    "Theme",
-    segmented("theme", c.theme, [
-      ["system", "System"],
-      ["light", "Light"],
-      ["dark", "Dark"],
-    ]),
-  ) +
-    row("Time zone", `<input class="text" data-config-input="timezone" value="${esc(c.timezone)}" spellcheck="false">`),
-  "set-sec",
-)}
+${section("Away", null, awayRows(ctx, away), "set-sec")}
 ${section(
   "Database",
   null,
@@ -1646,6 +1579,72 @@ ${section(
       `<input class="text" data-config-input="backupDir" value="${esc(c.backupDir)}" placeholder="${esc(db.backupFolder)}" spellcheck="false">`,
     ) +
     row("Last", `${lastBackup(ctx, db.backups[0])}${button("Back up now", { act: "backup" })}`),
+  "set-sec",
+)}
+${section(
+  "Behavior",
+  null,
+  row("Notifications", toggle("notifyNew", c.notifyNew)) +
+    row("Sound", toggle("notifySound", c.notifySound)) +
+    row(
+      "Slack",
+      segmented("openSlackIn", c.openSlackIn, [
+        ["browser", "Browser"],
+        ["app", "Slack app"],
+      ]),
+    ) +
+    row(
+      "Slack team ID",
+      `<input class="text" data-config-input="slackTeamId" value="${esc(c.slackTeamId)}" placeholder="T01ABCDEF" spellcheck="false">`,
+      c.openSlackIn !== "app",
+    ) +
+    row(
+      "Linear",
+      segmented("openLinearIn", c.openLinearIn, [
+        ["browser", "Browser"],
+        ["app", "Linear app"],
+      ]),
+    ),
+  "set-sec",
+)}
+${section(
+  "Dashboard",
+  null,
+  row(
+    "Theme",
+    segmented("theme", c.theme, [
+      ["system", "System"],
+      ["light", "Light"],
+      ["dark", "Dark"],
+    ]),
+  ) +
+    row(
+      "Time zone",
+      `<input class="text" data-config-input="timezone" value="${esc(c.timezone)}" spellcheck="false">`,
+    ) +
+    row(
+      "Progress",
+      segmented("progressStyle", c.progressStyle, [
+        ["ring", "Ring", ring(65, 16, 3, false)],
+        ["half", "Half", half(65, 22, 3.5, false)],
+        ["bar", "Bar", bar(65)],
+      ]),
+    ) +
+    row("Period", rangeControl(c)) +
+    row(
+      "Later until",
+      segmented(
+        "laterHour",
+        c.laterHour,
+        [7, 8, 9, 10].map((h) => [h, `${h}:00`]),
+      ),
+    ) +
+    row("Blocks", blockChips(c.hiddenBlocks, sectionGroups(ctx))) +
+    row(
+      "Layout",
+      button("Reset", { config: "layout", value: JSON.stringify(DEFAULT_LAYOUT) }) +
+        button("Show all", { config: "hiddenBlocks", value: "[]" }, { disabled: c.hiddenBlocks.length === 0 }),
+    ),
   "set-sec",
 )}
 ${section("Keyboard", null, `<dl class="keys">${shortcuts.map(([k, v]) => `<dt><kbd>${esc(k)}</kbd></dt><dd>${esc(v)}</dd>`).join("")}</dl>`, "set-sec")}
