@@ -1013,14 +1013,14 @@ describe("db", () => {
     db.close();
     assert.throws(
       () => serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] }),
-      /has schema v1, this hub needs v10: move the file aside and re-import/,
+      /has schema v1, this hub needs v11: move the file aside and re-import/,
     );
     server = await serve({ dbPath: join(dir, "other.db"), port: 0, now: () => now, env: {}, fetchers: [] });
   });
 });
 
 describe("schema upgrade", () => {
-  test("a v2 database gains draft.send_at, the script table, ticket.position and item.ignored, source.warning, item.detached, script_source.enabled and section, and becomes v10, when hub serve opens it", async () => {
+  test("a v2 database gains draft.send_at, the script table, ticket.position and item.ignored, source.warning, item.detached, script_source.enabled and section, and becomes v11, when hub serve opens it", async () => {
     await imported();
     await server.close();
     const db = new DatabaseSync(dbFile);
@@ -1029,7 +1029,7 @@ describe("schema upgrade", () => {
     );
     db.close();
     server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] });
-    assert.equal(sql<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'")[0]?.value, "10");
+    assert.equal(sql<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'")[0]?.value, "11");
     assert.equal(
       sql<{ n: number }>("SELECT count(*) AS n FROM script_source WHERE enabled = 1 OR section IS NOT NULL")[0]?.n,
       0,
@@ -1040,6 +1040,25 @@ describe("schema upgrade", () => {
     assert.equal(sql<{ n: number }>("SELECT count(*) AS n FROM draft")[0]?.n, EXPECTED.drafts);
     await ok("draft", "ENG-7", "later", "--stdin", "--send-at", "tomorrow 12:00");
     assert.equal(await ok("order", "ENG-7", "1"), "ENG-7 is #1 in todo");
+  });
+});
+
+describe("schema upgrade to v11", () => {
+  test("ignored repos move into the GitHub searches as -repo: terms and ignoreRepos is gone", async () => {
+    await server.close();
+    const db = new DatabaseSync(dbFile);
+    db.exec(`INSERT INTO config(key, value) VALUES
+      ('githubReviewQuery', '"is:pr is:open review-requested:@me"'),
+      ('ignoreRepos', '{"review_request":["acme/noisy","acme/old"],"pr":["acme/web"]}');
+      UPDATE meta SET value = '10' WHERE key = 'schema_version'`);
+    db.close();
+    server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] });
+    assert.equal(
+      await ok("config", "githubReviewQuery"),
+      'githubReviewQuery = "is:pr is:open review-requested:@me -repo:acme/noisy -repo:acme/old"',
+    );
+    assert.equal(await ok("config", "githubPrQuery"), 'githubPrQuery = "is:pr author:@me -repo:acme/web"');
+    assert.equal(sql<{ n: number }>("SELECT count(*) AS n FROM config WHERE key = 'ignoreRepos'")[0]?.n, 0);
   });
 });
 

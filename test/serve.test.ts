@@ -297,7 +297,7 @@ describe("serve", () => {
   test("settings show the database and save config through the same checks as the CLI", async () => {
     const html = await (await fetch(`${server.url}/settings`)).text();
     assert.ok(html.includes(dbFile));
-    assert.match(html, /Schema<\/span><div class="set-control">v10/);
+    assert.match(html, /Schema<\/span><div class="set-control">v11/);
     assert.equal((await setConfigKey("openLinearIn", '"app"')).status, 200);
     const command = await setConfigKey("syncCommand", '["sh","-c","touch /tmp/x"]');
     assert.equal(command.status, 400);
@@ -834,12 +834,6 @@ describe("serve", () => {
     await json(call("POST", "/tickets/ENG-7/drafts/tell%20qa/unposted", {}));
     await json(call("POST", "/tickets/ENG-7/drafts/tell%20qa/match", sent));
     assert.match(await (await fetch(`${server.url}/?part=1`)).text(), /data-key="match-ENG-7-tell qa"/);
-
-    await json(call("POST", "/ignores/ignore", { kind: "pr", repo: "acme/web" }));
-    assert.match(await hub(["config", "ignoreRepos"]), /acme\/web/);
-    await json(call("POST", "/ignores/unignore", { kind: "pr", repo: "acme/web" }));
-    assert.doesNotMatch(await hub(["config", "ignoreRepos"]), /acme\/web/);
-    assert.equal((await call("POST", "/ignores/ignore", { kind: "issue", repo: "acme/web" })).status, 400);
   });
 
   test("a write from another process reaches open pages as a change event", async () => {

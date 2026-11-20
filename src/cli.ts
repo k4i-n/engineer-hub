@@ -41,7 +41,7 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         posted <id> <label> [--at <when>] [--channel <c>] [--answer <text>] [--ref <url>] [--file | --stdin] | unposted <id> <label>
         link <id> <url> [--kind <k>] [--title <t>]
         item put --stdin | item close <item>... | item snooze <item> [--for 1d|tomorrow] | item reopen <item> | item attach <item> <id> | item detach <item>
-        item ignore <item> [--repo] | item unignore <item> [--repo]
+        item ignore <item> | item unignore <item>
         wait <id> <who> <url> [--ping-after 1d] | wait close <wait | url> | wait pinged <wait> [--for 1d|tomorrow] | wait reopen <wait>
         wait edit <wait> [--who <w>] [--ping-after 1d]
         source <name> [--cursor <c>] [--error <text>] | fetch [source]
@@ -78,7 +78,6 @@ const OPTIONS = {
   answer: { type: "string" },
   title: { type: "string" },
   "needs-me": { type: "boolean" },
-  repo: { type: "boolean" },
   all: { type: "boolean" },
   ticket: { type: "string" },
   "ping-after": { type: "string" },
@@ -119,7 +118,6 @@ type Values = {
   answer?: string;
   title?: string;
   "needs-me"?: boolean;
-  repo?: boolean;
   all?: boolean;
   ticket?: string;
   "ping-after"?: string;
@@ -298,7 +296,7 @@ const COMMANDS: Record<string, Handler> = {
   },
   item: (a, v, io) => {
     const usage =
-      "item put --stdin | item close <item>... | item snooze <item> [--for 1d|tomorrow] | item reopen <item> | item attach <item> <id> | item detach <item> | item ignore <item> [--repo] | item unignore <item> [--repo]";
+      "item put --stdin | item close <item>... | item snooze <item> [--for 1d|tomorrow] | item reopen <item> | item attach <item> <id> | item detach <item> | item ignore <item> | item unignore <item>";
     const sub = arg(a, 0, usage);
     if (sub === "put") return c("item_put", { items: lines(body(v, io)) });
     if (sub === "close") return c("item_close", { key: arg(a, 1, usage), more: a.slice(2) });
@@ -306,8 +304,8 @@ const COMMANDS: Record<string, Handler> = {
     if (sub === "reopen") return c("item_reopen", { key: arg(a, 1, usage) });
     if (sub === "attach") return c("item_attach", { key: arg(a, 1, usage), ticket: arg(a, 2, usage) });
     if (sub === "detach") return c("item_detach", { key: arg(a, 1, usage) });
-    if (sub === "ignore") return c("item_ignore", { key: arg(a, 1, usage), repo: v.repo === true });
-    if (sub === "unignore") return c("item_unignore", { key: arg(a, 1, usage), repo: v.repo === true });
+    if (sub === "ignore") return c("item_ignore", { key: arg(a, 1, usage) });
+    if (sub === "unignore") return c("item_unignore", { key: arg(a, 1, usage) });
     throw new HubError(`usage: hub ${usage}`);
   },
   wait: (a, v) => {

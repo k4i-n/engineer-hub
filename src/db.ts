@@ -1,9 +1,10 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
+import { DEFAULTS } from "./config.ts";
 import { HubError } from "./util.ts";
 
-export const SCHEMA_VERSION = "10";
+export const SCHEMA_VERSION = "11";
 
 export type Ticket = {
   id: string;
@@ -190,7 +191,24 @@ const UPGRADES: Record<string, { to: string; sql: string }> = {
   "7": { to: "8", sql: "ALTER TABLE item ADD COLUMN detached INTEGER NOT NULL DEFAULT 0;" },
   "8": { to: "9", sql: "ALTER TABLE script_source ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1;" },
   "9": { to: "10", sql: "ALTER TABLE script_source ADD COLUMN section TEXT;" },
+  "10": {
+    to: "11",
+    sql: `${excludeIgnoredRepos("githubReviewQuery", "review_request")}
+${excludeIgnoredRepos("githubPrQuery", "pr")}
+DELETE FROM config WHERE key = 'ignoreRepos';`,
+  },
 };
+
+function excludeIgnoredRepos(key: "githubReviewQuery" | "githubPrQuery", kind: string): string {
+  const repos = `FROM config c, json_each(c.value, '$.${kind}') r WHERE c.key = 'ignoreRepos'`;
+  return `INSERT INTO config(key, value, updated_at)
+SELECT '${key}',
+  json_quote(coalesce((SELECT value ->> '$' FROM config WHERE key = '${key}'), '${DEFAULTS[key]}')
+    || (SELECT group_concat(' -repo:' || r.value, '') ${repos})),
+  strftime('%Y-%m-%dT%H:%M:%fZ')
+WHERE EXISTS (SELECT 1 ${repos})
+ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;`;
+}
 
 export function opensAs(version: string | undefined): boolean {
   let v = version;

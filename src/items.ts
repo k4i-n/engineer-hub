@@ -1,6 +1,6 @@
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import type { Ctx, Result } from "./commands.ts";
-import { setConfig } from "./config.ts";
+import type { Config } from "./config.ts";
 import { all, getTicket, type ItemRow, one, transaction } from "./db.ts";
 import { SOURCE_NAME } from "./sources.ts";
 import { cut, HubError, laterTime, linkKind, linkSource, nowIso, nowTs } from "./util.ts";
@@ -88,14 +88,48 @@ function matchTicket(ctx: Ctx, texts: (string | null)[]): string | null {
 
 const REPO_KINDS = ["review_request", "pr"];
 
-export function repoOf(i: { source: string; kind: string; url: string | null; ref: string }): string | null {
+function repoOf(i: { source: string; kind: string; url: string | null; ref: string }): string | null {
   if (i.source !== "github" || !REPO_KINDS.includes(i.kind)) return null;
   return /github\.com\/([^/]+\/[^/]+)\/pull\/\d+/.exec(i.url ?? i.ref)?.[1] ?? null;
 }
 
-function repoIgnored(ctx: Ctx, i: { source: string; kind: string; url: string | null; ref: string }): boolean {
+const QUERY_KEY: Record<string, "githubReviewQuery" | "githubPrQuery"> = {
+  review_request: "githubReviewQuery",
+  pr: "githubPrQuery",
+};
+
+function excludedRepos(query: string): string[] {
+  return [...query.matchAll(/(?:^|\s)-repo:(\S+)/g)].map((m) => (m[1] ?? "").toLowerCase());
+}
+
+function repoExcluded(config: Config, i: { source: string; kind: string; url: string | null; ref: string }): boolean {
   const repo = repoOf(i);
-  return repo !== null && (ctx.config.ignoreRepos[i.kind] ?? []).includes(repo);
+  const key = QUERY_KEY[i.kind];
+  return repo !== null && key !== undefined && excludedRepos(config[key]).includes(repo.toLowerCase());
+}
+
+export function applyExcludedRepos(ctx: Ctx): void {
+  const at = nowIso(ctx.now);
+  const github = all<ItemRow>(
+    ctx.db,
+    "SELECT * FROM item WHERE source = 'github' AND coalesce(ignored, 'repo') = 'repo'",
+  );
+  transaction(ctx.db, () => {
+    for (const i of github) {
+      const excluded = repoExcluded(ctx.config, i);
+      if (excluded && i.ignored === null)
+        ctx.db
+          .prepare("UPDATE item SET ignored = 'repo', closed_at = coalesce(closed_at, ?) WHERE id = ?")
+          .run(at, i.id);
+      if (!excluded && i.ignored === "repo")
+        ctx.db
+          .prepare(
+            `UPDATE item SET ignored = NULL, snoozed_until = NULL,
+               closed_at = CASE WHEN coalesce(state, '') IN ('done', 'merged', 'closed') THEN closed_at END WHERE id = ?`,
+          )
+          .run(i.id);
+    }
+  });
 }
 
 export function upsertItem(ctx: Ctx, input: ItemInput, withEvents: boolean): Upsert {
@@ -104,7 +138,7 @@ export function upsertItem(ctx: Ctx, input: ItemInput, withEvents: boolean): Ups
   const existing = itemByRef(db, input.ref);
   const ref = input.url ?? input.ref;
   if (!existing) {
-    const ignored = repoIgnored(ctx, input) ? "repo" : null;
+    const ignored = repoExcluded(ctx.config, input) ? "repo" : null;
     const ticketId = input.ticket_id ?? matchTicket(ctx, [input.title, input.url, input.ref, input.context]);
     if (withEvents && ticketId !== null && ignored === null) event(ctx, ticketId, `New ${describe(input)}`, ref);
     db.prepare(
@@ -145,7 +179,7 @@ export function upsertItem(ctx: Ctx, input: ItemInput, withEvents: boolean): Ups
   const fields = Object.keys(next) as (keyof typeof next)[];
   if (fields.every((f) => next[f] === existing[f])) return "unchanged";
   const stateChanged = next.state !== existing.state;
-  const ignored = existing.ignored ?? (repoIgnored(ctx, { ...existing, ...next }) ? "repo" : null);
+  const ignored = existing.ignored ?? (repoExcluded(ctx.config, { ...existing, ...next }) ? "repo" : null);
   const reopen = ignored === null && (stateChanged || (next.needs_me === 1 && existing.needs_me === 0));
   const closedAt = reopen ? null : ignored === null ? existing.closed_at : (existing.closed_at ?? at);
   const snoozedUntil = reopen ? null : existing.snoozed_until;
@@ -265,72 +299,21 @@ export function reopen(ctx: Ctx, key: string): Result {
   return { text: `#${item.id} reopened`, json: { id: item.id } };
 }
 
-function setIgnoreRepos(ctx: Ctx, kind: string, repos: string[]): void {
-  setConfig(ctx.db, "ignoreRepos", JSON.stringify({ ...ctx.config.ignoreRepos, [kind]: repos }), ctx.now);
-}
-
-function inRepo(ctx: Ctx, kind: string, repo: string, ignoredWithRepo: boolean): ItemRow[] {
-  return all<ItemRow>(
-    ctx.db,
-    `SELECT * FROM item WHERE source = 'github' AND kind = ? AND ignored IS ${ignoredWithRepo ? "'repo'" : "NULL"}`,
-    kind,
-  ).filter((i) => repoOf(i) === repo);
-}
-
-export function ignoreRepo(ctx: Ctx, kind: string, repo: string): Result {
-  if (kind !== "review_request" && kind !== "pr") throw new HubError("kind must be review_request or pr");
-  const at = nowIso(ctx.now);
-  const targets = inRepo(ctx, kind, repo, false);
-  transaction(ctx.db, () => {
-    const list = ctx.config.ignoreRepos[kind] ?? [];
-    if (!list.includes(repo)) setIgnoreRepos(ctx, kind, [...list, repo]);
-    for (const i of targets) {
-      ctx.db.prepare("UPDATE item SET ignored = 'repo', closed_at = coalesce(closed_at, ?) WHERE id = ?").run(at, i.id);
-    }
-  });
-  return { text: `${KIND_NAME[kind] ?? kind}s from ${repo} ignored`, json: { ids: targets.map((i) => i.id), repo } };
-}
-
-export function ignore(ctx: Ctx, key: string, wholeRepo: boolean): Result {
+export function ignore(ctx: Ctx, key: string): Result {
   const item = findItem(ctx.db, key);
-  const repo = repoOf(item);
-  if (wholeRepo && repo === null) throw new HubError(`#${item.id} is not a GitHub review request or PR`);
-  if (wholeRepo && repo !== null) return ignoreRepo(ctx, item.kind, repo);
   ctx.db
     .prepare("UPDATE item SET ignored = 'item', closed_at = coalesce(closed_at, ?) WHERE id = ?")
     .run(nowIso(ctx.now), item.id);
-  return { text: `#${item.id} ignored`, json: { ids: [item.id], repo: null } };
+  return { text: `#${item.id} ignored`, json: { id: item.id } };
 }
 
-export function unignoreRepo(ctx: Ctx, kind: string, repo: string): Result {
-  const list = ctx.config.ignoreRepos[kind] ?? [];
-  if (!list.includes(repo)) throw new HubError(`${repo} is not ignored for ${kind} (hub config ignoreRepos)`);
-  const targets = inRepo(ctx, kind, repo, true);
-  transaction(ctx.db, () => {
-    setIgnoreRepos(
-      ctx,
-      kind,
-      list.filter((r) => r !== repo),
-    );
-    for (const i of targets) {
-      ctx.db.prepare("UPDATE item SET ignored = NULL, closed_at = NULL, snoozed_until = NULL WHERE id = ?").run(i.id);
-    }
-  });
-  return {
-    text: `${KIND_NAME[kind] ?? kind}s from ${repo} shown again`,
-    json: { ids: targets.map((i) => i.id), repo },
-  };
-}
-
-export function unignore(ctx: Ctx, key: string, wholeRepo: boolean): Result {
+export function unignore(ctx: Ctx, key: string): Result {
   const item = findItem(ctx.db, key);
-  const repo = repoOf(item);
-  if (wholeRepo && repo !== null) return unignoreRepo(ctx, item.kind, repo);
   if (item.ignored === null) throw new HubError(`#${item.id} is not ignored`);
   if (item.ignored === "repo")
-    throw new HubError(`#${item.id} is ignored with its repo: hub item unignore ${item.id} --repo`);
+    throw new HubError(`#${item.id} is left out by -repo: in ${QUERY_KEY[item.kind] ?? "its search"}`);
   ctx.db.prepare("UPDATE item SET ignored = NULL, closed_at = NULL, snoozed_until = NULL WHERE id = ?").run(item.id);
-  return { text: `#${item.id} shown again`, json: { ids: [item.id], repo: null } };
+  return { text: `#${item.id} shown again`, json: { id: item.id } };
 }
 
 export function attach(ctx: Ctx, key: string, ticketId: string): Result {

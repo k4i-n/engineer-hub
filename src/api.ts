@@ -1,6 +1,7 @@
 import { brief } from "./brief.ts";
 import type { Ctx, Result } from "./commands.ts";
 import * as commands from "./commands.ts";
+import { loadConfig } from "./config.ts";
 import { getTicket, one, SETTABLE_FIELDS, transaction, type WaitRow } from "./db.ts";
 import { applyImport, collectImport, countPlan, formatSummary } from "./importer.ts";
 import * as items from "./items.ts";
@@ -42,6 +43,7 @@ export type Route = {
 export const MAX_COUNT = 200;
 
 export const COMMAND_KEYS = ["syncCommand"];
+const GITHUB_QUERY_KEYS = ["githubReviewQuery", "githubPrQuery"];
 
 function str(a: Args, key: string): string {
   return a[key] as string;
@@ -554,40 +556,15 @@ export const ROUTES: Route[] = [
     name: "item_ignore",
     method: "POST",
     path: "/items/{key}/ignore",
-    about:
-      "Never show this item again, whatever changes; with repo, every review request or PR of its kind from its repo.",
-    body: { repo: { type: "boolean", about: "ignore the whole repo for this kind" } },
-    run: (ctx, a) => items.ignore(ctx, str(a, "key"), a.repo === true),
+    about: "Never show this item again, whatever changes.",
+    run: (ctx, a) => items.ignore(ctx, str(a, "key")),
   },
   {
     name: "item_unignore",
     method: "POST",
     path: "/items/{key}/unignore",
-    about: "Show an ignored item again; with repo, stop ignoring its repo.",
-    body: { repo: { type: "boolean", about: "stop ignoring the item's repo" } },
-    run: (ctx, a) => items.unignore(ctx, str(a, "key"), a.repo === true),
-  },
-  {
-    name: "repo_ignore",
-    method: "POST",
-    path: "/ignores/ignore",
-    about: "Ignore review requests or PRs from a repo.",
-    body: {
-      kind: { type: "string", required: true, about: "review_request or pr" },
-      repo: { type: "string", required: true, about: "owner/repo" },
-    },
-    run: (ctx, a) => items.ignoreRepo(ctx, str(a, "kind"), str(a, "repo")),
-  },
-  {
-    name: "repo_unignore",
-    method: "POST",
-    path: "/ignores/unignore",
-    about: "Stop ignoring review requests or PRs from a repo.",
-    body: {
-      kind: { type: "string", required: true, about: "review_request or pr" },
-      repo: { type: "string", required: true, about: "owner/repo" },
-    },
-    run: (ctx, a) => items.unignoreRepo(ctx, str(a, "kind"), str(a, "repo")),
+    about: "Show an ignored item again.",
+    run: (ctx, a) => items.unignore(ctx, str(a, "key")),
   },
   {
     name: "item_attach",
@@ -737,7 +714,9 @@ export const ROUTES: Route[] = [
     run: (ctx, a) => {
       const k = str(a, "key");
       if (COMMAND_KEYS.includes(k)) throw new HubError(`${k} is set from the terminal: hub config ${k}`);
-      return commands.config(ctx, k, JSON.stringify(a.value));
+      const result = commands.config(ctx, k, JSON.stringify(a.value));
+      if (GITHUB_QUERY_KEYS.includes(k)) items.applyExcludedRepos({ ...ctx, config: loadConfig(ctx.db) });
+      return result;
     },
   },
   {
@@ -980,7 +959,7 @@ const HUMAN_NOTES: Record<string, (ctx: Ctx, a: Args) => Note | null> = {
   item_close: (ctx, a) => itemNote(ctx, str(a, "key"), "done"),
   item_snooze: (ctx, a) => itemNote(ctx, str(a, "key"), `later (${opt(a, "for") ?? "1d"})`),
   item_reopen: (ctx, a) => itemNote(ctx, str(a, "key"), "back in the list"),
-  item_ignore: (ctx, a) => itemNote(ctx, str(a, "key"), a.repo === true ? "ignored with its repo" : "ignored"),
+  item_ignore: (ctx, a) => itemNote(ctx, str(a, "key"), "ignored"),
   item_unignore: (ctx, a) => itemNote(ctx, str(a, "key"), "shown again"),
   wait_close: (ctx, a) => waitNote(ctx, str(a, "wait"), "answered"),
   wait_reopen: (ctx, a) => waitNote(ctx, str(a, "wait"), "waiting again"),

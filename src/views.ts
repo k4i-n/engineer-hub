@@ -17,12 +17,12 @@ import {
   type WaitRow,
 } from "./db.ts";
 import { series, span } from "./horizon.ts";
-import { KIND_NAME, repoOf } from "./items.ts";
+import { KIND_NAME } from "./items.ts";
 import { esc, renderLine, renderMarkdown } from "./markdown.ts";
 import { pins } from "./pins.ts";
 import { sections } from "./scripts.ts";
 import { progress } from "./steps.ts";
-import { cut, nowIso, nowTs, sinceDate, startOfDayIso, today } from "./util.ts";
+import { nowIso, nowTs, sinceDate, startOfDayIso, today } from "./util.ts";
 
 export const BRAND = "EngineerHub";
 
@@ -57,7 +57,7 @@ type Need = {
   ok: { label: string; data: Data } | null;
   undo: Data | null;
   later: Later | null;
-  ignore?: { id: number; kind: string; repo: string | null };
+  ignore?: number;
   fyi?: boolean;
   section?: string;
   panel?: string;
@@ -250,22 +250,9 @@ function rail(n: Need, pinned: boolean, target: string | null): string {
         )),
     ...(target === null ? [] : [menuItem("open", "Open", { open: target }, "↵")]),
     ...(n.href !== null && /^https?:/.test(n.href) ? [menuItem("link", "Copy link", { copy: n.href })] : []),
-    ...ignoreItems(n.ignore),
+    ...(n.ignore === undefined ? [] : [menuItem("ignore", "Ignore this PR", { act: "item-ignore", id: n.ignore })]),
   ];
   return `<span class="rail">${first}${clock}<details class="menu" data-key="menu-${esc(n.key)}"><summary class="ic ic-more" title="More" aria-label="More">${svg("more")}</summary><div class="menu-pop">${items.join("")}</div></details></span>`;
-}
-
-const IGNORE_REPO_TEXT: Record<string, string> = {
-  review_request: "Ignore review requests from",
-  pr: "Ignore my PRs from",
-};
-
-function ignoreItems(ignore: Need["ignore"]): string[] {
-  if (ignore === undefined) return [];
-  const one = menuItem("ignore", "Ignore this PR", { act: "item-ignore", id: ignore.id });
-  if (ignore.repo === null) return [one];
-  const label = `${IGNORE_REPO_TEXT[ignore.kind] ?? "Ignore"} ${ignore.repo}`;
-  return [one, menuItem("ignore", label, { act: "item-ignore", id: ignore.id, repo: "1" })];
 }
 
 function askChips(prompt: string, chips: string[]): string {
@@ -353,7 +340,8 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
   const items = all<ItemRow>(
     ctx.db,
     `SELECT * FROM item WHERE (needs_me = 1 OR (kind = 'pr' AND (coalesce(state, '') NOT IN ('merged', 'closed') OR (state = 'merged' AND changed_at >= ?))))
-       AND ignored IS NULL AND (closed_at IS NULL OR closed_at >= ?)`,
+       AND ignored IS NULL AND (closed_at IS NULL OR closed_at >= ?)
+       OR ignored = 'item' AND coalesce(state, '') NOT IN ('merged', 'closed', 'done')`,
     from,
     dayStart,
   );
@@ -381,7 +369,14 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
     const v = itemVerb(i);
     const section = cards.get(i.source);
     const snoozed = i.snoozed_until !== null && i.snoozed_until > now;
-    const dim = i.closed_at !== null ? "done" : snoozed ? `until ${when(ctx, i.snoozed_until ?? now)}` : null;
+    const dim =
+      i.ignored !== null
+        ? "ignored"
+        : i.closed_at !== null
+          ? "done"
+          : snoozed
+            ? `until ${when(ctx, i.snoozed_until ?? now)}`
+            : null;
     const url = i.url ?? (/^https?:/.test(i.ref) ? i.ref : null);
     list.push({
       key: `item-${i.id}`,
@@ -396,11 +391,9 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
       href: url,
       dim,
       ok: { label: "Done", data: { act: "item-done", id: i.id } },
-      undo: dim === null ? null : { act: "item-reopen", id: i.id },
+      undo: dim === null ? null : { act: i.ignored === null ? "item-reopen" : "item-unignore", id: i.id },
       later: dim === null ? { act: "item-snooze", data: { id: i.id } } : null,
-      ...(i.kind === "review_request" || i.kind === "pr"
-        ? { ignore: { id: i.id, kind: i.kind, repo: repoOf(i) } }
-        : {}),
+      ...((i.kind === "review_request" || i.kind === "pr") && i.ignored === null ? { ignore: i.id } : {}),
       ...(i.needs_me === 0 ? { fyi: true } : {}),
       ...(section === undefined ? {} : { section: sectionId(section) }),
     });
@@ -1399,26 +1392,6 @@ function addSourceRow(): string {
   return row("Add", codeBlock("hub source add <name> --every 5m -- <program>"));
 }
 
-const IGNORED_KIND: Record<string, string> = { review_request: "Review requests", pr: "My PRs" };
-
-function ignoredRows(ctx: Ctx): string {
-  const repos = Object.entries(ctx.config.ignoreRepos).flatMap(([kind, list]) =>
-    list.map(
-      (repo) =>
-        `<li><span class="ign-name">${esc(IGNORED_KIND[kind] ?? kind)} · ${esc(repo)}</span>${button("Undo", { act: "repo-unignore", kind, repo })}</li>`,
-    ),
-  );
-  const items = all<ItemRow>(ctx.db, "SELECT * FROM item WHERE ignored = 'item' ORDER BY id").map(
-    (i) =>
-      `<li><span class="ign-name">${esc(githubRef(i.url) ?? i.source)} · ${esc(cut(i.title ?? i.ref, 80))}</span>${button("Undo", { act: "item-unignore", id: i.id })}</li>`,
-  );
-  const list = [...repos, ...items];
-  return row(
-    "Ignored",
-    list.length === 0 ? `<span class="muted">–</span>` : `<ul class="ignored">${list.join("")}</ul>`,
-  );
-}
-
 function lastBackup(ctx: Ctx, newest: Backup | undefined): string {
   const state = backupState(ctx);
   if (state?.error != null) return `<span class="src-state tone-red">${esc(state.error)}</span>`;
@@ -1543,11 +1516,15 @@ ${section(
       c.fetch.github !== true,
     ) +
     row(
+      "My PRs",
+      `<input class="text" data-config-input="githubPrQuery" value="${esc(c.githubPrQuery)}" spellcheck="false">`,
+      c.fetch.github !== true,
+    ) +
+    row(
       "Alert channels",
       `<input class="text" data-config-input="slackAlertChannels" data-list value="${esc(c.slackAlertChannels.map((n) => `#${n.replace(/^#/, "")}`).join(", "))}" spellcheck="false">`,
       c.fetch.slack !== true,
     ) +
-    ignoredRows(ctx) +
     row(
       "Every",
       segmented("fetchEvery", c.fetchEvery, [

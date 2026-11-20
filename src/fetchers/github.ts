@@ -84,7 +84,7 @@ async function fetchGithub(sys: System, ctx: Ctx, cursor: string | null): Promis
   const searched = await graphql<Searched>(sys, [
     `query=${SEARCH}`,
     `requested=${ctx.config.githubReviewQuery}`,
-    `mine=is:pr author:@me updated:>=${since}`,
+    `mine=${ctx.config.githubPrQuery} updated:>=${since}`,
   ]);
   const requested = searched.requested.nodes.filter((pr) => pr.url !== undefined);
   const out: unknown[] = requested.map((pr) => ({
