@@ -1013,14 +1013,14 @@ describe("db", () => {
     db.close();
     assert.throws(
       () => serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] }),
-      /has schema v1, this hub needs v19: move the file aside and re-import/,
+      /has schema v1, this hub needs v20: move the file aside and re-import/,
     );
     server = await serve({ dbPath: join(dir, "other.db"), port: 0, now: () => now, env: {}, fetchers: [] });
   });
 });
 
 describe("schema upgrade", () => {
-  test("a v2 database gains draft.send_at, the script table, ticket.position and item.ignored, source.warning, item.detached, script_source.enabled and section, item verdicts, item.body and item.detail, draft.item, draft.closed_item and draft.match_no, item.ask, draft.verdict and draft comments, draft.internal, and becomes v19, when hub serve opens it", async () => {
+  test("a v2 database gains draft.send_at, the script table, ticket.position and item.ignored, source.warning, item.detached, script_source.enabled and section, item verdicts, item.body and item.detail, draft.item, draft.closed_item and draft.match_no, item.ask, draft.verdict and draft comments, draft.internal, and becomes v20, when hub serve opens it", async () => {
     await imported();
     await server.close();
     const db = new DatabaseSync(dbFile);
@@ -1029,7 +1029,7 @@ describe("schema upgrade", () => {
     );
     db.close();
     server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] });
-    assert.equal(sql<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'")[0]?.value, "19");
+    assert.equal(sql<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'")[0]?.value, "20");
     assert.equal(
       sql<{ n: number }>("SELECT count(*) AS n FROM draft WHERE item IS NOT NULL OR internal != 0")[0]?.n,
       0,
@@ -1074,6 +1074,35 @@ describe("schema upgrade to v11", () => {
     );
     assert.equal(await ok("config", "githubPrQuery"), 'githubPrQuery = "is:pr author:@me -repo:acme/web"');
     assert.equal(sql<{ n: number }>("SELECT count(*) AS n FROM config WHERE key = 'ignoreRepos'")[0]?.n, 0);
+  });
+});
+
+describe("schema upgrade to v20", () => {
+  test("open review requests with no question get reviewAsk; closed, ignored and asked ones keep theirs", async () => {
+    await server.close();
+    const db = new DatabaseSync(dbFile);
+    const insert = db.prepare(
+      `INSERT INTO item(source, ref, kind, first_seen, changed_at, closed_at, ignored, ask)
+       VALUES ('github', ?, ?, '2026-11-20T00:00:00Z', '2026-11-20T00:00:00Z', ?, ?, ?)`,
+    );
+    insert.run("open", "review_request", null, null, null);
+    insert.run("closed", "review_request", "2026-11-20T01:00:00Z", null, null);
+    insert.run("ignored", "review_request", "2026-11-20T01:00:00Z", "item", null);
+    insert.run("asked", "review_request", null, null, "Approve as is?");
+    insert.run("pr", "pr", null, null, null);
+    db.exec("UPDATE meta SET value = '19' WHERE key = 'schema_version'");
+    db.close();
+    server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] });
+    const asks = Object.fromEntries(
+      sql<{ ref: string; ask: string | null }>("SELECT ref, ask FROM item").map((r) => [r.ref, r.ask]),
+    );
+    assert.deepEqual(asks, {
+      open: "Review this?",
+      closed: null,
+      ignored: null,
+      asked: "Approve as is?",
+      pr: null,
+    });
   });
 });
 

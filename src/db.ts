@@ -4,7 +4,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { DEFAULTS } from "./config.ts";
 import { HubError } from "./util.ts";
 
-export const SCHEMA_VERSION = "19";
+export const SCHEMA_VERSION = "20";
 
 export type Ticket = {
   id: string;
@@ -246,6 +246,11 @@ ${DRAFT_ITEM_INDEX}`,
 ${DRAFT_COMMENT}`,
   },
   "18": { to: "19", sql: "ALTER TABLE draft ADD COLUMN internal INTEGER NOT NULL DEFAULT 0;" },
+  "19": {
+    to: "20",
+    sql: `UPDATE item SET ask = '${DEFAULTS.reviewAsk}'
+WHERE kind = 'review_request' AND ask IS NULL AND closed_at IS NULL AND ignored IS NULL;`,
+  },
 };
 
 function excludeIgnoredRepos(key: "githubReviewQuery" | "githubPrQuery", kind: string): string {
