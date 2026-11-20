@@ -299,17 +299,7 @@ describe("serve", () => {
     assert.ok(html.includes(dbFile));
     assert.match(html, /Schema<\/span><div class="set-control">v12/);
     const titles = [...html.matchAll(/<h2><button type="button" class="fold" data-fold="([^"]+)"/g)].map((m) => m[1]);
-    assert.deepEqual(titles, [
-      "Sources",
-      "Away",
-      "Notifications",
-      "Agent",
-      "Dashboard",
-      "Open links",
-      "Appearance",
-      "Database",
-      "Keyboard",
-    ]);
+    assert.deepEqual(titles, ["Sources", "Agent", "Away", "Database", "Behavior", "Dashboard", "Keyboard"]);
     assert.equal(html.match(/<div class="col">/g)?.length, 1);
     assert.equal((await setConfigKey("openLinearIn", '"app"')).status, 200);
     const command = await setConfigKey("syncCommand", '["sh","-c","touch /tmp/x"]');

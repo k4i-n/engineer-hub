@@ -134,7 +134,7 @@ export const DEFAULTS: Config = {
     "Answer with JSON only.",
   ],
   judgePrompt:
-    "Pick which new items are worth pinging an engineer who is away from the computer. Ping: a question or request to them, someone blocked on them, an alert that matches one of their open tickets or a PR they merged in the last few hours. Skip: thanks, FYI, routine alerts, bot updates.",
+    "Pick which new items are worth pinging an engineer who is away from the computer. Ping: a question or request to them, someone blocked on them, an alert that matches one of their open tickets or a PR they merged recently (listed below). Skip: thanks, FYI, routine alerts, bot updates.",
   watchFor: "3h",
   theme: "system",
   layout: DEFAULT_LAYOUT,
