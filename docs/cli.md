@@ -90,6 +90,9 @@ Config lives in the database. `hub config` lists every key with its value:
 | `ignoreRepos` | `{"review_request":[],"pr":[]}` | repos whose review requests or PRs of yours are ignored |
 | `laterHour` | `9` | the hour "later until tomorrow" means |
 | `recordActions` | `git push`, `gh pr create\|merge\|comment\|review\|close\|edit`, `gh issue create\|comment\|close\|edit` | regular expressions for shell commands a session must record in hub before it stops, and whose printed PR the PostToolUse hook links to the ticket on the current branch; `[]` switches the Stop hook off |
+| `awayPing` | `false` | post to a webhook when new alerts or messages arrive while you are away (see Dashboard) |
+| `awayAfter` | `"10m"` | idle time that counts as away: 5m, 10m, 15m or 30m; a locked screen is away at once |
+| `awayEvery` | `"30m"` | at most one post per 15m, 30m, 1h or 2h |
 | `autoBackup` | `true` | back up the database on a schedule |
 | `backupEvery` | `"1d"` | how often: `1h`, `6h`, `12h`, `1d` or `7d` |
 | `backupDir` | `""` | backup folder, absolute or `~/…`; empty means `backups/` next to the database |
