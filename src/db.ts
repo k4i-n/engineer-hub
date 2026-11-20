@@ -4,7 +4,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { DEFAULTS } from "./config.ts";
 import { HubError } from "./util.ts";
 
-export const SCHEMA_VERSION = "20";
+export const SCHEMA_VERSION = "21";
 
 export type Ticket = {
   id: string;
@@ -84,6 +84,7 @@ export type ItemRow = {
   url: string | null;
   state: string | null;
   author: string | null;
+  avatar: string | null;
   ticket_id: string | null;
   needs_me: number;
   first_seen: string;
@@ -186,7 +187,7 @@ CREATE TABLE item(id INTEGER PRIMARY KEY, source TEXT NOT NULL, ref TEXT NOT NUL
   url TEXT, state TEXT, author TEXT, ticket_id TEXT, needs_me INTEGER NOT NULL DEFAULT 0,
   first_seen TEXT NOT NULL, changed_at TEXT NOT NULL, closed_at TEXT, snoozed_until TEXT, ignored TEXT,
   detached INTEGER NOT NULL DEFAULT 0, judged_at TEXT, away_ping INTEGER, away_why TEXT, body TEXT, detail TEXT,
-  ask TEXT, ask_answer TEXT, ask_at TEXT);
+  ask TEXT, ask_answer TEXT, ask_at TEXT, avatar TEXT);
 CREATE INDEX item_ticket ON item(ticket_id);
 CREATE TABLE wait(id INTEGER PRIMARY KEY, ticket_id TEXT NOT NULL, who TEXT NOT NULL, url TEXT NOT NULL,
   asked_at TEXT NOT NULL, ping_after TEXT, pinged_at TEXT, closed_at TEXT);
@@ -251,6 +252,7 @@ ${DRAFT_COMMENT}`,
     sql: `UPDATE item SET ask = '${DEFAULTS.reviewAsk}'
 WHERE kind = 'review_request' AND ask IS NULL AND closed_at IS NULL AND ignored IS NULL;`,
   },
+  "20": { to: "21", sql: "ALTER TABLE item ADD COLUMN avatar TEXT;" },
 };
 
 function excludeIgnoredRepos(key: "githubReviewQuery" | "githubPrQuery", kind: string): string {

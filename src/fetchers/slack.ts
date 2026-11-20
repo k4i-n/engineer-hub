@@ -49,7 +49,7 @@ type User = {
   name?: string;
   real_name?: string;
   is_bot?: boolean;
-  profile?: { display_name?: string; real_name?: string };
+  profile?: { display_name?: string; real_name?: string; image_48?: string };
 };
 type Group = { id: string; handle: string };
 type Answer = { ok: boolean; error?: string; needed?: string };
@@ -101,6 +101,7 @@ class Directory {
   readonly missing = new Set<string>();
   private readonly users = new Map<string, string | null>();
   private readonly bots = new Map<string, boolean>();
+  private readonly avatars = new Map<string, string | null>();
   private readonly channels = new Map<string, Channel | null>();
   private groups: Map<string, string> | null = null;
   private readonly sys: System;
@@ -129,11 +130,17 @@ class Directory {
     const name = u?.profile?.display_name || u?.profile?.real_name || u?.real_name || u?.name || null;
     this.users.set(id, name ?? this.users.get(id) ?? null);
     this.bots.set(id, u?.is_bot === true);
+    this.avatars.set(id, u?.profile?.image_48 ?? null);
   }
 
   async user(id: string): Promise<string> {
     if (!this.users.has(id) || this.users.get(id) === null) await this.lookup(id);
     return this.users.get(id) ?? id;
+  }
+
+  async avatar(id: string): Promise<string | null> {
+    if (!this.avatars.has(id)) await this.lookup(id);
+    return this.avatars.get(id) ?? null;
   }
 
   async fromApp(m: Match): Promise<boolean> {
@@ -179,6 +186,11 @@ class Directory {
     );
     return r === null ? null : { user: r.message?.user ?? null, reactions: r.message?.reactions ?? [] };
   }
+}
+
+async function byline(dir: Directory, m: Match): Promise<{ author: string | null; avatar: string | null }> {
+  if (!m.user) return { author: m.username ?? null, avatar: null };
+  return { author: await dir.user(m.user), avatar: await dir.avatar(m.user) };
 }
 
 const TOKEN = /<([^<>]+)>/g;
@@ -335,7 +347,7 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
       url: m.permalink,
       title: await line(dir, me, myName, m),
       body: await full(dir, m),
-      author: m.user ? await dir.user(m.user) : m.username,
+      ...(await byline(dir, m)),
       state: "alert",
       needs_me: true,
     });
@@ -350,7 +362,7 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
       url: m.permalink,
       title: await line(dir, me, myName, m),
       body: await full(dir, m),
-      author: m.user ? await dir.user(m.user) : m.username,
+      ...(await byline(dir, m)),
       state: "mention",
       needs_me: true,
     });
@@ -369,7 +381,7 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
       url: m.permalink,
       title: await line(dir, me, myName, m),
       body: await full(dir, m),
-      author: m.user ? await dir.user(m.user) : m.username,
+      ...(await byline(dir, m)),
       state,
       needs_me: true,
     });

@@ -72,7 +72,7 @@ function send(
     "x-content-type-options": "nosniff",
     "referrer-policy": "no-referrer",
     "content-security-policy":
-      "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+      "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src data: https://avatars.githubusercontent.com https://*.slack-edge.com https://secure.gravatar.com; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
   });
   res.end(body);
 }

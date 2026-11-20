@@ -367,6 +367,7 @@ describe("collapse and escaping", () => {
     url: null,
     state: null,
     author: "Grafana",
+    avatar: null,
     ticket_id: null,
     needs_me: 1,
     first_seen: "2026-11-20T09:00:00.000Z",

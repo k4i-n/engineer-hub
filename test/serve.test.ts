@@ -349,7 +349,7 @@ describe("serve", () => {
   test("settings show the database and save config through the same checks as the CLI", async () => {
     const html = await (await fetch(`${server.url}/settings`)).text();
     assert.ok(html.includes(dbFile));
-    assert.match(html, /Schema<\/span><div class="set-control">v20/);
+    assert.match(html, /Schema<\/span><div class="set-control">v21/);
     const titles = [...html.matchAll(/<h2><button type="button" class="fold" data-fold="([^"]+)"/g)].map((m) => m[1]);
     assert.deepEqual(titles, ["Sources", "Agent", "Away", "Database", "Behavior", "Dashboard", "Keyboard"]);
     assert.equal(html.match(/<div class="col">/g)?.length, 1);
@@ -1036,6 +1036,34 @@ describe("serve", () => {
     ]) {
       assert.doesNotMatch(script, new RegExp(`^(async )?function ${name}\\(`, "m"), name);
     }
+  });
+
+  test("an item's avatar shows before its source line, and the page may load it", async () => {
+    const pic = "https://avatars.githubusercontent.com/u/1?s=40&v=4";
+    await hub(
+      ["item", "put", "--stdin"],
+      [
+        JSON.stringify({
+          source: "github",
+          kind: "review_request",
+          url: "https://github.com/acme/web/pull/9",
+          avatar: pic,
+          needs_me: true,
+        }),
+        JSON.stringify({ source: "grafana", kind: "alert", ref: "alert-1", title: "API 5xx", needs_me: true }),
+      ].join("\n"),
+    );
+    const index = await fetch(`${server.url}/`);
+    const html = await index.text();
+    assert.match(
+      html,
+      /<span class="need-sub"><img class="avatar" src="https:\/\/avatars\.githubusercontent\.com\/u\/1\?s=40&amp;v=4"/,
+    );
+    assert.match(html, /<span class="need-sub">grafana/);
+    assert.match(
+      index.headers.get("content-security-policy") ?? "",
+      /img-src data: https:\/\/avatars\.githubusercontent\.com /,
+    );
   });
 
   test("text from the DB is escaped", async () => {

@@ -26,6 +26,7 @@ export type ItemInput = {
   url: string | null;
   state: string | null;
   author: string | null;
+  avatar: string | null;
   ticket_id: string | null;
   needs_me: boolean | null;
   context: string | null;
@@ -38,7 +39,15 @@ export type Upsert = "new" | "changed" | "unchanged";
 const MAX_TITLE = 240;
 const MAX_DETAIL = 240;
 const ANSWERS = ["yes", "no"];
-const MAX_LENGTH: Record<string, number> = { ref: 2048, url: 2048, state: 60, author: 120, context: 8000, body: 8000 };
+const MAX_LENGTH: Record<string, number> = {
+  ref: 2048,
+  url: 2048,
+  state: 60,
+  author: 120,
+  avatar: 2048,
+  context: 8000,
+  body: 8000,
+};
 const INPUT_KEYS = [
   "source",
   "ref",
@@ -47,6 +56,7 @@ const INPUT_KEYS = [
   "url",
   "state",
   "author",
+  "avatar",
   "ticket",
   "needs_me",
   "context",
@@ -160,8 +170,8 @@ export function upsertItem(ctx: Ctx, input: ItemInput, withEvents: boolean): Ups
     const ask = input.kind === "review_request" && ignored === null ? ctx.config.reviewAsk.trim() || null : null;
     if (withEvents && ticketId !== null && ignored === null) event(ctx, ticketId, `New ${describe(input)}`, ref);
     db.prepare(
-      `INSERT INTO item(source, ref, kind, title, url, state, author, ticket_id, needs_me, first_seen, changed_at, closed_at, ignored, body, detail, ask)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO item(source, ref, kind, title, url, state, author, avatar, ticket_id, needs_me, first_seen, changed_at, closed_at, ignored, body, detail, ask)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       input.source,
       input.ref,
@@ -170,6 +180,7 @@ export function upsertItem(ctx: Ctx, input: ItemInput, withEvents: boolean): Ups
       input.url,
       input.state,
       input.author,
+      input.avatar,
       ticketId,
       input.needs_me ? 1 : 0,
       at,
@@ -188,6 +199,7 @@ export function upsertItem(ctx: Ctx, input: ItemInput, withEvents: boolean): Ups
     url: input.url ?? existing.url,
     state: input.state ?? existing.state,
     author: input.author ?? existing.author,
+    avatar: input.avatar ?? existing.avatar,
     body: input.body ?? existing.body,
     detail: input.detail ?? existing.detail,
     ticket_id:
@@ -229,6 +241,12 @@ function text(line: number, key: string, value: unknown): string | null {
     throw new HubError(`line ${line}: ${key} is ${value.length} chars (max ${max})`);
   }
   return value;
+}
+
+function avatarUrl(line: number, value: unknown): string | null {
+  const url = text(line, "avatar", value);
+  if (url !== null && !url.startsWith("https://")) throw new HubError(`line ${line}: avatar must be an https URL`);
+  return url;
 }
 
 function detailText(line: number, value: unknown): string | null {
@@ -281,6 +299,7 @@ export function parseItems(ctx: Ctx, input: string): ItemInput[] {
       url,
       state: text(line, "state", o.state),
       author: text(line, "author", o.author),
+      avatar: avatarUrl(line, o.avatar),
       ticket_id: ticket,
       needs_me: o.needs_me === undefined ? null : o.needs_me,
       context: text(line, "context", o.context),
@@ -446,6 +465,7 @@ export function link(ctx: Ctx, id: string, url: string, options: LinkOptions): R
       url,
       state: null,
       author: null,
+      avatar: null,
       ticket_id: id,
       needs_me: null,
       context: null,

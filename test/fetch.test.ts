@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import { type Io, run } from "../src/cli.ts";
 import { DEFAULT_LAYOUT } from "../src/config.ts";
@@ -57,7 +58,7 @@ async function hub(...argv: string[]): Promise<string> {
 const PR = (url: string, extra: Record<string, unknown> = {}) => ({
   url,
   title: `title of ${url.split("/").at(-1)}`,
-  author: { login: "ana" },
+  author: { login: "ana", avatarUrl: "https://avatars.githubusercontent.com/u/7?s=40" },
   state: "OPEN",
   merged: false,
   viewerDidAuthor: true,
@@ -128,6 +129,13 @@ describe("github", () => {
     const query = calls.find((c) => c[1] === "api") ?? [];
     assert.ok(query.includes("requested=is:pr is:open review-requested:@me archived:false"));
     assert.ok(query.some((a) => /^mine=is:pr author:@me updated:>=\d{4}-/.test(a)));
+    const db = new DatabaseSync(dbFile);
+    const avatars = db.prepare("SELECT DISTINCT avatar FROM item WHERE source = 'github'").all();
+    db.close();
+    assert.deepEqual(
+      avatars.map((r) => r.avatar),
+      ["https://avatars.githubusercontent.com/u/7?s=40"],
+    );
 
     answers.gh = graphql([], []);
     await hub("fetch", "github");
@@ -768,6 +776,13 @@ describe("slack", () => {
             ];
         return { status: 200, body: JSON.stringify({ ok: true, messages: { matches } }) };
       }
+      if (u.pathname === "/api/users.info") {
+        const id = u.searchParams.get("user");
+        return {
+          status: 200,
+          body: JSON.stringify({ ok: true, user: { id, profile: { display_name: id === "U3" ? "Ken" : "ana" } } }),
+        };
+      }
       if (u.pathname === "/api/conversations.replies") {
         assert.equal(u.searchParams.get("channel"), "C01");
         if (u.searchParams.get("ts") !== thread)
@@ -865,7 +880,9 @@ describe("slack", () => {
       }
       if (u.pathname === "/api/users.info") {
         const names: Record<string, string> = { U0ME: "Khai", U2: "Ana Sato", U3: "Ken" };
-        return ok({ user: { id: p.get("user"), profile: { display_name: names[p.get("user") ?? ""] ?? "" } } });
+        const id = p.get("user") ?? "";
+        const image_48 = `https://avatars.slack-edge.com/${id}_48.png`;
+        return ok({ user: { id, profile: { display_name: names[id] ?? "", image_48 } } });
       }
       if (u.pathname === "/api/conversations.info") {
         const id = p.get("channel");
@@ -892,6 +909,11 @@ describe("slack", () => {
     assert.doesNotMatch(needs, /deploy\?/);
     assert.match(await hub("items", "--source", "slack"), /#ops · Ken: @Khai deploy\? \| reacted :white_check_mark:/);
     assert.match(await hub("items", "--source", "slack"), /DM @Ana Sato · me: on it \| sent/);
+    const db = new DatabaseSync(dbFile);
+    const avatars = db.prepare("SELECT author, avatar FROM item WHERE source = 'slack' ORDER BY id").all();
+    db.close();
+    assert.ok(avatars.some((r) => r.author === "Ana Sato" && r.avatar === "https://avatars.slack-edge.com/U2_48.png"));
+    assert.ok(avatars.some((r) => r.author === "me" && r.avatar === null));
     assert.match(await hub("waits"), /no open waits/);
     assert.doesNotMatch(await hub("sources"), /warning/);
   });

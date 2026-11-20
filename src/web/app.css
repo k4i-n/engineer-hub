@@ -501,6 +501,7 @@ a.chip:hover {
   grid-area: main;
   display: flex;
   flex-direction: column;
+  gap: 3px;
   min-width: 0;
 }
 .need-title {
@@ -519,6 +520,16 @@ a.need-title:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.avatar {
+  width: 16px;
+  height: 16px;
+  margin-right: 4px;
+  border-radius: 50%;
+  vertical-align: -3px;
+}
+.avatar.broken {
+  visibility: hidden;
 }
 .need-ticket {
   grid-area: ticket;

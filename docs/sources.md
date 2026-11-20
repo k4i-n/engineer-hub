@@ -79,5 +79,6 @@ For everything else an agent reads each source (Slack, the tracker, mail, alerts
 | `detail` | short facts shown after the state under the row, such as a PR's size and reviews (cut to 240 chars) |
 | `body` | the full text behind a one-line title (a message, a description), markdown; its first line shows under the row and a click unfolds it (max 8000 chars) |
 | `needs_me` | `true` when the item waits on you |
+| `avatar` | https URL of the author's picture, shown before the row's source line; the dashboard loads images only from GitHub, Slack and Gravatar hosts |
 
 The batch is checked whole before anything is written. An unchanged item changes nothing. A new item on a ticket, an attach and a state change become `sync` events on the ticket. A state change or a new `needs_me` reopens a closed item.
