@@ -366,6 +366,11 @@ function withoutTicket(title: string, ticket: string | null): string {
   return rest === "" ? title : rest;
 }
 
+function avatar(url: string | null): string {
+  if (url === null) return "";
+  return `<img class="avatar" src="${esc(url)}" alt="" width="16" height="16" loading="lazy" referrerpolicy="no-referrer">`;
+}
+
 function sourceLine(parts: (string | null)[]): string {
   return parts
     .filter((p): p is string => p !== null && p !== "")
@@ -589,7 +594,7 @@ function itemNeed(ctx: Ctx, i: ItemRow): Need {
     verb: v.verb,
     tone: v.tone,
     title: linker(ctx)(url, withoutTicket(itemTitle(i), i.ticket_id), "need-title"),
-    sub: sourceLine([githubRef(url) ?? i.source, i.author, i.state, i.detail]),
+    sub: avatar(i.avatar) + sourceLine([githubRef(url) ?? i.source, i.author, i.state, i.detail]),
     ...moreText(i),
     ...draftMore(ctx, drafts, true),
     ask: itemAsk(ctx, i) + draftChips(ctx, drafts, url),

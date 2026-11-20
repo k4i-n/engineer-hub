@@ -717,6 +717,14 @@ async function saveConfig(key, value, el) {
 document.addEventListener("pointerdown", unlockAudio);
 document.addEventListener("keydown", unlockAudio);
 
+document.addEventListener(
+  "error",
+  (e) => {
+    if (e.target instanceof HTMLImageElement && e.target.classList.contains("avatar")) e.target.classList.add("broken");
+  },
+  true,
+);
+
 document.addEventListener("click", async (e) => {
   closeMenus(e.target.closest("details.menu"));
   if (!e.target.closest(".search")) hideResults();
