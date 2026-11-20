@@ -37,6 +37,7 @@ export type SyncState = {
 export type Live = {
   sync: SyncState;
   agent: SyncState;
+  agentNext: string | null;
   agentBusy: boolean;
   sources: { name: string; running: boolean }[];
 };
@@ -1221,6 +1222,7 @@ function agentChip(ctx: Ctx, live: Live): string {
   const title = [
     a.at === null ? "not run yet" : `${a.status === "running" ? "started" : "last run"} ${when(ctx, a.at)}`,
     ctx.config.autoSync ? `auto sync every ${ctx.config.syncEvery}` : "auto sync off",
+    live.agentNext === null ? null : `next ${when(ctx, live.agentNext)}`,
     a.status === "failed" ? a.detail : null,
   ]
     .filter(Boolean)

@@ -1174,6 +1174,42 @@ describe("serve", () => {
     assert.equal((await syncState()).at, ran.at);
     assert.equal((await setConfigKey("syncEvery", '"5m"')).status, 400);
   });
+
+  test("the last agent run survives a restart, so auto sync waits only the rest of the interval", async () => {
+    await server.close();
+    let clock = new Date("2026-11-18T09:00:00Z");
+    const db = new DatabaseSync(dbFile);
+    db.prepare("INSERT OR REPLACE INTO config(key, value) VALUES ('syncCommand', ?)").run(
+      JSON.stringify(["node", "-e", "process.stdout.write('restarted')"]),
+    );
+    db.prepare("INSERT OR REPLACE INTO config(key, value) VALUES ('autoSync', 'true')").run();
+    db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES ('agent', ?)").run(
+      JSON.stringify({ status: "finished", at: "2026-11-18T06:00:00Z", detail: "before" }),
+    );
+    db.close();
+    const start = () =>
+      serve({ dbPath: dbFile, port: 0, now: () => clock, env: process.env, autoSyncCheckMs: 20, fetchers: [] });
+    server = await start();
+    assert.match(await (await fetch(`${server.url}/?part=1`)).text(), /auto sync every 4h\nnext \d\d:\d\d"/);
+    clock = new Date("2026-11-18T09:30:00Z");
+    await new Promise((r) => setTimeout(r, 80));
+    assert.equal((await syncState()).status, "idle");
+    clock = new Date("2026-11-18T10:00:00Z");
+    const ran = await waitFor(async () => {
+      const s = await syncState();
+      return s.status === "finished" ? s : undefined;
+    });
+    assert.equal(ran.detail, "restarted");
+
+    await server.close();
+    clock = new Date("2026-11-18T12:00:00Z");
+    server = await start();
+    await new Promise((r) => setTimeout(r, 80));
+    assert.equal((await syncState()).status, "idle");
+    clock = new Date("2026-11-18T14:01:00Z");
+    await waitFor(async () => ((await syncState()).status === "finished" ? true : undefined));
+    await hub(["config", "autoSync", "false"]);
+  });
 });
 
 describe("api v1", () => {
