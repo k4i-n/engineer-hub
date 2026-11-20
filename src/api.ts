@@ -298,12 +298,18 @@ export const ROUTES: Route[] = [
         type: "string",
         about: "when the human should send it: 30m, 4h, tomorrow, 12:00, tomorrow 12:00 or YYYY-MM-DD HH:MM",
       },
+      internal: {
+        type: "boolean",
+        about:
+          "true for text an agent uses itself (a PR body), not for the human to post: shown on the ticket page only",
+      },
     },
     run: (ctx, a) =>
       commands.draft(ctx, str(a, "id"), str(a, "label"), str(a, "body"), opt(a, "channel"), opt(a, "send_at"), {
         item: opt(a, "item"),
         verdict: opt(a, "verdict"),
         comments: a.comments,
+        internal: a.internal === undefined ? null : a.internal === true,
       }),
   },
   {

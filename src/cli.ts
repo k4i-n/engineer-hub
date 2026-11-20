@@ -35,7 +35,7 @@ read:   ticket <id> | board [regex] | next | gates | changed --since <YYYY-MM-DD
 write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent] [--ref <url>]
         note <id> <title> (--file <path> | --stdin) [--kind detail] | note-rm <id> <title> | note-mv <id> <title> <new title>
         draft <id | item url> <label> (--file <path> | --stdin) [--channel <c>] [--send-at <when>] [--item <url>]
-        [--verdict approve|request_changes|comment] [--comments <json file of [{path, line, body}]>]
+        [--verdict approve|request_changes|comment] [--comments <json file of [{path, line, body}]>] [--internal]
         draft-rm <id> <label> (unsent only) | draft-mv <id> <label> <new label>
         draft-later <id> <label> [--for 1h|tomorrow|tomorrow 12:00]
         match <id> <label> --ref <url> (--file | --stdin) | match <id> <label> (yes | no)
@@ -82,6 +82,7 @@ const OPTIONS = {
   answer: { type: "string" },
   title: { type: "string" },
   "needs-me": { type: "boolean" },
+  internal: { type: "boolean" },
   all: { type: "boolean" },
   ticket: { type: "string" },
   "ping-after": { type: "string" },
@@ -125,6 +126,7 @@ type Values = {
   answer?: string;
   title?: string;
   "needs-me"?: boolean;
+  internal?: boolean;
   all?: boolean;
   ticket?: string;
   "ping-after"?: string;
@@ -277,6 +279,7 @@ const COMMANDS: Record<string, Handler> = {
       ...(v.item === undefined ? {} : { item: v.item }),
       ...(v.verdict === undefined ? {} : { verdict: v.verdict }),
       ...(v.comments === undefined ? {} : { comments: jsonFile(v.comments) }),
+      ...(v.internal === undefined ? {} : { internal: true }),
     });
   },
   "note-rm": (a) =>

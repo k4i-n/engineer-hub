@@ -713,7 +713,12 @@ export function draftRename(ctx: Ctx, id: string, label: string, to: string): Re
   return { text: `${id} draft "${label}" is now "${to}"`, json: { ticket_id: id, label: to, from: label } };
 }
 
-export type DraftExtra = { item?: string | null; verdict?: string | null; comments?: unknown };
+export type DraftExtra = {
+  item?: string | null;
+  verdict?: string | null;
+  comments?: unknown;
+  internal?: boolean | null;
+};
 
 const VERDICTS = ["approve", "request_changes", "comment"];
 const MAX_COMMENTS = 50;
@@ -759,6 +764,7 @@ export function draft(
   if (extra.verdict != null && extra.verdict !== "") oneOf("verdict", extra.verdict, VERDICTS);
   const verdict = extra.verdict == null ? (existing?.verdict ?? null) : extra.verdict || null;
   const comments = extra.comments == null ? null : parseComments(extra.comments);
+  const internal = extra.internal == null ? (existing?.internal ?? 0) : Number(extra.internal);
   const at = nowIso(ctx.now);
   const send = sendAt === null ? null : sendTime(ctx.now, sendAt, ctx.config.timezone, ctx.config.laterHour, "send_at");
   transaction(ctx.db, () => {
@@ -767,19 +773,28 @@ export function draft(
       draftId = Number(
         ctx.db
           .prepare(
-            `INSERT INTO draft(ticket_id, item, label, body, status, channel, send_at, verdict, created_at, updated_at)
-             VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?)`,
+            `INSERT INTO draft(ticket_id, item, label, body, status, channel, send_at, verdict, internal, created_at, updated_at)
+             VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?)`,
           )
-          .run(owner.ticket, link, label, body, channel, send, verdict, at, at).lastInsertRowid,
+          .run(owner.ticket, link, label, body, channel, send, verdict, internal, at, at).lastInsertRowid,
       );
     } else {
       ctx.db
         .prepare(
           `UPDATE draft SET body = ?, status = 'draft', item = ?, channel = coalesce(?, channel), send_at = ?, verdict = ?,
-             posted_at = NULL, sent_text = NULL, sent_ref = NULL, answer = NULL, match_text = NULL, match_ref = NULL,
+             internal = ?, posted_at = NULL, sent_text = NULL, sent_ref = NULL, answer = NULL, match_text = NULL, match_ref = NULL,
              match_verdict = NULL, closed_item = NULL, updated_at = ? WHERE id = ?`,
         )
-        .run(body, existing.ticket_id === null ? existing.item : link, channel, send, verdict, at, existing.id);
+        .run(
+          body,
+          existing.ticket_id === null ? existing.item : link,
+          channel,
+          send,
+          verdict,
+          internal,
+          at,
+          existing.id,
+        );
     }
     if (comments !== null) {
       ctx.db.prepare("DELETE FROM draft_comment WHERE draft_id = ?").run(draftId ?? null);
@@ -802,6 +817,7 @@ export function draft(
       status: "draft",
       send_at: send,
       verdict,
+      internal: internal === 1,
     },
   };
 }
