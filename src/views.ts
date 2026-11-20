@@ -543,6 +543,11 @@ function itemOpen(ctx: Ctx, i: ItemRow): boolean {
   return i.ignored === null && i.closed_at === null && (i.snoozed_until === null || i.snoozed_until <= nowIso(ctx.now));
 }
 
+function itemUndo(i: ItemRow): string {
+  if (i.ignored !== null) return "item-unignore";
+  return i.closed_at !== null && i.closed_at === i.ask_at ? "item-unanswer" : "item-reopen";
+}
+
 function itemNeed(ctx: Ctx, i: ItemRow): Need {
   const now = nowIso(ctx.now);
   const v = itemVerb(i);
@@ -572,7 +577,7 @@ function itemNeed(ctx: Ctx, i: ItemRow): Need {
     href: url,
     dim,
     ok: { label: "Done", data: { act: "item-done", id: i.id } },
-    undo: dim === null ? null : { act: i.ignored === null ? "item-reopen" : "item-unignore", id: i.id },
+    undo: dim === null ? null : { act: itemUndo(i), id: i.id },
     later: dim === null ? { act: "item-snooze", data: { id: i.id } } : null,
     ...((i.kind === "review_request" || i.kind === "pr") && i.ignored === null ? { ignore: i.id } : {}),
     ...(i.needs_me === 0 ? { fyi: true } : {}),
@@ -1652,6 +1657,11 @@ ${section(
     row(
       "Review requests",
       `<input class="text" data-config-input="githubReviewQuery" value="${esc(c.githubReviewQuery)}" spellcheck="false">`,
+      c.fetch.github !== true,
+    ) +
+    row(
+      "Review question",
+      `<input class="text" data-config-input="reviewAsk" value="${esc(c.reviewAsk)}" spellcheck="false">`,
       c.fetch.github !== true,
     ) +
     row(

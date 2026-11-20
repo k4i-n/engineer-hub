@@ -37,6 +37,7 @@ export type Config = {
   fetchEvery: string;
   githubReviewQuery: string;
   githubPrQuery: string;
+  reviewAsk: string;
   slackAlertChannels: string[];
   hiddenBlocks: string[];
   progressStyle: string;
@@ -85,6 +86,8 @@ export const DEFAULT_LAYOUT: Layout = {
   left: ["today", "tickets", "activity"],
   right: ["pinned", "fix", "review", "reply", "prs", "triage", "waiting", "decide", "other"],
 };
+
+export const MAX_ASK = 200;
 
 export const DEFAULTS: Config = {
   timezone: "Asia/Tokyo",
@@ -143,6 +146,7 @@ export const DEFAULTS: Config = {
   fetchEvery: "1m",
   githubReviewQuery: "is:pr is:open review-requested:@me archived:false",
   githubPrQuery: "is:pr author:@me",
+  reviewAsk: "Review this?",
   slackAlertChannels: [],
   hiddenBlocks: [],
   progressStyle: "ring",
@@ -260,6 +264,9 @@ function semanticError(key: Key, value: unknown): string | undefined {
   }
   if (key === "githubPrQuery" && String(value).trim() === "") {
     return 'githubPrQuery is a GitHub search, e.g. "is:pr author:@me -repo:acme/noisy"';
+  }
+  if (key === "reviewAsk" && (String(value).includes("\n") || String(value).trim().length > MAX_ASK)) {
+    return `reviewAsk is one line of at most ${MAX_ASK} chars, or "" for no question`;
   }
   if (key === "slackAlertChannels") {
     const bad = (value as string[]).find((name) => !/^#?[a-z0-9][a-z0-9._-]{0,79}$/.test(name));

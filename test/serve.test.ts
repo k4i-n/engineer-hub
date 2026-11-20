@@ -972,7 +972,7 @@ describe("serve", () => {
     assert.ok(minutes > 58 && minutes <= 60, `snoozed ${minutes} minutes`);
     assert.equal((await call("POST", `/items/${id}/snooze`, { for: "soon" })).status, 400);
     assert.equal((await call("POST", `/items/${id}/close`, {})).status, 200);
-    assert.match(await hub(["items", "--all"]), /pull\/9 \| closed$/m);
+    assert.match(await hub(["items", "--all"]), /pull\/9 \| ask: Review this\? \(no answer yet\) \| closed$/m);
 
     await hub(["draft", "ENG-7", "ask product", "--stdin"], "Can we cap exports?");
     assert.equal(

@@ -1,6 +1,6 @@
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import type { Ctx, Result } from "./commands.ts";
-import type { Config } from "./config.ts";
+import { type Config, MAX_ASK } from "./config.ts";
 import { all, getTicket, type ItemRow, one, transaction } from "./db.ts";
 import { SOURCE_NAME } from "./sources.ts";
 import { cut, HubError, laterTime, linkKind, linkSource, nowIso, nowTs } from "./util.ts";
@@ -37,7 +37,6 @@ export type Upsert = "new" | "changed" | "unchanged";
 
 const MAX_TITLE = 240;
 const MAX_DETAIL = 240;
-const MAX_ASK = 200;
 const ANSWERS = ["yes", "no"];
 const MAX_LENGTH: Record<string, number> = { ref: 2048, url: 2048, state: 60, author: 120, context: 8000, body: 8000 };
 const INPUT_KEYS = [
@@ -158,10 +157,11 @@ export function upsertItem(ctx: Ctx, input: ItemInput, withEvents: boolean): Ups
   if (!existing) {
     const ignored = repoExcluded(ctx.config, input) ? "repo" : null;
     const ticketId = input.ticket_id ?? matchTicket(ctx, [input.title, input.url, input.ref, input.context]);
+    const ask = input.kind === "review_request" && ignored === null ? ctx.config.reviewAsk.trim() || null : null;
     if (withEvents && ticketId !== null && ignored === null) event(ctx, ticketId, `New ${describe(input)}`, ref);
     db.prepare(
-      `INSERT INTO item(source, ref, kind, title, url, state, author, ticket_id, needs_me, first_seen, changed_at, closed_at, ignored, body, detail)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO item(source, ref, kind, title, url, state, author, ticket_id, needs_me, first_seen, changed_at, closed_at, ignored, body, detail, ask)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       input.source,
       input.ref,
@@ -178,6 +178,7 @@ export function upsertItem(ctx: Ctx, input: ItemInput, withEvents: boolean): Ups
       ignored,
       input.body,
       input.detail,
+      ask,
     );
     return "new";
   }
@@ -361,14 +362,24 @@ export function answer(ctx: Ctx, key: string, given: string): Result {
   if (!ANSWERS.includes(given)) throw new HubError(`answer must be yes or no, not ${given}`);
   const item = findItem(ctx.db, key);
   if (item.ask === null) throw new HubError(`#${item.id} has no question`);
-  ctx.db.prepare("UPDATE item SET ask_answer = ?, ask_at = ? WHERE id = ?").run(given, nowIso(ctx.now), item.id);
+  const at = nowIso(ctx.now);
+  const closes = given === "no" && item.kind === "review_request" && item.ask === ctx.config.reviewAsk.trim();
+  ctx.db
+    .prepare(
+      "UPDATE item SET ask_answer = ?, ask_at = ?, closed_at = CASE WHEN ? THEN coalesce(closed_at, ?) ELSE closed_at END WHERE id = ?",
+    )
+    .run(given, at, closes ? 1 : 0, at, item.id);
   return { text: `#${item.id} ${item.ask} ${given}`, json: { id: item.id, ask: item.ask, answer: given } };
 }
 
 export function unanswer(ctx: Ctx, key: string): Result {
   const item = findItem(ctx.db, key);
   if (item.ask_answer === null) throw new HubError(`#${item.id} has no answer`);
-  ctx.db.prepare("UPDATE item SET ask_answer = NULL, ask_at = NULL WHERE id = ?").run(item.id);
+  ctx.db
+    .prepare(
+      "UPDATE item SET ask_answer = NULL, ask_at = NULL, closed_at = CASE WHEN closed_at = ask_at THEN NULL ELSE closed_at END WHERE id = ?",
+    )
+    .run(item.id);
   return { text: `#${item.id} asks again: ${item.ask}`, json: { id: item.id, ask: item.ask, answer: null } };
 }
 
