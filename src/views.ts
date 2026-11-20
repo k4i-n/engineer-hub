@@ -508,7 +508,7 @@ function sendNeed(ctx: Ctx, d: DraftRow): Need {
     sub: sourceLine([d.channel, d.ticket_id === null ? itemName(d.item) : null]),
     body: d.body,
     ...draftMore(ctx, [d], false),
-    ask: askChips("", [verdictPill(d), button("Copy", { copy: d.body }, { cls: "chip-btn" })]),
+    ask: askChips("", [verdictPill(d), draftButtons(d, "chip-btn")]),
     ticket: d.ticket_id,
     href: null,
     dim: later ? `send ${when(ctx, d.send_at ?? now)}` : null,

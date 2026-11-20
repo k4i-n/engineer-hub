@@ -425,6 +425,8 @@ describe("serve", () => {
       row,
       /data-fold-key="nfold-send-ENG-7-ask ops">\s*<button type="button" class="n-caret" data-fold-toggle aria-expanded="false"[\s\S]*?<span class="need-main">[\s\S]*?<span class="need-ticket">[\s\S]*?<span class="need-age">[\s\S]*?<span class="rail">[\s\S]*?<div class="n-ask">[\s\S]*?<div class="n-more"><div class="n-body md"><p>a long body<\/p><\/div><\/div>\s*<\/li>/,
     );
+    assert.match(row, /class="chip-btn" data-copy="a long body">Copy</);
+    assert.match(row, /class="chip-btn primary" data-act="sent" data-ticket="ENG-7" data-label="ask ops">Sent</);
     await hub(
       ["item", "put", "--stdin"],
       JSON.stringify({
@@ -528,7 +530,7 @@ describe("serve", () => {
     );
     assert.match(row, /<div class="n-body n-draft md"><p>LGTM<\/p><\/div>/);
     assert.doesNotMatch(home, new RegExp(`data-key="send-${pr}`));
-    assert.equal([...home.matchAll(/data-act="sent"[^>]*data-label="review"/g)].length, 1);
+    assert.equal([...home.matchAll(/class="chip-btn primary" data-act="sent"[^>]*data-label="review"/g)].length, 1);
     const needs = (html: string) => Number(/data-needs-count="(\d+)"/.exec(html)?.[1]);
     const id = /data-key="item-(\d+)"/.exec(row)?.[1] ?? "";
 
@@ -536,7 +538,7 @@ describe("serve", () => {
     const snoozed = await (await fetch(`${server.url}/?part=1`)).text();
     const reply = /data-group="reply"[\s\S]*?<\/section>/.exec(snoozed)?.[0] ?? "";
     assert.match(reply, new RegExp(`data-key="send-${pr}-review"[\\s\\S]*?<span class="need-sub">acme/web#140</span>`));
-    assert.equal([...snoozed.matchAll(/data-act="sent"[^>]*data-label="review"/g)].length, 1);
+    assert.equal([...snoozed.matchAll(/class="chip-btn primary" data-act="sent"[^>]*data-label="review"/g)].length, 1);
     assert.equal(needs(snoozed), needs(home));
     assert.equal((await call("POST", `/items/${id}/reopen`, {})).status, 200);
 
