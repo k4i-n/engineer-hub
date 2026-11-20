@@ -547,7 +547,7 @@ export const ROUTES: Route[] = [
       items: {
         type: "array",
         required: true,
-        about: "item objects: source, kind, url or ref, title, body, state, author, ticket, needs_me",
+        about: "item objects: source, kind, url or ref, title, body, state, author, avatar, ticket, needs_me",
       },
     },
     run: (ctx, a) => items.put(ctx, (a.items as unknown[]).map((i) => JSON.stringify(i)).join("\n")),

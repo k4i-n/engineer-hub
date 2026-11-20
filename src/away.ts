@@ -200,6 +200,7 @@ function sampleGroup(kind: string, place: string, author: string, count: number)
     url: null,
     state: null,
     author,
+    avatar: null,
     ticket_id: null,
     needs_me: 1,
     first_seen: "",
