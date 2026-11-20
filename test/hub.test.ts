@@ -1013,23 +1013,23 @@ describe("db", () => {
     db.close();
     assert.throws(
       () => serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] }),
-      /has schema v1, this hub needs v17: move the file aside and re-import/,
+      /has schema v1, this hub needs v18: move the file aside and re-import/,
     );
     server = await serve({ dbPath: join(dir, "other.db"), port: 0, now: () => now, env: {}, fetchers: [] });
   });
 });
 
 describe("schema upgrade", () => {
-  test("a v2 database gains draft.send_at, the script table, ticket.position and item.ignored, source.warning, item.detached, script_source.enabled and section, item verdicts, item.body and item.detail, draft.item, draft.closed_item and draft.match_no, item.ask, and becomes v17, when hub serve opens it", async () => {
+  test("a v2 database gains draft.send_at, the script table, ticket.position and item.ignored, source.warning, item.detached, script_source.enabled and section, item verdicts, item.body and item.detail, draft.item, draft.closed_item and draft.match_no, item.ask, draft.verdict and draft comments, and becomes v18, when hub serve opens it", async () => {
     await imported();
     await server.close();
     const db = new DatabaseSync(dbFile);
     db.exec(
-      "ALTER TABLE draft DROP COLUMN send_at; DROP TABLE script_source; ALTER TABLE ticket DROP COLUMN position; ALTER TABLE item DROP COLUMN ignored; ALTER TABLE source DROP COLUMN warning; ALTER TABLE item DROP COLUMN detached; ALTER TABLE item DROP COLUMN judged_at; ALTER TABLE item DROP COLUMN away_ping; ALTER TABLE item DROP COLUMN away_why; ALTER TABLE item DROP COLUMN body; ALTER TABLE item DROP COLUMN detail; DROP INDEX draft_item; DROP INDEX draft_item_label; ALTER TABLE draft DROP COLUMN item; ALTER TABLE draft DROP COLUMN closed_item; ALTER TABLE draft DROP COLUMN match_no; ALTER TABLE item DROP COLUMN ask; ALTER TABLE item DROP COLUMN ask_answer; ALTER TABLE item DROP COLUMN ask_at; UPDATE meta SET value = '2' WHERE key = 'schema_version'",
+      "ALTER TABLE draft DROP COLUMN send_at; DROP TABLE script_source; ALTER TABLE ticket DROP COLUMN position; ALTER TABLE item DROP COLUMN ignored; ALTER TABLE source DROP COLUMN warning; ALTER TABLE item DROP COLUMN detached; ALTER TABLE item DROP COLUMN judged_at; ALTER TABLE item DROP COLUMN away_ping; ALTER TABLE item DROP COLUMN away_why; ALTER TABLE item DROP COLUMN body; ALTER TABLE item DROP COLUMN detail; DROP INDEX draft_item; DROP INDEX draft_item_label; ALTER TABLE draft DROP COLUMN item; ALTER TABLE draft DROP COLUMN closed_item; ALTER TABLE draft DROP COLUMN match_no; ALTER TABLE item DROP COLUMN ask; ALTER TABLE item DROP COLUMN ask_answer; ALTER TABLE item DROP COLUMN ask_at; ALTER TABLE draft DROP COLUMN verdict; ALTER TABLE draft DROP COLUMN match_verdict; DROP TABLE draft_comment; UPDATE meta SET value = '2' WHERE key = 'schema_version'",
     );
     db.close();
     server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] });
-    assert.equal(sql<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'")[0]?.value, "17");
+    assert.equal(sql<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'")[0]?.value, "18");
     assert.equal(sql<{ n: number }>("SELECT count(*) AS n FROM draft WHERE item IS NOT NULL")[0]?.n, 0);
     assert.equal(
       sql<{ n: number }>(
@@ -1060,7 +1060,8 @@ describe("schema upgrade to v11", () => {
       ALTER TABLE item DROP COLUMN judged_at; ALTER TABLE item DROP COLUMN away_ping; ALTER TABLE item DROP COLUMN away_why;
       ALTER TABLE item DROP COLUMN body; ALTER TABLE item DROP COLUMN detail; DROP INDEX draft_item; DROP INDEX draft_item_label;
       ALTER TABLE draft DROP COLUMN item; ALTER TABLE draft DROP COLUMN closed_item; ALTER TABLE draft DROP COLUMN match_no;
-      ALTER TABLE item DROP COLUMN ask; ALTER TABLE item DROP COLUMN ask_answer; ALTER TABLE item DROP COLUMN ask_at; UPDATE meta SET value = '10' WHERE key = 'schema_version'`);
+      ALTER TABLE item DROP COLUMN ask; ALTER TABLE item DROP COLUMN ask_answer; ALTER TABLE item DROP COLUMN ask_at;
+      ALTER TABLE draft DROP COLUMN verdict; ALTER TABLE draft DROP COLUMN match_verdict; DROP TABLE draft_comment; UPDATE meta SET value = '10' WHERE key = 'schema_version'`);
     db.close();
     server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] });
     assert.equal(
@@ -1220,6 +1221,55 @@ describe("drafts on items", () => {
 
     await ok("draft", "ENG-7", "review", "--stdin", "--item", "");
     assert.equal(await ok("drafts", "ENG-7"), "review | draft");
+  });
+});
+
+describe("review drafts", () => {
+  test("a review draft keeps a verdict and file:line comments until replaced, and they go with the draft", async () => {
+    await imported();
+    const pr = "https://github.com/acme/web/pull/133";
+    const file = join(dir, "comments.json");
+    writeFileSync(
+      file,
+      JSON.stringify([
+        { path: "src/limit.ts", line: 12, body: "Make the limit configurable." },
+        { path: "src/limit.test.ts", line: 3, body: "Test the edge." },
+      ]),
+    );
+    stdin = "Close, two things.";
+    await ok("draft", pr, "review", "--stdin", "--verdict", "request_changes", "--comments", file);
+    assert.equal(
+      await ok("draft-show", pr, "review"),
+      "Close, two things.\n\nverdict: request_changes\nsrc/limit.ts:12 Make the limit configurable.\nsrc/limit.test.ts:3 Test the edge.",
+    );
+    assert.equal(await ok("drafts", pr), "review | draft | request_changes, 2 comments");
+    assert.match(await ok("brief"), /\| review \| - \| request_changes \| 2 comments \| Close, two things\./);
+
+    stdin = "Close, one thing.";
+    await ok("draft", pr, "review", "--stdin");
+    assert.equal(await ok("drafts", pr), "review | draft | request_changes, 2 comments");
+    writeFileSync(file, "[]");
+    await ok("draft", pr, "review", "--stdin", "--comments", file, "--verdict", "approve");
+    assert.equal(await ok("drafts", pr), "review | draft | approve");
+    await ok("draft", pr, "review", "--stdin", "--verdict", "");
+    assert.equal(await ok("drafts", pr), "review | draft");
+
+    assert.match((await hub("draft", pr, "review", "--stdin", "--verdict", "lgtm")).err, /verdict must be one of/);
+    writeFileSync(file, JSON.stringify([{ path: "a.ts", line: 0, body: "x" }]));
+    assert.match(
+      (await hub("draft", pr, "review", "--stdin", "--comments", file)).err,
+      /comment 1: line is a positive/,
+    );
+    writeFileSync(file, "not json");
+    assert.match((await hub("draft", pr, "review", "--stdin", "--comments", file)).err, /is not JSON/);
+
+    writeFileSync(file, JSON.stringify([{ path: "a.ts", line: 1, body: "x" }]));
+    await ok("draft", pr, "review", "--stdin", "--comments", file);
+    await ok("draft", "ENG-7", "review", "--stdin", "--comments", file);
+    await ok("draft-rm", pr, "review");
+    assert.equal(sql<{ n: number }>("SELECT count(*) AS n FROM draft_comment")[0]?.n, 1);
+    await ok("ticket-delete", "ENG-7");
+    assert.equal(sql<{ n: number }>("SELECT count(*) AS n FROM draft_comment")[0]?.n, 0);
   });
 });
 

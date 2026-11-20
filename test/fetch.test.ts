@@ -248,7 +248,7 @@ describe("github", () => {
     answers.gh = graphql([PR(url, { viewerDidAuthor: false })], []);
     await hub("fetch", "github");
     await hub("draft", url, "review", "--file", file);
-    await hub("draft", url, "nit", "--file", file);
+    await hub("draft", url, "nit", "--file", file, "--verdict", "request_changes");
     const review = (n: number, minutes: number, extra: Record<string, unknown> = {}) => ({
       url,
       viewerLatestReview: {
@@ -270,7 +270,10 @@ describe("github", () => {
 
     answers.gh = graphql([], [], { [url]: review(3, 1) });
     assert.match(await hub("fetch", "github"), /drafts: 2 sent\?/);
-    assert.equal(await hub("drafts", url), "review | draft | match proposed\nnit | draft | match proposed");
+    assert.equal(
+      await hub("drafts", url),
+      "review | draft | match proposed\nnit | draft | request_changes | match proposed",
+    );
     await hub("match", url, "review", "yes");
     assert.match(
       await hub("draft-show", url, "review"),
@@ -286,7 +289,7 @@ describe("github", () => {
     assert.match(await hub("fetch", "github"), /drafts: 2 sent\?/);
     const home = await (await fetch(`${server.url}/?part=1`)).text();
     assert.match(home, /<span class="need-title">“approved”<\/span>/);
-    assert.match(home, /Your draft nit\?/);
+    assert.match(home, /Your draft nit\? Draft says request changes, GitHub says approve/);
   });
 
   test("a teammate's PR linked to a ticket gets its state but never needs you", async () => {

@@ -64,12 +64,18 @@ export function brief(ctx: Ctx): Result {
     ctx.db,
     "SELECT * FROM item WHERE state = 'sent' AND closed_at IS NULL ORDER BY first_seen, id",
   );
+  const comments = (d: DraftRow) => {
+    const n = one<{ n: number }>(ctx.db, "SELECT count(*) AS n FROM draft_comment WHERE draft_id = ?", d.id)?.n ?? 0;
+    return n === 0 ? [] : [`${n} comment${n === 1 ? "" : "s"}`];
+  };
   const draftLine = (d: DraftRow) =>
     [
       draftOwner(d),
       d.label,
       d.channel ?? "-",
       ...(d.ticket_id !== null && d.item !== null ? [`for ${d.item}`] : []),
+      ...(d.verdict === null ? [] : [d.verdict]),
+      ...comments(d),
       ...(d.send_at ? [`send ${shown(d.send_at)}`] : []),
       firstLine(d.body),
     ].join(" | ");

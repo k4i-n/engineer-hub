@@ -5,6 +5,7 @@ import { byOrder, type Ctx, has, openTickets, recentlyDone } from "./commands.ts
 import { BLOCKS, type Config, DEFAULT_LAYOUT, type Layout, sectionId } from "./config.ts";
 import {
   all,
+  type CommentRow,
   type DayRow,
   type DraftRow,
   draftOwner,
@@ -401,7 +402,7 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
       title: `<span class="need-title">“${line(ctx, d.match_text ?? "")}”</span>`,
       fold: true,
       sub: "",
-      ask: askChips(`Your draft ${line(ctx, d.label)}${esc(where)}?`, [
+      ask: askChips(`Your draft ${line(ctx, d.label)}${esc(where)}?${verdictClash(d)}`, [
         answerChip("Yes", { ...proposal, answer: "yes" }, "y"),
         answerChip("No", { ...proposal, answer: "no" }, "n"),
       ]),
@@ -938,6 +939,44 @@ function draftButtons(d: DraftRow, cls = ""): string {
   return `${button("Copy", { copy: d.sent_text ?? d.body }, { cls })}${mark}`;
 }
 
+const VERDICT: Record<string, { word: string; tone: Tone }> = {
+  approve: { word: "approve", tone: "green" },
+  request_changes: { word: "request changes", tone: "orange" },
+  comment: { word: "comment", tone: "blue" },
+};
+
+function verdictClash(d: DraftRow): string {
+  if (d.verdict === null || d.match_verdict === null || d.verdict === d.match_verdict) return "";
+  return ` ${esc(`Draft says ${verdictWord(d.verdict)}, GitHub says ${verdictWord(d.match_verdict)}`)}`;
+}
+
+function verdictWord(verdict: string | null): string {
+  return verdict === null ? "" : (VERDICT[verdict]?.word ?? verdict);
+}
+
+function verdictPill(d: DraftRow): string {
+  const v = d.verdict === null ? undefined : VERDICT[d.verdict];
+  return v === undefined ? "" : pill(v.word, v.tone);
+}
+
+function draftComments(ctx: Ctx, d: DraftRow): CommentRow[] {
+  return all<CommentRow>(ctx.db, "SELECT * FROM draft_comment WHERE draft_id = ? ORDER BY pos", d.id);
+}
+
+function commentCount(comments: CommentRow[]): string {
+  if (comments.length === 0) return "";
+  return pill(`${comments.length} comment${comments.length === 1 ? "" : "s"}`, "grey");
+}
+
+function commentList(ctx: Ctx, comments: CommentRow[]): string {
+  if (comments.length === 0) return "";
+  const rows = comments.map(
+    (c) =>
+      `<li><code class="d-path">${esc(c.path)}:${c.line}</code><div class="d-cbody md">${markdown(ctx, c.body)}</div>${button("Copy", { copy: c.body }, { cls: "chip-btn" })}</li>`,
+  );
+  return `<ul class="d-comments">${rows.join("")}</ul>`;
+}
+
 function ticketDraftKey(d: DraftRow): string {
   return d.ticket_id === null ? `${d.item}-${d.label}` : d.label;
 }
@@ -977,6 +1016,7 @@ function draftChips(ctx: Ctx, i: ItemRow): string {
     .map((d) =>
       askChips("", [
         `<span class="chip tone-${d.status === "draft" ? "teal" : "grey"}" title="draft">${line(ctx, d.label, 40)}</span>`,
+        verdictPill(d),
         draftButtons(d, "chip-btn"),
       ]),
     )
@@ -1049,6 +1089,7 @@ function draftsSection(ctx: Ctx): string {
   const rows = drafts.map((d) => {
     const later = d.status === "draft" && d.send_at !== null;
     const sent = d.status !== "draft";
+    const comments = draftComments(ctx, d);
     const state =
       d.match_ref !== null
         ? pill("sent?", "blue")
@@ -1058,8 +1099,8 @@ function draftsSection(ctx: Ctx): string {
             ? pill(`send ${when(ctx, d.send_at ?? "")}`, "grey")
             : "";
     return `<li class="draft${sent || later ? " is-dim" : ""}" data-key="d-${esc(draftOwner(d))}-${esc(d.label)}"${draftPanel(d)}>
-<div class="d-head">${ticketLink(d.ticket_id)}${itemLink(ctx, d.item)}<span class="d-label">${line(ctx, d.label)}</span>${d.channel ? pill(d.channel, "teal") : ""}${state}<span class="d-actions">${draftButtons(d)}</span></div>
-<details class="d-fold" data-key="dfold-${esc(draftOwner(d))}-${esc(d.label)}"><summary><span class="d-line">${line(ctx, d.body)}</span><div class="d-body md">${markdown(ctx, d.body)}</div></summary></details>
+<div class="d-head">${ticketLink(d.ticket_id)}${itemLink(ctx, d.item)}<span class="d-label">${line(ctx, d.label)}</span>${verdictPill(d)}${commentCount(comments)}${d.channel ? pill(d.channel, "teal") : ""}${state}<span class="d-actions">${draftButtons(d)}</span></div>
+<details class="d-fold" data-key="dfold-${esc(draftOwner(d))}-${esc(d.label)}"><summary><span class="d-line">${line(ctx, d.body)}</span><div class="d-body md">${markdown(ctx, d.body)}</div></summary>${commentList(ctx, comments)}</details>
 </li>`;
   });
   return section("Drafts", null, draftList(drafts, rows), "drafts", draftTabs(drafts));
@@ -1322,7 +1363,7 @@ export function ticketBody(ctx: Ctx, id: string, live: Live): string {
   });
   const draftRows = drafts.map(
     (d) =>
-      `<li class="draft" data-key="td-${esc(ticketDraftKey(d))}"${draftPanel(d)}><div class="d-head">${itemLink(ctx, d.item)}<span class="d-label">${line(ctx, d.label)}</span>${pill(d.status, d.status === "draft" ? "blue" : "green")}${d.channel ? pill(d.channel, "teal") : ""}<span class="d-actions">${draftButtons(d)}${moreMenu(
+      `<li class="draft" data-key="td-${esc(ticketDraftKey(d))}"${draftPanel(d)}><div class="d-head">${itemLink(ctx, d.item)}<span class="d-label">${line(ctx, d.label)}</span>${verdictPill(d)}${pill(d.status, d.status === "draft" ? "blue" : "green")}${d.channel ? pill(d.channel, "teal") : ""}<span class="d-actions">${draftButtons(d)}${moreMenu(
         `menu-td-${ticketDraftKey(d)}`,
         [
           menuItem("edit", "Rename", {
@@ -1343,7 +1384,7 @@ export function ticketBody(ctx: Ctx, id: string, live: Live): string {
               ]
             : []),
         ],
-      )}</span></div><div class="d-body md">${markdown(ctx, d.sent_text ?? d.body)}</div></li>`,
+      )}</span></div><div class="d-body md">${markdown(ctx, d.sent_text ?? d.body)}</div>${commentList(ctx, draftComments(ctx, d))}</li>`,
   );
   const own = needs(ctx, [t]).filter(
     (n) => n.ticket === t.id && needsYou(n) && !n.key.startsWith("wait-") && !n.key.startsWith("item-"),

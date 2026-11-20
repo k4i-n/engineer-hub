@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { type Config, DEFAULTS, loadConfig, setConfig } from "./config.ts";
 import {
   all,
+  type CommentRow,
   checkLimit,
   type DayRow,
   type DraftRow,
@@ -446,7 +447,19 @@ export function drafts(ctx: Ctx, id: string | undefined): Result {
   const lines = rows.map((d) => {
     const pending = d.status !== "draft" && d.sent_text === null ? "wording pending" : null;
     const proposed = d.match_ref === null ? null : "match proposed";
-    return [d.label, d.status, d.channel, owner.ticket === null ? d.ticket_id : d.item, d.posted_at, pending, proposed]
+    const comments = draftComments(ctx.db, d.id).length;
+    const review =
+      comments === 0 ? d.verdict : `${d.verdict ?? "review"}, ${comments} comment${comments === 1 ? "" : "s"}`;
+    return [
+      d.label,
+      d.status,
+      d.channel,
+      owner.ticket === null ? d.ticket_id : d.item,
+      review,
+      d.posted_at,
+      pending,
+      proposed,
+    ]
       .filter((part) => part !== null && part !== "")
       .join(" | ");
   });
@@ -455,10 +468,16 @@ export function drafts(ctx: Ctx, id: string | undefined): Result {
 
 export function draftShow(ctx: Ctx, id: string, label: string): Result {
   const draft = getDraft(ctx, id, label);
-  if (draft.sent_text === null) return { text: draft.body, json: draft };
+  const comments = draftComments(ctx.db, draft.id);
+  const review = [
+    ...(draft.verdict === null ? [] : [`verdict: ${draft.verdict}`]),
+    ...comments.map((c) => `${c.path}:${c.line} ${c.body}`),
+  ];
+  const sent =
+    draft.sent_text === null ? [] : [`--- sent${draft.sent_ref ? ` ${draft.sent_ref}` : ""}\n${draft.sent_text}`];
   return {
-    text: `${draft.body}\n\n--- sent${draft.sent_ref ? ` ${draft.sent_ref}` : ""}\n${draft.sent_text}`,
-    json: draft,
+    text: [draft.body, ...(review.length === 0 ? [] : [review.join("\n")]), ...sent].join("\n\n"),
+    json: { ...draft, comments },
   };
 }
 
@@ -531,7 +550,9 @@ export function resolveMatch(ctx: Ctx, id: string, label: string, answer: string
   if (!existing.match_text) throw new HubError(`no proposed match on draft "${label}" of ${id}`);
   const clear = () =>
     ctx.db
-      .prepare("UPDATE draft SET match_text = NULL, match_ref = NULL, updated_at = ? WHERE id = ?")
+      .prepare(
+        "UPDATE draft SET match_text = NULL, match_ref = NULL, match_verdict = NULL, updated_at = ? WHERE id = ?",
+      )
       .run(nowIso(ctx.now), existing.id);
   if (answer === "no") {
     ctx.db.prepare("UPDATE draft SET match_no = match_ref WHERE id = ?").run(existing.id);
@@ -649,6 +670,7 @@ export function draftRemove(ctx: Ctx, id: string, label: string): Result {
   const draft = getDraft(ctx, id, label);
   if (draft.status !== "draft") throw new HubError(`draft "${label}" on ${id} was sent; it stays as the record`);
   transaction(ctx.db, () => {
+    ctx.db.prepare("DELETE FROM draft_comment WHERE draft_id = ?").run(draft.id);
     ctx.db.prepare("DELETE FROM draft WHERE id = ?").run(draft.id);
     ctx.db.prepare("DELETE FROM pin WHERE key = ?").run(`match-${draftOwner(draft)}-${label}`);
     touch(ctx, draft.ticket_id);
@@ -691,6 +713,33 @@ export function draftRename(ctx: Ctx, id: string, label: string, to: string): Re
   return { text: `${id} draft "${label}" is now "${to}"`, json: { ticket_id: id, label: to, from: label } };
 }
 
+export type DraftExtra = { item?: string | null; verdict?: string | null; comments?: unknown };
+
+const VERDICTS = ["approve", "request_changes", "comment"];
+const MAX_COMMENTS = 50;
+const MAX_COMMENT = 8000;
+const MAX_PATH = 500;
+
+type CommentInput = { path: string; line: number; body: string };
+
+function parseComments(raw: unknown): CommentInput[] {
+  if (!Array.isArray(raw)) throw new HubError("comments must be a list of {path, line, body}");
+  if (raw.length > MAX_COMMENTS) throw new HubError(`at most ${MAX_COMMENTS} comments on one draft`);
+  return raw.map((c: { path?: unknown; line?: unknown; body?: unknown }, n) => {
+    const where = `comment ${n + 1}`;
+    if (typeof c?.path !== "string" || c.path.trim() === "" || c.path.length > MAX_PATH)
+      throw new HubError(`${where}: path is a file path of at most ${MAX_PATH} chars`);
+    if (!Number.isInteger(c.line) || (c.line as number) < 1) throw new HubError(`${where}: line is a positive integer`);
+    if (typeof c.body !== "string" || c.body.trim() === "" || c.body.length > MAX_COMMENT)
+      throw new HubError(`${where}: body is text of at most ${MAX_COMMENT} chars`);
+    return { path: c.path.trim(), line: c.line as number, body: c.body };
+  });
+}
+
+export function draftComments(db: DatabaseSync, draftId: number): CommentRow[] {
+  return all<CommentRow>(db, "SELECT * FROM draft_comment WHERE draft_id = ? ORDER BY pos", draftId);
+}
+
 export function draft(
   ctx: Ctx,
   id: string,
@@ -698,33 +747,46 @@ export function draft(
   body: string,
   channel: string | null,
   sendAt: string | null,
-  item: string | null = null,
+  extra: DraftExtra = {},
 ): Result {
   if (!label.trim()) throw new HubError("draft label is empty");
   const owner = draftOwnerOf(ctx, id);
   const existing = findDraft(ctx, owner, label);
-  const given = item === null ? null : itemKey(item.trim());
+  const given = extra.item == null ? null : itemKey(extra.item.trim());
   const link = owner.item ?? (given === null ? (existing?.item ?? null) : given || null);
   if (existing?.ticket_id === null && given === "")
     throw new HubError(`draft "${label}" has no ticket, so it keeps its item`);
+  if (extra.verdict != null && extra.verdict !== "") oneOf("verdict", extra.verdict, VERDICTS);
+  const verdict = extra.verdict == null ? (existing?.verdict ?? null) : extra.verdict || null;
+  const comments = extra.comments == null ? null : parseComments(extra.comments);
   const at = nowIso(ctx.now);
   const send = sendAt === null ? null : sendTime(ctx.now, sendAt, ctx.config.timezone, ctx.config.laterHour, "send_at");
   transaction(ctx.db, () => {
+    let draftId = existing?.id;
     if (existing === undefined) {
-      ctx.db
-        .prepare(
-          `INSERT INTO draft(ticket_id, item, label, body, status, channel, send_at, created_at, updated_at)
-           VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?)`,
-        )
-        .run(owner.ticket, link, label, body, channel, send, at, at);
+      draftId = Number(
+        ctx.db
+          .prepare(
+            `INSERT INTO draft(ticket_id, item, label, body, status, channel, send_at, verdict, created_at, updated_at)
+             VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?)`,
+          )
+          .run(owner.ticket, link, label, body, channel, send, verdict, at, at).lastInsertRowid,
+      );
     } else {
       ctx.db
         .prepare(
-          `UPDATE draft SET body = ?, status = 'draft', item = ?, channel = coalesce(?, channel), send_at = ?, posted_at = NULL,
-             sent_text = NULL, sent_ref = NULL, answer = NULL, match_text = NULL, match_ref = NULL, closed_item = NULL,
-             updated_at = ? WHERE id = ?`,
+          `UPDATE draft SET body = ?, status = 'draft', item = ?, channel = coalesce(?, channel), send_at = ?, verdict = ?,
+             posted_at = NULL, sent_text = NULL, sent_ref = NULL, answer = NULL, match_text = NULL, match_ref = NULL,
+             match_verdict = NULL, closed_item = NULL, updated_at = ? WHERE id = ?`,
         )
-        .run(body, existing.ticket_id === null ? existing.item : link, channel, send, at, existing.id);
+        .run(body, existing.ticket_id === null ? existing.item : link, channel, send, verdict, at, existing.id);
+    }
+    if (comments !== null) {
+      ctx.db.prepare("DELETE FROM draft_comment WHERE draft_id = ?").run(draftId ?? null);
+      const insert = ctx.db.prepare(
+        "INSERT INTO draft_comment(draft_id, pos, path, line, body) VALUES (?, ?, ?, ?, ?)",
+      );
+      for (const [pos, c] of comments.entries()) insert.run(draftId ?? null, pos + 1, c.path, c.line, c.body);
     }
     touch(ctx, owner.ticket ?? existing?.ticket_id ?? null);
   });
@@ -739,6 +801,7 @@ export function draft(
       label,
       status: "draft",
       send_at: send,
+      verdict,
     },
   };
 }
@@ -772,6 +835,12 @@ export type PostedOptions = {
 
 export type Review = { item: string; url: string; body: string; state: string; at: string };
 
+const REVIEW_VERDICT: Record<string, string> = {
+  APPROVED: "approve",
+  CHANGES_REQUESTED: "request_changes",
+  COMMENTED: "comment",
+};
+
 const REVIEW_STATE: Record<string, string> = {
   APPROVED: "approved",
   CHANGES_REQUESTED: "changes requested",
@@ -783,10 +852,10 @@ export function proposeReview(ctx: Ctx, review: Review): number {
   const text = review.body.trim() || REVIEW_STATE[review.state] || review.state.toLowerCase();
   const { changes } = ctx.db
     .prepare(
-      `UPDATE draft SET match_text = ?, match_ref = ?, updated_at = ?
+      `UPDATE draft SET match_text = ?, match_ref = ?, match_verdict = ?, updated_at = ?
        WHERE item = ? AND status = 'draft' AND match_ref IS NULL AND coalesce(match_no, '') != ? AND coalesce(created_at, '') <= ?`,
     )
-    .run(text, review.url, nowIso(ctx.now), review.item, review.url, review.at);
+    .run(text, review.url, REVIEW_VERDICT[review.state] ?? null, nowIso(ctx.now), review.item, review.url, review.at);
   return Number(changes);
 }
 
@@ -952,6 +1021,7 @@ export function rename(ctx: Ctx, id: string, to: string): Result {
 
 export function deleteTicket(ctx: Ctx, id: string): Result {
   getTicket(ctx.db, id);
+  exec(ctx, "DELETE FROM draft_comment WHERE draft_id IN (SELECT id FROM draft WHERE ticket_id = ?)", id);
   for (const table of TICKET_ROWS.filter((t) => t !== "item")) {
     exec(ctx, `DELETE FROM ${table} WHERE ticket_id = ?`, id);
   }

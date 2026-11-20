@@ -35,6 +35,7 @@ read:   ticket <id> | board [regex] | next | gates | changed --since <YYYY-MM-DD
 write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent] [--ref <url>]
         note <id> <title> (--file <path> | --stdin) [--kind detail] | note-rm <id> <title> | note-mv <id> <title> <new title>
         draft <id | item url> <label> (--file <path> | --stdin) [--channel <c>] [--send-at <when>] [--item <url>]
+        [--verdict approve|request_changes|comment] [--comments <json file of [{path, line, body}]>]
         draft-rm <id> <label> (unsent only) | draft-mv <id> <label> <new label>
         draft-later <id> <label> [--for 1h|tomorrow|tomorrow 12:00]
         match <id> <label> --ref <url> (--file | --stdin) | match <id> <label> (yes | no)
@@ -75,6 +76,8 @@ const OPTIONS = {
   file: { type: "string" },
   channel: { type: "string" },
   item: { type: "string" },
+  verdict: { type: "string" },
+  comments: { type: "string" },
   at: { type: "string" },
   answer: { type: "string" },
   title: { type: "string" },
@@ -116,6 +119,8 @@ type Values = {
   file?: string;
   channel?: string;
   item?: string;
+  verdict?: string;
+  comments?: string;
   at?: string;
   answer?: string;
   title?: string;
@@ -168,6 +173,15 @@ function body(values: Values, io: Io): string {
   }
   if (values.stdin) return io.readStdin();
   throw new HubError("give the text with --file <path> or --stdin");
+}
+
+function jsonFile(path: string): unknown {
+  if (!existsSync(path)) throw new HubError(`--comments ${path} does not exist`);
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as unknown;
+  } catch {
+    throw new HubError(`--comments ${path} is not JSON`);
+  }
 }
 
 function root(values: Values): string {
@@ -261,6 +275,8 @@ const COMMANDS: Record<string, Handler> = {
       ...(v.channel === undefined ? {} : { channel: v.channel }),
       ...(v["send-at"] === undefined ? {} : { send_at: v["send-at"] }),
       ...(v.item === undefined ? {} : { item: v.item }),
+      ...(v.verdict === undefined ? {} : { verdict: v.verdict }),
+      ...(v.comments === undefined ? {} : { comments: jsonFile(v.comments) }),
     });
   },
   "note-rm": (a) =>
