@@ -4,12 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, test } from "node:test";
-import { Away, awayState, collapse, slackSafe } from "../src/away.ts";
-import type { Ctx } from "../src/commands.ts";
+import { Away, awayState, collapse, parseVerdicts, slackSafe } from "../src/away.ts";
+import { type Ctx, ticketNew } from "../src/commands.ts";
 import { loadConfig, setConfig } from "../src/config.ts";
 import { all, type ItemRow, openDb } from "../src/db.ts";
 import * as items from "../src/items.ts";
-import type { System } from "../src/keys.ts";
+import type { Ran, System } from "../src/keys.ts";
 import { type Server, serve } from "../src/serve.ts";
 
 const MIN = 60_000;
@@ -24,13 +24,19 @@ let stored: string | null = HOOK;
 let status = 200;
 let posts: string[] = [];
 let ran: string[] = [];
+let judged: { args: string[]; input: string; cwd: string | undefined }[] = [];
+let judge: (input: string) => Ran = () => ({ code: 127, stdout: "", stderr: "claude: not found" });
 
 function sys(platform: NodeJS.Platform = "darwin", env: NodeJS.ProcessEnv = {}): System {
   return {
     platform,
     env,
-    run: async (program, args) => {
+    run: async (program, args, options) => {
       ran.push(program);
+      if (program === "claude") {
+        judged.push({ args, input: options?.input ?? "", cwd: options?.cwd });
+        return judge(options?.input ?? "");
+      }
       if (program === "security")
         return stored === null ? { code: 44, stdout: "", stderr: "" } : { code: 0, stdout: `${stored}\n`, stderr: "" };
       if (program !== "ioreg") return { code: 127, stdout: "", stderr: "not found" };
@@ -78,20 +84,26 @@ beforeEach(() => {
   status = 200;
   posts = [];
   ran = [];
+  judged = [];
+  judge = () => ({ code: 127, stdout: "", stderr: "claude: not found" });
   setConfig(db, "awayPing", "true", new Date(clock));
 });
+
+const away = (s: System = sys()) => new Away(s, ctx, join(dir, "judge"));
 
 afterEach(() => {
   db.close();
   rmSync(dir, { recursive: true, force: true });
 });
 
-describe("away ping", () => {
+describe("away ping without a judge", () => {
+  beforeEach(() => setConfig(db, "judgeCommand", "[]", new Date(clock)));
+
   test("off: no idle check and no Keychain read", async () => {
     setConfig(db, "awayPing", "false", new Date(clock));
     arrive(alert(1));
     idle = 60 * MIN;
-    await new Away(sys(), ctx).check();
+    await away().check();
     assert.deepEqual(ran, []);
     assert.deepEqual(posts, []);
   });
@@ -99,7 +111,7 @@ describe("away ping", () => {
   test("present: nothing is posted", async () => {
     arrive(alert(1));
     idle = 2 * MIN;
-    await new Away(sys(), ctx).check();
+    await away().check();
     assert.deepEqual(posts, []);
   });
 
@@ -109,29 +121,29 @@ describe("away ping", () => {
     arrive(alert(2), alert(3), dm(4), dm(5), dm(6, "bo"));
     clock += 10 * MIN;
     idle = 12 * MIN;
-    await new Away(sys(), ctx).check();
+    await away().check();
     assert.deepEqual(posts, ["hub: 3 new | Fix now 1 | Reply 2"]);
     assert.equal(awayState(ctx()).lastPing, new Date(clock).toISOString());
   });
 
   test("at most one post per awayEvery; what arrives meanwhile goes in the next", async () => {
-    const away = new Away(sys(), ctx);
+    const hub = away();
     idle = 20 * MIN;
     clock += MIN;
     arrive(alert(1));
-    await away.check();
+    await hub.check();
     clock += 5 * MIN;
     idle += 5 * MIN;
     arrive(dm(2));
-    await away.check();
+    await hub.check();
     assert.equal(posts.length, 1);
     clock += 30 * MIN;
     idle += 30 * MIN;
-    await away.check();
+    await hub.check();
     assert.deepEqual(posts, ["hub: 1 new | Fix now 1", "hub: 1 new | Reply 1"]);
     clock += 30 * MIN;
     idle += 30 * MIN;
-    await away.check();
+    await hub.check();
     assert.equal(posts.length, 2);
   });
 
@@ -140,7 +152,7 @@ describe("away ping", () => {
     arrive(dm(1));
     idle = 30_000;
     locked = true;
-    await new Away(sys(), ctx).check();
+    await away().check();
     assert.deepEqual(posts, ["hub: 1 new | Reply 1"]);
   });
 
@@ -149,7 +161,7 @@ describe("away ping", () => {
     items.close(ctx(), [dm(1).url]);
     idle = 20 * MIN;
     clock += 10 * MIN;
-    await new Away(sys(), ctx).check();
+    await away().check();
     assert.deepEqual(posts, ["hub: 1 new | Reply 1"]);
   });
 
@@ -158,10 +170,10 @@ describe("away ping", () => {
     arrive(alert(1));
     idle = 20 * MIN;
     clock += MIN;
-    const away = new Away(sys(), ctx);
-    await away.check();
+    const hub = away();
+    await hub.check();
     assert.deepEqual(posts, []);
-    assert.equal(away.hasUrl, false);
+    assert.equal(hub.hasUrl, false);
     assert.match(
       awayState(ctx()).error ?? "",
       /no webhook URL: security add-generic-password -s engineer-hub -a webhook -w/,
@@ -173,25 +185,175 @@ describe("away ping", () => {
     idle = 20 * MIN;
     clock += MIN;
     status = 500;
-    const away = new Away(sys(), ctx);
-    await away.check();
+    const hub = away();
+    await hub.check();
     const failed = awayState(ctx());
     assert.equal(failed.lastPing, null);
     assert.equal(failed.error, "webhook answered 500");
     status = 200;
     clock += MIN;
-    await away.check();
+    await hub.check();
     assert.equal(posts.length, 2);
     assert.equal(awayState(ctx()).error, null);
   });
 
   test("Linux is never away; Test reads the URL from the environment", async () => {
     arrive(alert(1));
-    const linux = new Away(sys("linux", { HUB_WEBHOOK_KEY: HOOK }), ctx);
+    const linux = away(sys("linux", { HUB_WEBHOOK_KEY: HOOK }));
     await linux.check();
     assert.deepEqual(posts, []);
     assert.equal(await linux.test(), "posted hub: test");
     assert.deepEqual(posts, ["hub: test"]);
+  });
+});
+
+describe("judge", () => {
+  const answer = (verdicts: Record<string, { ping: boolean; why: string }>) => () => ({
+    code: 0,
+    stdout: `\`\`\`json\n${JSON.stringify(verdicts)}\n\`\`\``,
+    stderr: "",
+  });
+  const ids = () =>
+    Object.fromEntries(
+      all<ItemRow>(db, "SELECT * FROM item WHERE source = 'slack' ORDER BY id").map((i) => [
+        i.url?.split("/").at(-1),
+        i.id,
+      ]),
+    );
+  const verdicts = () =>
+    all<ItemRow>(db, "SELECT * FROM item WHERE source = 'slack' ORDER BY id").map((i) => [
+      i.url?.split("/").at(-1),
+      i.away_ping,
+      i.away_why,
+    ]);
+
+  beforeEach(() => {
+    ticketNew(ctx(), "ENG-12", "Gateway rate limits", "inprogress");
+    items.put(
+      ctx(),
+      JSON.stringify({
+        source: "github",
+        kind: "pr",
+        url: "https://github.com/acme/infra/pull/5433",
+        title: "api-gateway timeout change",
+        ticket: "ENG-12",
+        state: "merged",
+        needs_me: false,
+      }),
+    );
+    clock += MIN;
+    arrive(
+      dm(1, "kida"),
+      { ...dm(2, "taro"), title: "#general · taro: thanks everyone!", url: "https://x.slack.com/archives/C2/p2" },
+      alert(3),
+      alert(4),
+    );
+    idle = 20 * MIN;
+    clock += 10 * MIN;
+  });
+
+  test("the default command runs with no tools, settings or thinking, in the judge folder, and gets the context", async () => {
+    judge = answer({});
+    await away().check();
+    const [call] = judged;
+    assert.ok(call);
+    assert.deepEqual(call.args.slice(0, 5), ["-p", "--model", "haiku", "--max-turns", "1"]);
+    for (const flag of [
+      "--tools",
+      "--strict-mcp-config",
+      "--setting-sources",
+      "--no-session-persistence",
+      "--system-prompt",
+    ]) {
+      assert.ok(call.args.includes(flag), flag);
+    }
+    assert.ok(call.args.includes('{"alwaysThinkingEnabled":false}'));
+    assert.equal(call.cwd, join(dir, "judge"));
+    const id = ids();
+    assert.match(call.input, /^Pick which new items are worth pinging/);
+    assert.match(call.input, new RegExp(`\\n${id.p1} \\| message \\| DM \\| kida \\| 1 \\| DM · kida: question 1\\n`));
+    assert.match(call.input, new RegExp(`\\n${id.p4} \\| alert \\| #alerts \\| Grafana \\| 2 \\| `));
+    assert.match(call.input, /\nENG-12 \| Gateway rate limits\n/);
+    assert.match(
+      call.input,
+      /My PRs merged in the last 3h \(PR \| title \| ticket\):\ninfra#5433 \| api-gateway timeout change \| ENG-12\n/,
+    );
+    assert.match(call.input, /Answer with JSON only, one entry per candidate id/);
+  });
+
+  test("only what the judge picks is posted, with where, who and why; verdicts cover collapsed rows", async () => {
+    const id = ids();
+    judge = answer({
+      [id.p1 as number]: { ping: true, why: "asks to confirm app scopes" },
+      [id.p2 as number]: { ping: false, why: "thanks" },
+      [id.p4 as number]: { ping: true, why: "after infra#5433 merge <!channel>" },
+    });
+    await away().check();
+    assert.deepEqual(posts, [
+      "hub: 2 need you\nReply: DM (kida), asks to confirm app scopes\nFix now: #alerts (Grafana) ×2, after infra#5433 merge &lt;!channel&gt;",
+    ]);
+    assert.deepEqual(verdicts(), [
+      ["p1", 1, "asks to confirm app scopes"],
+      ["p2", 0, "thanks"],
+      ["p3", 1, "after infra#5433 merge <!channel>"],
+      ["p4", 1, "after infra#5433 merge <!channel>"],
+    ]);
+    assert.equal(awayState(ctx()).judgeError, null);
+  });
+
+  test("each row is judged once: nothing new, no call; a no is never posted", async () => {
+    const id = ids();
+    judge = answer({
+      [id.p1 as number]: { ping: false, why: "fyi" },
+      [id.p2 as number]: { ping: false, why: "thanks" },
+      [id.p4 as number]: { ping: false, why: "routine" },
+    });
+    const hub = away();
+    await hub.check();
+    clock += MIN;
+    idle += MIN;
+    await hub.check();
+    assert.equal(judged.length, 1);
+    assert.deepEqual(posts, []);
+    assert.equal(awayState(ctx()).lastPing, null);
+    arrive(dm(5, "bo"));
+    clock += MIN;
+    idle += MIN;
+    judge = answer({ [ids().p5 as number]: { ping: true, why: "blocked on you" } });
+    await hub.check();
+    assert.equal(judged.length, 2);
+    assert.doesNotMatch(judged[1]?.input ?? "", /question 1/);
+    assert.deepEqual(posts, ["hub: 1 need you\nReply: DM (bo), blocked on you"]);
+  });
+
+  test("an id the judge leaves out is posted as no verdict", async () => {
+    judge = answer({ [ids().p2 as number]: { ping: false, why: "thanks" } });
+    await away().check();
+    assert.deepEqual(posts, [
+      "hub: 2 need you\nReply: DM (kida), no verdict\nFix now: #alerts (Grafana) ×2, no verdict",
+    ]);
+  });
+
+  test("a failed judge posts the count, keeps its error and stores no verdict", async () => {
+    judge = () => ({ code: 1, stdout: "", stderr: "rate limited" });
+    await away().check();
+    assert.deepEqual(posts, ["hub: 3 new | Fix now 1 | Reply 2, judge failed"]);
+    assert.equal(awayState(ctx()).judgeError, "judge exit 1: rate limited");
+    assert.equal(all<ItemRow>(db, "SELECT * FROM item WHERE judged_at IS NOT NULL").length, 0);
+  });
+
+  test("an answer that is not JSON is a failed judge", async () => {
+    judge = () => ({ code: 0, stdout: "I think the first one matters.", stderr: "" });
+    await away().check();
+    assert.deepEqual(posts, ["hub: 3 new | Fix now 1 | Reply 2, judge failed"]);
+    assert.equal(awayState(ctx()).judgeError, "judge answer was not JSON with a verdict per id");
+  });
+
+  test("a verdict needs a boolean ping; why is cut to 80 characters", () => {
+    const group = (id: number) => ({ item: { id } as ItemRow, ids: [id] });
+    assert.equal(parseVerdicts('{"1": {"ping": "yes"}}', [group(1)]), null);
+    const v = parseVerdicts(`{"1": {"ping": true, "why": "${"x".repeat(100)}"}}`, [group(1)]);
+    assert.equal(v?.get(1)?.why.length, 80);
   });
 });
 
@@ -213,6 +375,9 @@ describe("collapse and escaping", () => {
     snoozed_until: null,
     ignored: null,
     detached: 0,
+    judged_at: null,
+    away_ping: null,
+    away_why: null,
     ...over,
   });
 
@@ -224,7 +389,7 @@ describe("collapse and escaping", () => {
       row({ id: 4, first_seen: "2026-11-20T11:30:00.000Z" }),
     ]);
     assert.deepEqual(
-      groups.map((g) => [g.item.id, g.count]),
+      groups.map((g) => [g.item.id, g.ids.length]),
       [
         [2, 2],
         [3, 1],
@@ -240,7 +405,7 @@ describe("collapse and escaping", () => {
       row({ id: 3, kind: "message", title: "DM · bo: c", author: "bo" }),
     ]);
     assert.deepEqual(
-      groups.map((g) => [g.item.id, g.count]),
+      groups.map((g) => [g.item.id, g.ids.length]),
       [
         [2, 2],
         [3, 1],
@@ -278,6 +443,8 @@ describe("dashboard", () => {
     const html = await (await fetch(`${server.url}/settings?part=1`)).text();
     assert.match(html, /Ping when away/);
     assert.match(html, /data-act="away-test"/);
+    assert.match(html, /data-config-input="judgePrompt"/);
+    assert.match(html, /&quot;haiku&quot;/);
     const r = await fetch(`${server.url}/api/v1/away/test`, {
       method: "POST",
       headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },

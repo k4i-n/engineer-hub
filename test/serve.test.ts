@@ -297,10 +297,11 @@ describe("serve", () => {
   test("settings show the database and save config through the same checks as the CLI", async () => {
     const html = await (await fetch(`${server.url}/settings`)).text();
     assert.ok(html.includes(dbFile));
-    assert.match(html, /Schema<\/span><div class="set-control">v11/);
+    assert.match(html, /Schema<\/span><div class="set-control">v12/);
     assert.equal((await setConfigKey("openLinearIn", '"app"')).status, 200);
     const command = await setConfigKey("syncCommand", '["sh","-c","touch /tmp/x"]');
     assert.equal(command.status, 400);
+    assert.equal((await setConfigKey("judgeCommand", '["sh","-c","touch /tmp/x"]')).status, 400);
     assert.doesNotMatch(html, /data-config-input="syncCommand"/);
     const bad = await setConfigKey("theme", '"pink"');
     assert.equal(bad.status, 400);

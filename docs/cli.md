@@ -93,6 +93,9 @@ Config lives in the database. `hub config` lists every key with its value:
 | `awayPing` | `false` | post to a webhook when new alerts or messages arrive while you are away (see Dashboard) |
 | `awayAfter` | `"10m"` | idle time that counts as away: 5m, 10m, 15m or 30m; a locked screen is away at once |
 | `awayEvery` | `"30m"` | at most one post per 15m, 30m, 1h or 2h |
+| `judgeCommand` | `claude -p --model haiku --max-turns 1 --tools "" …` | the one-shot command that picks which new items are worth an away ping (terminal only); `[]` posts counts instead |
+| `judgePrompt` | ping questions, requests, blockers and alerts that match a ticket or a recent merge; skip thanks, FYI, routine alerts, bot updates | the rules the judge gets |
+| `watchFor` | `"3h"` | how far back the judge sees your merged PRs: 1h, 3h or 6h |
 | `autoBackup` | `true` | back up the database on a schedule |
 | `backupEvery` | `"1d"` | how often: `1h`, `6h`, `12h`, `1d` or `7d` |
 | `backupDir` | `""` | backup folder, absolute or `~/…`; empty means `backups/` next to the database |

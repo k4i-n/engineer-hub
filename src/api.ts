@@ -43,7 +43,7 @@ export type Route = {
 
 export const MAX_COUNT = 200;
 
-export const COMMAND_KEYS = ["syncCommand"];
+export const COMMAND_KEYS = ["syncCommand", "judgeCommand"];
 const GITHUB_QUERY_KEYS = ["githubReviewQuery", "githubPrQuery"];
 
 function str(a: Args, key: string): string {

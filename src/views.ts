@@ -1411,6 +1411,12 @@ function awayRows(ctx: Ctx, away: AwayView): string {
       : away.lastPing === null
         ? `<span class="src-state">none yet</span>`
         : `<span class="src-state" title="${esc(away.lastText ?? "")}">${esc(agoText(ctx, away.lastPing))}</span>`;
+  const judged =
+    away.judgeError !== null
+      ? `<span class="src-state tone-red">${esc(away.judgeError)}</span>`
+      : away.lastJudge === null
+        ? ""
+        : `<span class="src-state">${esc(agoText(ctx, away.lastJudge))}</span>`;
   return (
     row("Ping when away", toggle("awayPing", c.awayPing)) +
     row(
@@ -1437,11 +1443,34 @@ function awayRows(ctx: Ctx, away: AwayView): string {
       "Webhook",
       `<span class="src-state">${esc(stored)}</span>${button("Test", { act: "away-test" })}${away.hasUrl === true ? "" : codeBlock(away.command)}`,
     ) +
-    row("Last ping", last, !c.awayPing)
+    row("Last ping", last, !c.awayPing) +
+    row("Judge", `${codeBlock(JSON.stringify(c.judgeCommand))}${judged}`, !c.awayPing) +
+    row(
+      "Judge rules",
+      `<textarea class="text" data-config-input="judgePrompt" rows="4" spellcheck="false">${esc(c.judgePrompt)}</textarea>`,
+      !c.awayPing || c.judgeCommand.length === 0,
+    ) +
+    row(
+      "Merged PRs",
+      segmented("watchFor", c.watchFor, [
+        ["1h", "1 hour"],
+        ["3h", "3 hours"],
+        ["6h", "6 hours"],
+      ]),
+      !c.awayPing || c.judgeCommand.length === 0,
+    )
   );
 }
 
-const NO_AWAY: AwayView = { lastPing: null, lastText: null, error: null, hasUrl: null, command: "" };
+const NO_AWAY: AwayView = {
+  lastPing: null,
+  lastText: null,
+  error: null,
+  lastJudge: null,
+  judgeError: null,
+  hasUrl: null,
+  command: "",
+};
 
 export function settingsBody(
   ctx: Ctx,
