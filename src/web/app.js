@@ -296,7 +296,7 @@ async function refresh() {
     const r = await fetch(`${location.pathname}?part=1`, { cache: "no-store" });
     if (!r.ok) return;
     const html = await r.text();
-    const open = new Set([...app.querySelectorAll("details[open][data-key]")].map((d) => d.dataset.key));
+    const open = new Map([...app.querySelectorAll("details[data-key]")].map((d) => [d.dataset.key, d.open]));
     const folds = new Set([...app.querySelectorAll("li.open[data-fold-key]")].map((li) => li.dataset.foldKey));
     const scroll = new Map(
       [...app.querySelectorAll("[data-keep-scroll][data-key]")].map((e) => [e.dataset.key, e.scrollTop]),
@@ -308,7 +308,8 @@ async function refresh() {
     const focusKey = document.activeElement?.closest?.("[data-key]")?.dataset.key;
     const shown = shownKeys();
     app.innerHTML = html;
-    for (const d of app.querySelectorAll("details[data-key]")) if (open.has(d.dataset.key)) d.open = true;
+    for (const d of app.querySelectorAll("details[data-key]"))
+      if (open.has(d.dataset.key)) d.open = open.get(d.dataset.key);
     for (const li of app.querySelectorAll("li[data-fold-key]")) if (folds.has(li.dataset.foldKey)) setFolded(li, true);
     for (const e of app.querySelectorAll("[data-keep-scroll][data-key]")) e.scrollTop = scroll.get(e.dataset.key) ?? 0;
     const newBox = app.querySelector("[data-search-box]");
