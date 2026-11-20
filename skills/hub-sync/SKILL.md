@@ -23,7 +23,7 @@ For each row under "to judge" (its title is `#channel author: text`, then the pe
 | No draft, but clearly about a known ticket | `log` with `id`, `text` (one line: what was said, to whom), `kind: "slack"`, `source: "sync"`, `ref` |
 | Anything else | `item_close` the row |
 
-Match by meaning, never by exact text: the engineer often rewrites drafts. A call that names the message's permalink (`posted`, `match`, `log` with `ref`) closes its row; otherwise close it as the table says, so it is not judged again.
+Hub matches the engineer's own GitHub reviews to drafts on that PR itself; leave those drafts alone. Match by meaning, never by exact text: the engineer often rewrites drafts. A call that names the message's permalink (`posted`, `match`, `log` with `ref`) closes its row; otherwise close it as the table says, so it is not judged again.
 
 ## 3. Attach
 
