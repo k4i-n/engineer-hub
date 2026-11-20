@@ -38,3 +38,40 @@ test("one line keeps inline markdown, shows a fenced block as inline code and dr
 test("one line cuts at the limit and escapes html", () => {
   assert.equal(renderLine("<b>abcdefghij</b>\n```\nx\n```", link, 10), "&lt;b&gt;abcd...");
 });
+
+test("a table renders with alignment, escaped pipes, inline markdown in cells, short rows padded and long rows cut", () => {
+  const html = renderMarkdown(
+    "| Name | Count | Note |\n|:---|---:|:---:|\n| `a\\|b` | 2 | see [PR](https://x.dev/1) |\n| short |\n| x | y | z | extra |",
+    link,
+  );
+  assert.equal(
+    html,
+    '<div class="md-table"><table><thead><tr><th style="text-align:left">Name</th><th style="text-align:right">Count</th><th style="text-align:center">Note</th></tr></thead>' +
+      '<tbody><tr><td style="text-align:left"><code>a|b</code></td><td style="text-align:right">2</td><td style="text-align:center">see <a href="https://x.dev/1">PR</a></td></tr>' +
+      '<tr><td style="text-align:left">short</td><td style="text-align:right"></td><td style="text-align:center"></td></tr>' +
+      '<tr><td style="text-align:left">x</td><td style="text-align:right">y</td><td style="text-align:center">z</td></tr></tbody></table></div>',
+  );
+});
+
+test("a table ends at a blank line, needs a matching delimiter row and closes the paragraph before it", () => {
+  assert.equal(
+    renderMarkdown("Intro\na | b\n--- | ---\n1 | 2\n\nafter", link),
+    '<p>Intro</p><div class="md-table"><table><thead><tr><th>a</th><th>b</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table></div><p>after</p>',
+  );
+  assert.equal(renderMarkdown("a | b\n---", link), "<p>a | b<br>---</p>");
+});
+
+test("nested lists keep their levels", () => {
+  assert.equal(
+    renderMarkdown("- one\n  - one.a\n    1. deep\n  - one.b\n- two\n  - [x] done", link),
+    "<ul><li>one<ul><li>one.a<ol><li>deep</li></ol></li><li>one.b</li></ul></li><li>two" +
+      '<ul><li class="md-task done"><span class="box">✓</span>done</li></ul></li></ul>',
+  );
+});
+
+test("italic and strikethrough render; underscores inside words and lone stars do not", () => {
+  assert.equal(
+    renderMarkdown("*a* and _b_ and ~~c~~ and **d**, snake_case_name, 2 * 3 * 4", link),
+    "<p><em>a</em> and <em>b</em> and <s>c</s> and <strong>d</strong>, snake_case_name, 2 * 3 * 4</p>",
+  );
+});
