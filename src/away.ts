@@ -101,11 +101,11 @@ export function labelOf(i: ItemRow): string {
   return i.kind === "alert" ? "Fix now" : "Reply";
 }
 
-export function countText(groups: Candidate[]): string {
+export function countText(groups: Candidate[], head = "hub"): string {
   const counts = new Map<string, number>();
   for (const g of groups) counts.set(labelOf(g.item), (counts.get(labelOf(g.item)) ?? 0) + 1);
   const parts = ["Fix now", "Reply"].filter((l) => counts.has(l)).map((l) => `${l} ${counts.get(l)}`);
-  return [`hub: ${groups.length} new`, ...parts].join(" | ");
+  return [`${head}: ${groups.length} new`, ...parts].join(" | ");
 }
 
 export function prRef(url: string | null): string | null {
@@ -181,13 +181,51 @@ function saveVerdicts(ctx: Ctx, groups: Candidate[], verdicts: Map<number, Verdi
   });
 }
 
-export function pingText(picks: { group: Candidate; why: string }[]): string {
+export function pingText(picks: { group: Candidate; why: string }[], head = "hub"): string {
   const lines = picks.map(({ group, why }) => {
     const who = group.item.author ? ` (${group.item.author})` : "";
     const times = group.ids.length > 1 ? ` ×${group.ids.length}` : "";
     return `${labelOf(group.item)}: ${placeOf(group.item)}${who}${times}${why === "" ? "" : `, ${why}`}`;
   });
-  return [`hub: ${picks.length} need you`, ...lines].join("\n");
+  return [`${head}: ${picks.length} need you`, ...lines].join("\n");
+}
+
+function sampleGroup(kind: string, place: string, author: string, count: number): Candidate {
+  const item: ItemRow = {
+    id: 0,
+    source: "slack",
+    ref: "",
+    kind,
+    title: `${place} · ${author}: sample`,
+    url: null,
+    state: null,
+    author,
+    ticket_id: null,
+    needs_me: 1,
+    first_seen: "",
+    changed_at: "",
+    closed_at: null,
+    snoozed_until: null,
+    ignored: null,
+    detached: 0,
+    judged_at: null,
+    away_ping: null,
+    away_why: null,
+  };
+  return { item, ids: Array.from({ length: count }, (_, i) => i) };
+}
+
+export function sampleText(judged: boolean): string {
+  const reply = sampleGroup("message", "#help-desk", "ana", 1);
+  const alert = sampleGroup("alert", "#alerts", "Grafana", 3);
+  if (!judged) return countText([alert, reply, sampleGroup("message", "DM", "bo", 1)], "hub test");
+  return pingText(
+    [
+      { group: reply, why: "asks you to confirm app scopes" },
+      { group: alert, why: "matches ENG-12 after web#123 merge" },
+    ],
+    "hub test",
+  );
 }
 
 export function slackSafe(text: string): string {
@@ -253,8 +291,9 @@ export class Away {
   async test(): Promise<string> {
     const url = await this.lookup();
     if (url === null) throw new HubError(`no webhook URL: ${webhookCommand(this.sys.platform)}`);
-    await postWebhook(this.sys, url, "hub: test");
-    return "posted hub: test";
+    const text = sampleText(this.ctx().config.judgeCommand.length > 0);
+    await postWebhook(this.sys, url, text);
+    return `posted ${text.split("\n")[0]}`;
   }
 
   async check(): Promise<void> {
