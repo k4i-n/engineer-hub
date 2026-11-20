@@ -1,4 +1,4 @@
-import type { Ctx } from "../commands.ts";
+import type { Ctx, Review } from "../commands.ts";
 import { all, type ItemRow } from "../db.ts";
 import type { Check, Fetched, Fetcher } from "../fetch.ts";
 import { lastLine, type System } from "../keys.ts";
@@ -31,11 +31,13 @@ const SEARCH = `query($requested: String!, $mine: String!) {
   }
 }`;
 
-function lookup(count: number): string {
+const MY_REVIEW_FIELDS = "url viewerLatestReview { url body state submittedAt }";
+
+function lookup(count: number, wanted = PR_FIELDS): string {
   const vars = Array.from({ length: count }, (_, i) => `$p${i}: URI!`).join(", ");
   const fields = Array.from(
     { length: count },
-    (_, i) => `  p${i}: resource(url: $p${i}) { ... on PullRequest { ${PR_FIELDS} } }`,
+    (_, i) => `  p${i}: resource(url: $p${i}) { ... on PullRequest { ${wanted} } }`,
   ).join("\n");
   return `query(${vars}) {\n${fields}\n}`;
 }
@@ -60,6 +62,7 @@ type Pr = {
   latestReviews?: { nodes: { state: string; author?: { login: string } | null }[] };
   reviewRequests?: { nodes: { requestedReviewer: { login?: string; name?: string } | null }[] };
   commits?: { nodes: { commit: { statusCheckRollup: { state: string } | null } }[] };
+  viewerLatestReview?: { url: string; body: string; state: string; submittedAt: string | null } | null;
 };
 type Searched = { requested: { nodes: Pr[] }; mine: { nodes: Pr[] } };
 type Answer<T> = { data?: T; errors?: { message: string }[] };
@@ -195,7 +198,30 @@ async function fetchGithub(sys: System, ctx: Ctx, cursor: string | null): Promis
       detail: detail(pr),
     });
   }
-  return { items: out, cursor: started };
+  return { items: out, cursor: started, reviews: await myReviews(sys, ctx) };
+}
+
+async function myReviews(sys: System, ctx: Ctx): Promise<Review[]> {
+  const drafted = all<{ item: string }>(
+    ctx.db,
+    `SELECT DISTINCT item FROM draft WHERE status = 'draft' AND match_ref IS NULL AND item LIKE 'https://github.com/%/pull/%'
+     ORDER BY item`,
+  ).map((d) => d.item);
+  const reviews: Review[] = [];
+  for (let start = 0; start < drafted.length; start += LOOKUP_BATCH) {
+    const batch = drafted.slice(start, start + LOOKUP_BATCH);
+    const found = await graphql<Record<string, Pr | null>>(sys, [
+      `query=${lookup(batch.length, MY_REVIEW_FIELDS)}`,
+      ...batch.map((url, n) => `p${n}=${url}`),
+    ]);
+    for (const [n, item] of batch.entries()) {
+      const review = found[`p${n}`]?.viewerLatestReview;
+      if (!review?.submittedAt || review.state === "PENDING") continue;
+      const at = new Date(review.submittedAt).toISOString();
+      reviews.push({ item, url: review.url, body: review.body, state: review.state, at });
+    }
+  }
+  return reviews;
 }
 
 export const github: Fetcher = { name: "github", key: null, check, fetch: fetchGithub };

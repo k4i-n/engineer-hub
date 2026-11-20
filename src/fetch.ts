@@ -1,4 +1,4 @@
-import { type Ctx, type Result, setTracker, type TrackerFields } from "./commands.ts";
+import { type Ctx, proposeReview, type Result, type Review, setTracker, type TrackerFields } from "./commands.ts";
 import { one, type SourceRow } from "./db.ts";
 import * as items from "./items.ts";
 import { type KeySpec, lastLine, type System, storeCommands } from "./keys.ts";
@@ -13,6 +13,7 @@ export type Fetched = {
   answered?: string[];
   warning?: string | null;
   tracker?: TrackerFields[];
+  reviews?: Review[];
 };
 export type Check = { ok: boolean; how: string; fix: string[] };
 export type Fetcher = {
@@ -43,6 +44,8 @@ export function write(ctx: Ctx, name: string, fetched: Fetched): string {
   }
   const updated = (fetched.tracker ?? []).filter((t) => setTracker(ctx, t)).length;
   if (updated > 0) parts.push(`tickets: ${updated} updated`);
+  const proposed = (fetched.reviews ?? []).reduce((n, r) => n + proposeReview(ctx, r), 0);
+  if (proposed > 0) parts.push(`drafts: ${proposed} sent?`);
   sources.synced(ctx, name, { cursor: fetched.cursor, error: null, warning: fetched.warning ?? null });
   return parts.join("; ") || "nothing new";
 }
