@@ -262,8 +262,14 @@ describe("serve", () => {
     assert.equal((items.all ?? 0) - (items.open ?? 0), 1);
     assert.match(
       page,
-      /data-tab-panel="all" hidden><span class="verb">[^<]+<\/span><span class="need-main"><a[^>]*>72</,
+      /data-tab-panel="all" hidden>\s*<span class="verb">[^<]+<\/span>\s*<span class="need-main"><span class="need-line"><a[^>]*>72</,
     );
+    const open = /<li class="need [^"]*" data-key="item-\d+"[^>]*>[\s\S]*?>71<[\s\S]*?<\/li>/.exec(page)?.[0] ?? "";
+    assert.match(open, /data-act="item-done" data-id="\d+"/);
+    assert.match(open, /data-act="item-snooze" data-id="\d+" data-for="tomorrow"/);
+    assert.match(open, /data-act="item-detach" data-id="\d+" data-ticket="ENG-7"/);
+    const closed = /<li class="need [^"]*" data-key="item-\d+"[^>]*>[\s\S]*?>72<[\s\S]*?<\/li>/.exec(page)?.[0] ?? "";
+    assert.match(closed, /data-act="item-reopen"/);
     assert.match(page, /data-key="timeline-work" data-tab-panel="work">/);
     assert.match(page, /data-key="timeline-all" data-tab-panel="all" hidden>/);
   });
@@ -446,16 +452,19 @@ describe("serve", () => {
     assert.deepEqual([homeAfter.open, homeAfter.all], [home.open, home.all + 1]);
     assert.deepEqual([pageAfter.open, pageAfter.all], [page.open, page.all + 1]);
     assert.match(homeAfter.html, /data-act="draft-unsent" data-ticket="ENG-7" data-label="tell qa">Not sent</);
-    assert.match(
-      pageAfter.html,
-      /data-act="draft-unsent" data-ticket="ENG-7" data-label="tell qa">[\s\S]*?<span>Not sent<\/span>/,
-    );
+    assert.match(pageAfter.html, /data-act="draft-unsent" data-ticket="ENG-7" data-label="tell qa">Not sent</);
     assert.equal((await call("POST", "/tickets/ENG-7/drafts/tell%20qa/unposted", {})).status, 200);
     assert.deepEqual(await counts("/?part=1").then((c) => [c.open, c.all]), [home.open + 1, home.all + 1]);
     assert.match(homeAfter.html, /data-key="d-ENG-7-tell qa" data-tab-panel="all" hidden>[\s\S]*?wording pending/);
     assert.match(pageAfter.html, /data-key="td-tell qa" data-tab-panel="all" hidden>/);
     assert.match(homeAfter.html, /data-key="d-[^"]+" data-tab-panel="open all">/);
     assert.match(pageAfter.html, /<li class="empty" data-tab-panel="open">—<\/li>/);
+  });
+
+  test("a ticket page marks its drafts sent like the dashboard", async () => {
+    await hub(["draft", "ENG-7", "ask ops", "--stdin"], "can we cap exports?");
+    const page = await (await fetch(`${server.url}/t/ENG-7?part=1`)).text();
+    assert.match(page, /data-act="sent" data-ticket="ENG-7" data-label="ask ops"/);
   });
 
   test("ticket ids carry their full id as a title and text fields render markdown", async () => {
