@@ -4,7 +4,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { DEFAULTS } from "./config.ts";
 import { HubError } from "./util.ts";
 
-export const SCHEMA_VERSION = "15";
+export const SCHEMA_VERSION = "16";
 
 export type Ticket = {
   id: string;
@@ -67,6 +67,7 @@ export type DraftRow = {
   answer: string | null;
   match_text: string | null;
   match_ref: string | null;
+  match_no: string | null;
   send_at: string | null;
   created_at: string | null;
 };
@@ -167,7 +168,7 @@ CREATE TABLE note(id INTEGER PRIMARY KEY, ticket_id TEXT, title TEXT, body TEXT,
   UNIQUE(ticket_id, title));
 CREATE TABLE draft(id INTEGER PRIMARY KEY, ticket_id TEXT, label TEXT, body TEXT, status TEXT, channel TEXT, posted_at TEXT,
   sent_text TEXT, sent_ref TEXT, answer TEXT, match_text TEXT, match_ref TEXT, send_at TEXT,
-  created_at TEXT, updated_at TEXT, item TEXT, closed_item INTEGER, UNIQUE(ticket_id, label));
+  created_at TEXT, updated_at TEXT, item TEXT, closed_item INTEGER, match_no TEXT, UNIQUE(ticket_id, label));
 ${DRAFT_ITEM_INDEX}
 CREATE TABLE item(id INTEGER PRIMARY KEY, source TEXT NOT NULL, ref TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, title TEXT,
   url TEXT, state TEXT, author TEXT, ticket_id TEXT, needs_me INTEGER NOT NULL DEFAULT 0,
@@ -221,6 +222,7 @@ DELETE FROM config WHERE key = 'ignoreRepos';`,
     sql: `ALTER TABLE draft ADD COLUMN item TEXT; ALTER TABLE draft ADD COLUMN closed_item INTEGER;
 ${DRAFT_ITEM_INDEX}`,
   },
+  "15": { to: "16", sql: "ALTER TABLE draft ADD COLUMN match_no TEXT;" },
 };
 
 function excludeIgnoredRepos(key: "githubReviewQuery" | "githubPrQuery", kind: string): string {

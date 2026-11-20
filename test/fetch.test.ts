@@ -241,6 +241,54 @@ describe("github", () => {
     assert.doesNotMatch(await hub("items", "--all", "--source", "github"), /\| in review \|/);
   });
 
+  test("my review on a PR with an open draft is proposed as Sent?, Yes marks it sent, No is not asked again", async () => {
+    const url = "https://github.com/acme/web/pull/650";
+    const file = join(dir, "review.md");
+    writeFileSync(file, "LGTM, one nit on the limit.");
+    answers.gh = graphql([PR(url, { viewerDidAuthor: false })], []);
+    await hub("fetch", "github");
+    await hub("draft", url, "review", "--file", file);
+    await hub("draft", url, "nit", "--file", file);
+    const review = (n: number, minutes: number, extra: Record<string, unknown> = {}) => ({
+      url,
+      viewerLatestReview: {
+        url: `${url}#pullrequestreview-${n}`,
+        body: "LGTM, one nit.",
+        state: "APPROVED",
+        submittedAt: new Date(Date.now() + minutes * 60_000).toISOString(),
+        ...extra,
+      },
+    });
+
+    answers.gh = graphql([PR(url, { viewerDidAuthor: false })], [], { [url]: review(1, -60) });
+    assert.doesNotMatch(await hub("fetch", "github"), /sent\?/);
+    answers.gh = graphql([], [], { [url]: review(2, 1, { state: "PENDING", submittedAt: null }) });
+    assert.doesNotMatch(await hub("fetch", "github"), /sent\?/);
+    const query = calls.filter((c) => c[1] === "api").at(-1) ?? [];
+    assert.ok(query.some((a) => a.includes("viewerLatestReview { url body state submittedAt }")));
+    assert.ok(query.includes(`p0=${url}`));
+
+    answers.gh = graphql([], [], { [url]: review(3, 1) });
+    assert.match(await hub("fetch", "github"), /drafts: 2 sent\?/);
+    assert.equal(await hub("drafts", url), "review | draft | match proposed\nnit | draft | match proposed");
+    await hub("match", url, "review", "yes");
+    assert.match(
+      await hub("draft-show", url, "review"),
+      new RegExp(`--- sent ${url}#pullrequestreview-3\nLGTM, one nit.$`),
+    );
+    assert.equal(await hub("items", "--needs-me"), "no items");
+    await hub("unposted", url, "review");
+    assert.doesNotMatch(await hub("fetch", "github"), /sent\?/);
+    await hub("match", url, "nit", "no");
+    assert.doesNotMatch(await hub("fetch", "github"), /sent\?/);
+
+    answers.gh = graphql([], [], { [url]: review(4, 2, { body: "" }) });
+    assert.match(await hub("fetch", "github"), /drafts: 2 sent\?/);
+    const home = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.match(home, /<span class="need-title">“approved”<\/span>/);
+    assert.match(home, /Your draft nit\?/);
+  });
+
   test("a teammate's PR linked to a ticket gets its state but never needs you", async () => {
     const url = "https://github.com/acme/web/pull/602";
     await hub("link", "ENG-42", url);

@@ -534,6 +534,7 @@ export function resolveMatch(ctx: Ctx, id: string, label: string, answer: string
       .prepare("UPDATE draft SET match_text = NULL, match_ref = NULL, updated_at = ? WHERE id = ?")
       .run(nowIso(ctx.now), existing.id);
   if (answer === "no") {
+    ctx.db.prepare("UPDATE draft SET match_no = match_ref WHERE id = ?").run(existing.id);
     clear();
     return { text: `${id} draft "${label}": match dropped`, json: { ticket_id: id, label, status: existing.status } };
   }
@@ -662,7 +663,7 @@ export function unposted(ctx: Ctx, id: string, label: string): Result {
     ctx.db
       .prepare(
         `UPDATE draft SET status = 'draft', posted_at = NULL, answer = NULL, sent_text = NULL, sent_ref = NULL,
-           closed_item = NULL, updated_at = ? WHERE id = ?`,
+           closed_item = NULL, match_no = coalesce(sent_ref, match_no), updated_at = ? WHERE id = ?`,
       )
       .run(nowIso(ctx.now), draft.id);
     if (draft.closed_item !== null) {
@@ -768,6 +769,26 @@ export type PostedOptions = {
   sentText: string | null;
   sentRef: string | null;
 };
+
+export type Review = { item: string; url: string; body: string; state: string; at: string };
+
+const REVIEW_STATE: Record<string, string> = {
+  APPROVED: "approved",
+  CHANGES_REQUESTED: "changes requested",
+  COMMENTED: "commented",
+  DISMISSED: "dismissed",
+};
+
+export function proposeReview(ctx: Ctx, review: Review): number {
+  const text = review.body.trim() || REVIEW_STATE[review.state] || review.state.toLowerCase();
+  const { changes } = ctx.db
+    .prepare(
+      `UPDATE draft SET match_text = ?, match_ref = ?, updated_at = ?
+       WHERE item = ? AND status = 'draft' AND match_ref IS NULL AND coalesce(match_no, '') != ? AND coalesce(created_at, '') <= ?`,
+    )
+    .run(text, review.url, nowIso(ctx.now), review.item, review.url, review.at);
+  return Number(changes);
+}
 
 function openReviewRequest(ctx: Ctx, item: string | null): ItemRow | undefined {
   if (item === null) return undefined;
