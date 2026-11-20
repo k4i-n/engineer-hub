@@ -970,6 +970,27 @@ describe("serve", () => {
     assert.match(await (await fetch(`${server.url}/settings`)).text(), /<a class="gear on" href="\/"/);
   });
 
+  test("search puts the ticket whose id is typed first, then ids and titles that start with it", async () => {
+    await hub(["ticket-new", "ENG-420", "Retry export"]);
+    for (let i = 0; i < 35; i++) await hub(["log", "ENG-7", `asked about ENG-42 again ${i}`]);
+    await hub(["step", "add", "ENG-7", "ENG-42 handover"]);
+    const find = async (q: string) =>
+      ((await (await call("GET", `/find?q=${encodeURIComponent(q)}`)).json()) as { kind: string; title: string }[]).map(
+        (h) => `${h.kind} ${h.title}`,
+      );
+    const exact = await find("ENG-42");
+    assert.deepEqual(exact.slice(0, 3), [
+      "Ticket ENG-42 Sync login sessions across devices",
+      "Ticket ENG-420 Retry export",
+      "Step 1. ENG-42 handover",
+    ]);
+    assert.ok(exact.slice(3).some((h) => h.startsWith("Log ")));
+    assert.deepEqual((await find("eng-4")).slice(0, 2).sort(), [
+      "Ticket ENG-42 Sync login sessions across devices",
+      "Ticket ENG-420 Retry export",
+    ]);
+  });
+
   test("in app mode a Slack message keeps its permalink, a channel and Linear open in the app, and Open matches", async () => {
     await hub(["config", "openSlackIn", '"app"']);
     await hub(["config", "slackTeamId", '"T0TEST1"']);

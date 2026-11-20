@@ -334,45 +334,59 @@ export type Found = {
 const FOUND_KIND: Record<string, string> = { ticket: "Ticket", note: "Note", event: "Log", draft: "Draft" };
 
 export function searchAll(ctx: Ctx, query: string, limit: number): Found[] {
-  if (query.trim() === "") return [];
+  const q = query.trim();
+  if (q === "") return [];
   const snip = (fts: string) => `snippet(${fts}, -1, char(57344), char(57345), '…', 12)`;
-  const words = query.match(/[\p{L}\p{N}_-]+/gu) ?? [];
+  const escaped = q.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+  const starts = `${escaped}%`;
+  const like = `%${escaped}%`;
+  const opens = (column: string) => `${column} LIKE ?3 ESCAPE '\\'`;
+  const words = q.match(/[\p{L}\p{N}_-]+/gu) ?? [];
   const hits =
     words.length === 0
       ? []
-      : all<Hit>(
+      : all<Hit & { head: number }>(
           ctx.db,
-          `SELECT 'ticket' AS tbl, id AS ticket_id, title AS label, ${snip("ticket_fts")} AS snip, bm25(ticket_fts) AS score
+          `SELECT 'ticket' AS tbl, id AS ticket_id, title AS label, ${snip("ticket_fts")} AS snip, bm25(ticket_fts) AS score,
+            CASE WHEN id = ?4 COLLATE NOCASE THEN 0 WHEN ${opens("id")} THEN 1 WHEN ${opens("title")} THEN 2 ELSE 3 END AS head
        FROM ticket_fts WHERE ticket_fts MATCH ?1
      UNION ALL
-     SELECT 'note', ticket_id, title, ${snip("note_fts")}, bm25(note_fts) FROM note_fts WHERE note_fts MATCH ?1
+     SELECT 'note', ticket_id, title, ${snip("note_fts")}, bm25(note_fts), CASE WHEN ${opens("title")} THEN 2 ELSE 3 END
+       FROM note_fts WHERE note_fts MATCH ?1
      UNION ALL
-     SELECT 'event', e.ticket_id, e.ts, ${snip("event_fts")}, bm25(event_fts)
+     SELECT 'event', e.ticket_id, e.ts, ${snip("event_fts")}, bm25(event_fts), 3
        FROM event_fts JOIN event e ON e.id = event_fts.rowid WHERE event_fts MATCH ?1
      UNION ALL
-     SELECT 'draft', ticket_id, label, ${snip("draft_fts")}, bm25(draft_fts) FROM draft_fts WHERE draft_fts MATCH ?1
-     ORDER BY score LIMIT ?2`,
+     SELECT 'draft', ticket_id, label, ${snip("draft_fts")}, bm25(draft_fts), CASE WHEN ${opens("label")} THEN 2 ELSE 3 END
+       FROM draft_fts WHERE draft_fts MATCH ?1
+     ORDER BY head, score LIMIT ?2`,
           ftsQuery(words.join(" ")),
           limit,
+          starts,
+          q,
         );
-  const like = `%${query.trim().replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
-  const items = all<ItemRow>(
+  const items = all<ItemRow & { head: number }>(
     ctx.db,
-    "SELECT * FROM item WHERE title LIKE ?1 ESCAPE '\\' OR ref LIKE ?1 ESCAPE '\\' OR author LIKE ?1 ESCAPE '\\' ORDER BY closed_at IS NOT NULL, changed_at DESC LIMIT ?2",
+    `SELECT *, CASE WHEN ${opens("title")} THEN 2 ELSE 3 END AS head FROM item
+      WHERE title LIKE ?1 ESCAPE '\\' OR ref LIKE ?1 ESCAPE '\\' OR author LIKE ?1 ESCAPE '\\'
+      ORDER BY head, closed_at IS NOT NULL, changed_at DESC LIMIT ?2`,
     like,
     limit,
+    starts,
   );
-  const steps = all<StepRow>(
+  const steps = all<StepRow & { head: number }>(
     ctx.db,
-    "SELECT * FROM step WHERE title LIKE ?1 ESCAPE '\\' ORDER BY done_at IS NOT NULL, ticket_id, n LIMIT ?2",
+    `SELECT *, CASE WHEN ${opens("title")} THEN 2 ELSE 3 END AS head FROM step
+      WHERE title LIKE ?1 ESCAPE '\\' ORDER BY head, done_at IS NOT NULL, ticket_id, n LIMIT ?2`,
     like,
     limit,
+    starts,
   );
   const page = (id: string | null) => (id === null ? null : `/t/${encodeURIComponent(id)}`);
   const dayStart = startOfDayIso(today(ctx.now, ctx.config.timezone), ctx.config.timezone);
   const listed = (i: ItemRow) => i.needs_me === 1 && i.ignored === null && (i.closed_at ?? dayStart) >= dayStart;
   const itemHref = (i: ItemRow) => page(i.ticket_id) ?? (listed(i) ? `/#item-${i.id}` : null);
-  const found: Found[] = [
+  const found: (Found & { head: number })[] = [
     ...hits
       .filter((h) => h.tbl === "ticket")
       .map((h) => ({
@@ -382,6 +396,7 @@ export function searchAll(ctx: Ctx, query: string, limit: number): Found[] {
         href: page(h.ticket_id),
         out: null,
         ticket: h.ticket_id,
+        head: h.head,
       })),
     ...items.map((i) => ({
       kind: i.closed_at === null ? "Item" : "Closed item",
@@ -390,6 +405,7 @@ export function searchAll(ctx: Ctx, query: string, limit: number): Found[] {
       href: itemHref(i),
       out: i.url ?? (/^https?:/.test(i.ref) ? i.ref : null),
       ticket: i.ticket_id,
+      head: i.head,
     })),
     ...steps.map((s) => ({
       kind: s.done_at === null ? "Step" : "Step done",
@@ -398,6 +414,7 @@ export function searchAll(ctx: Ctx, query: string, limit: number): Found[] {
       href: page(s.ticket_id),
       out: null,
       ticket: s.ticket_id,
+      head: s.head,
     })),
     ...hits
       .filter((h) => h.tbl !== "ticket")
@@ -408,9 +425,13 @@ export function searchAll(ctx: Ctx, query: string, limit: number): Found[] {
         href: page(h.ticket_id),
         out: null,
         ticket: h.ticket_id,
+        head: h.head,
       })),
   ];
-  return found.slice(0, limit);
+  return found
+    .sort((x, y) => x.head - y.head)
+    .slice(0, limit)
+    .map(({ head, ...f }) => f);
 }
 
 export function events(ctx: Ctx, id: string, limit: number, full: boolean): Result {
