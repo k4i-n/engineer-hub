@@ -4,6 +4,7 @@ import { readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { dirname, join, resolve } from "node:path";
+import type { DatabaseSync } from "node:sqlite";
 import { type Args, checkFields, findRoute, openapi, queryArgs, runRoute } from "./api.ts";
 import { Away, awayState, webhookCommand } from "./away.ts";
 import { type Backup, backup, backupDir, checkRestorable, listBackups, replaceDb } from "./backup.ts";
@@ -122,6 +123,17 @@ function fetching(c: Ctx, runner: Runner): Fetching[] {
   });
 }
 
+function storedAgentRun(db: DatabaseSync): SyncState {
+  const value = one<{ value: string }>(db, "SELECT value FROM meta WHERE key = 'agent'")?.value;
+  return value === undefined ? IDLE : (JSON.parse(value) as SyncState);
+}
+
+function storeAgentRun(db: DatabaseSync, run: SyncState): void {
+  db.prepare(
+    "INSERT INTO meta(key, value) VALUES ('agent', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+  ).run(JSON.stringify(run));
+}
+
 export function serve(options: ServeOptions): Promise<Server> {
   const token = loadToken(tokenPath(options.dbPath));
   let db = openDb(options.dbPath);
@@ -129,7 +141,7 @@ export function serve(options: ServeOptions): Promise<Server> {
   const clients = new Set<ServerResponse>();
   let sync: SyncState = IDLE;
   let syncWhat: SyncWhat | null = null;
-  let agent: SyncState = IDLE;
+  let agent: SyncState = storedAgentRun(db);
   let child: ChildProcess | null = null;
   let port = options.port;
 
@@ -146,12 +158,15 @@ export function serve(options: ServeOptions): Promise<Server> {
     broadcast();
   }, WATCH_MS);
   const startedAt = options.now().getTime();
-  const autoSync = setInterval(() => {
-    const c = ctx();
-    if (!c.config.autoSync || sync.status === "running") return;
+  const agentDue = (c: Ctx): number | null => {
+    if (!c.config.autoSync || agent.status === "running") return null;
     const every = Date.parse(afterDuration(new Date(0), c.config.syncEvery, "syncEvery"));
-    const last = agent.at === null ? startedAt : Date.parse(agent.at);
-    if (options.now().getTime() - last >= every) startSync("agent");
+    return (agent.at === null ? startedAt : Date.parse(agent.at)) + every;
+  };
+  const autoSync = setInterval(() => {
+    const due = agentDue(ctx());
+    if (due === null || sync.status === "running") return;
+    if (options.now().getTime() >= due) startSync("agent");
   }, options.autoSyncCheckMs ?? AUTO_SYNC_CHECK_MS);
   autoSync.unref();
   const sys = options.system ?? system(options.env);
@@ -262,6 +277,7 @@ export function serve(options: ServeOptions): Promise<Server> {
     const [program = "", ...args] = command;
     const end = await runCommand(program, args);
     agent = { status: end.ok ? "finished" : "failed", at: nowIso(options.now()), detail: end.detail };
+    storeAgentRun(db, agent);
     await away.check();
     return end;
   }
@@ -293,9 +309,11 @@ export function serve(options: ServeOptions): Promise<Server> {
   }
 
   function live(c: Ctx): Live {
+    const due = agentDue(c);
     return {
       sync,
       agent,
+      agentNext: due === null ? null : new Date(due).toISOString(),
       agentBusy: sync.status === "running" && syncWhat !== "sources",
       sources: runner.enabled(c).map((f) => ({ name: f.name, running: runner.state(f.name).running })),
     };
