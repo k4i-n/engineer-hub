@@ -326,9 +326,9 @@ function flat(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
-function moreText(i: ItemRow): { body?: string } {
-  if (i.body === null || flat(i.title ?? "").includes(flat(i.body))) return {};
-  return { body: i.body };
+function moreText(i: ItemRow): { body?: string; fold?: true } {
+  if (i.body !== null && !flat(i.title ?? "").includes(flat(i.body))) return { body: i.body };
+  return i.detail === null ? {} : { fold: true };
 }
 
 function withoutTicket(title: string, ticket: string | null): string {
@@ -397,7 +397,7 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
       verb: v.verb,
       tone: v.tone,
       title: link(url, withoutTicket(i.title ?? i.ref, i.ticket_id), "need-title"),
-      sub: sourceLine([githubRef(url) ?? i.source, i.author, i.state]),
+      sub: sourceLine([githubRef(url) ?? i.source, i.author, i.state, i.detail]),
       ...moreText(i),
       ask: "",
       ticket: i.ticket_id,

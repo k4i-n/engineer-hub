@@ -2,21 +2,29 @@ import type { Ctx } from "../commands.ts";
 import { all, type ItemRow } from "../db.ts";
 import type { Check, Fetched, Fetcher } from "../fetch.ts";
 import { lastLine, type System } from "../keys.ts";
-import { clip, HubError } from "../util.ts";
+import { clip, cut, HubError } from "../util.ts";
 
 const FIRST_LOOK_MS = 2 * 86_400_000;
 const MAX_BODY = 4000;
 const LOOKUP_BATCH = 50;
+const MAX_DETAIL = 240;
+
+const FACT_FIELDS = `additions deletions changedFiles baseRefName totalCommentsCount
+        repository { defaultBranchRef { name } }
+        latestReviews(first: 20) { nodes { state author { login } } }
+        reviewRequests(first: 10) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } } }`;
 const HTML_TAG =
   /<\/?(?:a|b|blockquote|br|code|del|details|div|em|h[1-6]|hr|i|img|li|ol|p|pre|span|strong|sub|summary|sup|table|tbody|td|th|thead|tr|ul)\b[^>]*>/gi;
 
 const PR_FIELDS = `url title headRefName body state merged isDraft reviewDecision viewerDidAuthor author { login }
-        latestReviews(first: 20) { nodes { state } }
+        ${FACT_FIELDS}
         commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }`;
+
+const REVIEWED: Record<string, string> = { APPROVED: "approved", CHANGES_REQUESTED: "changes", COMMENTED: "commented" };
 
 const SEARCH = `query($requested: String!, $mine: String!) {
   requested: search(query: $requested, type: ISSUE, first: 50) {
-    nodes { ... on PullRequest { url title headRefName body author { login } } }
+    nodes { ... on PullRequest { url title headRefName body author { login } ${FACT_FIELDS} } }
   }
   mine: search(query: $mine, type: ISSUE, first: 50) {
     nodes { ... on PullRequest { ${PR_FIELDS} } }
@@ -43,7 +51,14 @@ type Pr = {
   isDraft?: boolean;
   viewerDidAuthor?: boolean;
   reviewDecision?: string | null;
-  latestReviews?: { nodes: { state: string }[] };
+  additions?: number;
+  deletions?: number;
+  changedFiles?: number;
+  baseRefName?: string;
+  totalCommentsCount?: number;
+  repository?: { defaultBranchRef: { name: string } | null };
+  latestReviews?: { nodes: { state: string; author?: { login: string } | null }[] };
+  reviewRequests?: { nodes: { requestedReviewer: { login?: string; name?: string } | null }[] };
   commits?: { nodes: { commit: { statusCheckRollup: { state: string } | null } }[] };
 };
 type Searched = { requested: { nodes: Pr[] }; mine: { nodes: Pr[] } };
@@ -64,6 +79,31 @@ function body(pr: Pr): string | undefined {
     .replace(/\n{3,}/g, "\n\n")
     .trim();
   return text === "" ? undefined : clip(text, MAX_BODY);
+}
+
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
+function detail(pr: Pr): string | undefined {
+  const parts: string[] = [];
+  if (pr.additions !== undefined && pr.deletions !== undefined) parts.push(`+${pr.additions} −${pr.deletions}`);
+  if (pr.changedFiles !== undefined) parts.push(plural(pr.changedFiles, "file"));
+  const base = pr.repository?.defaultBranchRef?.name;
+  if (pr.baseRefName !== undefined && base !== undefined && pr.baseRefName !== base)
+    parts.push(`into ${pr.baseRefName}`);
+  if (pr.totalCommentsCount) parts.push(plural(pr.totalCommentsCount, "comment"));
+  const reviews = (pr.latestReviews?.nodes ?? []).flatMap((r) => {
+    const word = REVIEWED[r.state];
+    return word === undefined || !r.author ? [] : [`${r.author.login} ${word}`];
+  });
+  if (reviews.length > 0) parts.push(reviews.join(", "));
+  const waiting = (pr.reviewRequests?.nodes ?? []).flatMap((n) => {
+    const who = n.requestedReviewer?.login ?? n.requestedReviewer?.name;
+    return who === undefined ? [] : [who];
+  });
+  if (waiting.length > 0) parts.push(`waiting on ${waiting.join(", ")}`);
+  return parts.length === 0 ? undefined : cut(parts.join(" · "), MAX_DETAIL);
 }
 
 function context(pr: Pr): string {
@@ -108,6 +148,7 @@ async function fetchGithub(sys: System, ctx: Ctx, cursor: string | null): Promis
     needs_me: true,
     context: context(pr),
     body: body(pr),
+    detail: detail(pr),
   }));
   const open = new Set(requested.map((pr) => pr.url));
   const tracked = all<ItemRow>(
@@ -151,6 +192,7 @@ async function fetchGithub(sys: System, ctx: Ctx, cursor: string | null): Promis
       needs_me: s.needsMe && pr.viewerDidAuthor === true,
       context: context(pr),
       body: body(pr),
+      detail: detail(pr),
     });
   }
   return { items: out, cursor: started };

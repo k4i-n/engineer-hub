@@ -30,11 +30,13 @@ export type ItemInput = {
   needs_me: boolean | null;
   context: string | null;
   body: string | null;
+  detail: string | null;
 };
 
 export type Upsert = "new" | "changed" | "unchanged";
 
 const MAX_TITLE = 240;
+const MAX_DETAIL = 240;
 const MAX_LENGTH: Record<string, number> = { ref: 2048, url: 2048, state: 60, author: 120, context: 8000, body: 8000 };
 const INPUT_KEYS = [
   "source",
@@ -48,6 +50,7 @@ const INPUT_KEYS = [
   "needs_me",
   "context",
   "body",
+  "detail",
 ];
 
 export function itemByRef(db: DatabaseSync, ref: string): ItemRow | undefined {
@@ -155,8 +158,8 @@ export function upsertItem(ctx: Ctx, input: ItemInput, withEvents: boolean): Ups
     const ticketId = input.ticket_id ?? matchTicket(ctx, [input.title, input.url, input.ref, input.context]);
     if (withEvents && ticketId !== null && ignored === null) event(ctx, ticketId, `New ${describe(input)}`, ref);
     db.prepare(
-      `INSERT INTO item(source, ref, kind, title, url, state, author, ticket_id, needs_me, first_seen, changed_at, closed_at, ignored, body)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO item(source, ref, kind, title, url, state, author, ticket_id, needs_me, first_seen, changed_at, closed_at, ignored, body, detail)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       input.source,
       input.ref,
@@ -172,6 +175,7 @@ export function upsertItem(ctx: Ctx, input: ItemInput, withEvents: boolean): Ups
       ignored === null ? null : at,
       ignored,
       input.body,
+      input.detail,
     );
     return "new";
   }
@@ -182,6 +186,7 @@ export function upsertItem(ctx: Ctx, input: ItemInput, withEvents: boolean): Ups
     state: input.state ?? existing.state,
     author: input.author ?? existing.author,
     body: input.body ?? existing.body,
+    detail: input.detail ?? existing.detail,
     ticket_id:
       input.ticket_id ??
       existing.ticket_id ??
@@ -221,6 +226,11 @@ function text(line: number, key: string, value: unknown): string | null {
     throw new HubError(`line ${line}: ${key} is ${value.length} chars (max ${max})`);
   }
   return value;
+}
+
+function detailText(line: number, value: unknown): string | null {
+  const detail = text(line, "detail", value);
+  return detail === null ? null : cut(detail, MAX_DETAIL);
 }
 
 export function parseItems(ctx: Ctx, input: string): ItemInput[] {
@@ -272,6 +282,7 @@ export function parseItems(ctx: Ctx, input: string): ItemInput[] {
       needs_me: o.needs_me === undefined ? null : o.needs_me,
       context: text(line, "context", o.context),
       body: text(line, "body", o.body),
+      detail: detailText(line, o.detail),
     });
   }
   if (parsed.length === 0) throw new HubError("no items on stdin (one JSON object per line)");
@@ -398,6 +409,7 @@ export function link(ctx: Ctx, id: string, url: string, options: LinkOptions): R
       needs_me: null,
       context: null,
       body: null,
+      detail: null,
     },
     false,
   );
