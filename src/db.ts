@@ -83,6 +83,9 @@ export type ItemRow = {
   snoozed_until: string | null;
   ignored: string | null;
   detached: number;
+  judged_at: string | null;
+  away_ping: number | null;
+  away_why: string | null;
 };
 export type WaitRow = {
   id: number;

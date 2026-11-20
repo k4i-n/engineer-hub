@@ -3,7 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { type Args, checkFields, findRoute, openapi, queryArgs, runRoute } from "./api.ts";
 import { Away, awayState, webhookCommand } from "./away.ts";
 import { type Backup, backup, backupDir, checkRestorable, listBackups, replaceDb } from "./backup.ts";
@@ -160,7 +160,7 @@ export function serve(options: ServeOptions): Promise<Server> {
     runner.tick().catch(() => {});
   }, options.fetchCheckMs ?? FETCH_CHECK_MS);
   fetchTimer.unref();
-  const away = new Away(sys, ctx);
+  const away = new Away(sys, ctx, join(dirname(options.dbPath), "judge"));
   const awayTimer = setInterval(() => {
     away.check().catch(() => {});
   }, options.awayCheckMs ?? AWAY_CHECK_MS);

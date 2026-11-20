@@ -26,6 +26,9 @@ export type Config = {
   awayPing: boolean;
   awayAfter: string;
   awayEvery: string;
+  judgeCommand: string[];
+  judgePrompt: string;
+  watchFor: string;
   theme: string;
   layout: Layout;
   autoSync: boolean;
@@ -112,6 +115,27 @@ export const DEFAULTS: Config = {
   awayPing: false,
   awayAfter: "10m",
   awayEvery: "30m",
+  judgeCommand: [
+    "claude",
+    "-p",
+    "--model",
+    "haiku",
+    "--max-turns",
+    "1",
+    "--tools",
+    "",
+    "--strict-mcp-config",
+    "--setting-sources",
+    "",
+    "--no-session-persistence",
+    "--settings",
+    '{"alwaysThinkingEnabled":false}',
+    "--system-prompt",
+    "Answer with JSON only.",
+  ],
+  judgePrompt:
+    "Pick which new items are worth pinging an engineer who is away from the computer. Ping: a question or request to them, someone blocked on them, an alert that matches one of their open tickets or a PR they merged in the last few hours. Skip: thanks, FYI, routine alerts, bot updates.",
+  watchFor: "3h",
   theme: "system",
   layout: DEFAULT_LAYOUT,
   autoSync: false,
@@ -144,6 +168,7 @@ const CHOICES: Partial<Record<keyof Config, string[]>> = {
   fetchEvery: ["1m", "5m", "15m", "30m"],
   awayAfter: ["5m", "10m", "15m", "30m"],
   awayEvery: ["15m", "30m", "1h", "2h"],
+  watchFor: ["1h", "3h", "6h"],
   progressStyle: ["ring", "half", "bar"],
   horizon: HORIZONS,
   backupEvery: ["1h", "6h", "12h", "1d", "7d"],
@@ -214,6 +239,9 @@ function semanticError(key: Key, value: unknown): string | undefined {
   }
   if (key === "syncCommand" && Array.isArray(value) && value.length === 0) {
     return 'syncCommand takes the program and its arguments, e.g. ["claude","-p","/engineer-hub:hub-sync"]';
+  }
+  if (key === "judgePrompt" && String(value).trim() === "") {
+    return "judgePrompt holds the rules for what is worth a ping";
   }
   if (key === "layout") {
     const ids = Object.values(value as Layout).flat();
