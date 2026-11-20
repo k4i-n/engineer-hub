@@ -22,5 +22,5 @@ The hub MCP tools (`mcp__plugin_engineer-hub_hub__*`) are named below by their s
    - [ ] <ticket id>: <one action>
    ```
 
-5. For each ticket worked today, keep its state in hub as the work goes: `ticket_set` with `next` (one action), `step_done` when a step finishes, `log` for what changed. When the engineer's rules say to stop and ask (merge, deploy, send a message), stop and record it: `ticket_set` with `gate` (the question). Never answer a gate yourself.
+5. For each ticket worked today, keep its state in hub as the work goes: `ticket_set` with `next` (one action), `step_done` when a step finishes, `log` for what changed. When the engineer's rules say to stop and ask (merge, deploy, send a message), stop and record it: `ticket_set` with `gate` (the question, ending in "?"; a standing rule or condition is not a gate). Never answer a gate yourself.
 6. Reply with the RESUME block and the list, nothing else.
