@@ -202,8 +202,8 @@ describe("away ping without a judge", () => {
     const linux = away(sys("linux", { HUB_WEBHOOK_KEY: HOOK }));
     await linux.check();
     assert.deepEqual(posts, []);
-    assert.equal(await linux.test(), "posted hub: test");
-    assert.deepEqual(posts, ["hub: test"]);
+    assert.equal(await linux.test(), "posted hub test: 3 new | Fix now 1 | Reply 2");
+    assert.deepEqual(posts, ["hub test: 3 new | Fix now 1 | Reply 2"]);
   });
 });
 
@@ -451,7 +451,9 @@ describe("dashboard", () => {
       body: "{}",
     });
     assert.equal(r.status, 200);
-    assert.deepEqual(posts, ["hub: test"]);
+    assert.deepEqual(posts, [
+      "hub test: 2 need you\nReply: #help-desk (ana), asks you to confirm app scopes\nFix now: #alerts (Grafana) ×3, matches ENG-12 after web#123 merge",
+    ]);
     assert.equal(all<ItemRow>(db, "SELECT * FROM item").length, 0);
   });
 });
