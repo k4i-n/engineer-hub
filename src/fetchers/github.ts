@@ -16,7 +16,7 @@ const FACT_FIELDS = `additions deletions changedFiles baseRefName totalCommentsC
 const HTML_TAG =
   /<\/?(?:a|b|blockquote|br|code|del|details|div|em|h[1-6]|hr|i|img|li|ol|p|pre|span|strong|sub|summary|sup|table|tbody|td|th|thead|tr|ul)\b[^>]*>/gi;
 
-const PR_FIELDS = `url title headRefName body state merged isDraft reviewDecision viewerDidAuthor author { login }
+const PR_FIELDS = `url title headRefName body state merged isDraft reviewDecision viewerDidAuthor author { login avatarUrl(size: 40) }
         ${FACT_FIELDS}
         commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }`;
 
@@ -24,7 +24,7 @@ const REVIEWED: Record<string, string> = { APPROVED: "approved", CHANGES_REQUEST
 
 const SEARCH = `query($requested: String!, $mine: String!) {
   requested: search(query: $requested, type: ISSUE, first: 50) {
-    nodes { ... on PullRequest { url title headRefName body author { login } ${FACT_FIELDS} } }
+    nodes { ... on PullRequest { url title headRefName body author { login avatarUrl(size: 40) } ${FACT_FIELDS} } }
   }
   mine: search(query: $mine, type: ISSUE, first: 50) {
     nodes { ... on PullRequest { ${PR_FIELDS} } }
@@ -47,7 +47,7 @@ type Pr = {
   title?: string;
   headRefName?: string;
   body?: string;
-  author?: { login: string } | null;
+  author?: { login: string; avatarUrl?: string } | null;
   state?: string;
   merged?: boolean;
   isDraft?: boolean;
@@ -147,6 +147,7 @@ async function fetchGithub(sys: System, ctx: Ctx, cursor: string | null): Promis
     url: pr.url,
     title: pr.title,
     author: pr.author?.login,
+    avatar: pr.author?.avatarUrl,
     state: "open",
     needs_me: true,
     context: context(pr),
@@ -191,6 +192,7 @@ async function fetchGithub(sys: System, ctx: Ctx, cursor: string | null): Promis
       url: pr.url,
       title: pr.title,
       author: pr.author?.login,
+      avatar: pr.author?.avatarUrl,
       state: s.state,
       needs_me: s.needsMe && pr.viewerDidAuthor === true,
       context: context(pr),
