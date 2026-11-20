@@ -4,7 +4,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { DEFAULTS } from "./config.ts";
 import { HubError } from "./util.ts";
 
-export const SCHEMA_VERSION = "13";
+export const SCHEMA_VERSION = "14";
 
 export type Ticket = {
   id: string;
@@ -87,6 +87,7 @@ export type ItemRow = {
   away_ping: number | null;
   away_why: string | null;
   body: string | null;
+  detail: string | null;
 };
 export type WaitRow = {
   id: number;
@@ -163,7 +164,7 @@ CREATE TABLE draft(id INTEGER PRIMARY KEY, ticket_id TEXT, label TEXT, body TEXT
 CREATE TABLE item(id INTEGER PRIMARY KEY, source TEXT NOT NULL, ref TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, title TEXT,
   url TEXT, state TEXT, author TEXT, ticket_id TEXT, needs_me INTEGER NOT NULL DEFAULT 0,
   first_seen TEXT NOT NULL, changed_at TEXT NOT NULL, closed_at TEXT, snoozed_until TEXT, ignored TEXT,
-  detached INTEGER NOT NULL DEFAULT 0, judged_at TEXT, away_ping INTEGER, away_why TEXT, body TEXT);
+  detached INTEGER NOT NULL DEFAULT 0, judged_at TEXT, away_ping INTEGER, away_why TEXT, body TEXT, detail TEXT);
 CREATE INDEX item_ticket ON item(ticket_id);
 CREATE TABLE wait(id INTEGER PRIMARY KEY, ticket_id TEXT NOT NULL, who TEXT NOT NULL, url TEXT NOT NULL,
   asked_at TEXT NOT NULL, ping_after TEXT, pinged_at TEXT, closed_at TEXT);
@@ -206,6 +207,7 @@ DELETE FROM config WHERE key = 'ignoreRepos';`,
     sql: "ALTER TABLE item ADD COLUMN judged_at TEXT; ALTER TABLE item ADD COLUMN away_ping INTEGER; ALTER TABLE item ADD COLUMN away_why TEXT;",
   },
   "12": { to: "13", sql: "ALTER TABLE item ADD COLUMN body TEXT;" },
+  "13": { to: "14", sql: "ALTER TABLE item ADD COLUMN detail TEXT;" },
 };
 
 function excludeIgnoredRepos(key: "githubReviewQuery" | "githubPrQuery", kind: string): string {

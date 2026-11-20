@@ -212,6 +212,7 @@ function sampleGroup(kind: string, place: string, author: string, count: number)
     away_ping: null,
     away_why: null,
     body: null,
+    detail: null,
   };
   return { item, ids: Array.from({ length: count }, (_, i) => i) };
 }
