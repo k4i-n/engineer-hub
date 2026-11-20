@@ -114,6 +114,7 @@ describe("serve", () => {
     assert.match(html, /waiting on design review/);
     assert.match(index.headers.get("content-security-policy") ?? "", /script-src 'self'/);
     assert.match(html, /<script src="\/app.js" defer><\/script>/);
+    assert.match(html, /<div class="news" aria-live="polite" hidden><\/div>/);
     assert.equal((await fetch(`${server.url}/app.js`)).headers.get("content-type"), "text/javascript; charset=utf-8");
     assert.match(await (await fetch(`${server.url}/app.css`)).text(), /--accent/);
 

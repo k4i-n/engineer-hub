@@ -1,6 +1,7 @@
 const token = document.querySelector('meta[name="hub-token"]').content;
 const app = document.getElementById("app");
 const toasts = document.querySelector(".toasts");
+const newsBox = document.querySelector(".news");
 const flip = (on) => (on === "1" ? "0" : "1");
 const UNDO = {
   "item-done": (d) => ["item-reopen", d],
@@ -75,18 +76,95 @@ function beep() {
   } catch {}
 }
 
+function describe(li) {
+  return {
+    key: li.dataset.key,
+    tone: li.className.match(/tone-\w+/)?.[0] ?? "tone-grey",
+    what: li.querySelector(".verb")?.textContent || li.closest(".ngroup")?.querySelector(".g-label")?.textContent || "",
+    title: li.querySelector(".need-title")?.textContent ?? "",
+  };
+}
+
 function announce(fresh) {
   if (fresh.length === 0) return;
   if (document.body.dataset.sound === "true") beep();
+  showNews(fresh.map(describe));
   if (document.body.dataset.notify !== "true" || !("Notification" in window)) return;
   if (!document.hidden && document.hasFocus()) return;
   if (Notification.permission !== "granted") return;
-  for (const li of fresh.slice(0, 3)) {
-    const verb = li.querySelector(".verb")?.textContent ?? "";
-    const title = li.querySelector(".need-title")?.textContent ?? "";
-    const n = new Notification(`${verb} · EngineerHub`, { body: title, tag: li.dataset.key });
-    n.onclick = () => window.focus();
+  for (const row of news.slice(0, NEWS_SHOWN)) {
+    const n = new Notification(`${row.what} · EngineerHub`, { body: row.title, tag: row.key });
+    n.onclick = () => {
+      window.focus();
+      openNews(row.key);
+    };
   }
+}
+
+const NEWS_SHOWN = 3;
+const NEWS_MS = 12000;
+const news = [];
+let newsTimer = null;
+
+function showNews(rows) {
+  for (const row of rows) {
+    const at = news.findIndex((n) => n.key === row.key);
+    if (at >= 0) news.splice(at, 1);
+    news.unshift(row);
+  }
+  renderNews();
+  armNews();
+}
+
+function renderNews() {
+  newsBox.hidden = news.length === 0;
+  newsBox.replaceChildren(
+    ...news.slice(0, NEWS_SHOWN).map((row) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = `news-row ${row.tone}`;
+      b.dataset.newsKey = row.key;
+      const what = document.createElement("span");
+      what.className = "verb";
+      what.textContent = row.what;
+      const title = document.createElement("span");
+      title.className = "news-title";
+      title.textContent = row.title;
+      b.append(what, title);
+      return b;
+    }),
+  );
+  if (news.length > NEWS_SHOWN) {
+    const more = document.createElement("span");
+    more.className = "news-more";
+    more.textContent = `+${news.length - NEWS_SHOWN}`;
+    newsBox.append(more);
+  }
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "news-close";
+  close.dataset.newsClose = "";
+  close.setAttribute("aria-label", "Close");
+  close.textContent = "×";
+  newsBox.append(close);
+}
+
+function armNews() {
+  clearTimeout(newsTimer);
+  if (news.length === 0 || document.hidden || !document.hasFocus() || newsBox.matches(":hover")) return;
+  newsTimer = setTimeout(clearNews, NEWS_MS);
+}
+
+function clearNews() {
+  clearTimeout(newsTimer);
+  news.length = 0;
+  renderNews();
+}
+
+function openNews(key) {
+  clearNews();
+  const li = app.querySelector(`.needs-list > li[data-key="${CSS.escape(key)}"]`);
+  if (li) reveal(li);
 }
 
 function flash() {
@@ -582,14 +660,17 @@ function select(li) {
   li.scrollIntoView({ block: "nearest" });
 }
 
+function reveal(li) {
+  for (let d = li.closest("details"); d; d = d.parentElement?.closest("details")) d.open = true;
+  hideResults();
+  select(li);
+}
+
 function selectFromHash() {
   const key = decodeURIComponent(location.hash.slice(1));
   if (!key.startsWith("item-")) return;
   const li = app.querySelector(`.needs-list > li[data-key="${CSS.escape(key)}"]`);
-  if (!li) return;
-  for (let d = li.closest("details"); d; d = d.parentElement?.closest("details")) d.open = true;
-  hideResults();
-  select(li);
+  if (li) reveal(li);
 }
 
 window.addEventListener("hashchange", selectFromHash);
@@ -876,7 +957,21 @@ events.addEventListener("open", () => {
   refresh();
 });
 events.addEventListener("error", () => document.body.classList.add("offline"));
-document.addEventListener("visibilitychange", flash);
-window.addEventListener("focus", flash);
+function lookBack() {
+  flash();
+  armNews();
+}
+
+document.addEventListener("visibilitychange", lookBack);
+window.addEventListener("focus", lookBack);
+window.addEventListener("blur", armNews);
+newsBox.addEventListener("mouseenter", () => clearTimeout(newsTimer));
+newsBox.addEventListener("mouseleave", armNews);
+newsBox.addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.newsKey !== undefined) openNews(b.dataset.newsKey);
+  else clearNews();
+});
 setInterval(refresh, 60000);
 afterRender(true);
