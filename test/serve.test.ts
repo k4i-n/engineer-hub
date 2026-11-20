@@ -1444,6 +1444,36 @@ describe("send later", () => {
     assert.match(await (await fetch(`${server.url}/?part=1`)).text(), /data-key="send-ENG-7-PR body"/);
   });
 
+  test("a Send row opens its thread and has Copy & open; one with no thread says no link", async () => {
+    await hub(
+      ["draft", "ENG-7", "reply owners", "--stdin", "--item", "https://acme.slack.com/archives/C1/p1700000000000100"],
+      "Done, see #12.",
+    );
+    await hub(["draft", "ENG-7", "post in ops", "--stdin", "--channel", "#ops"], "Deploying now.");
+    const reply =
+      /data-group="reply"[\s\S]*?<\/section>/.exec(await (await fetch(`${server.url}/?part=1`)).text())?.[0] ?? "";
+    const linked = /<li [^>]*data-key="send-ENG-7-reply owners"[\s\S]*?<\/li>/.exec(reply)?.[0] ?? "";
+    assert.match(linked, /<a class="need-title" href="https:\/\/acme.slack.com\/archives\/C1\/p1700000000000100"/);
+    assert.match(
+      linked,
+      /<button type="button" class="chip-btn" data-copy="Done, see #12." data-open="https:\/\/acme.slack.com\/archives\/C1\/p1700000000000100">Copy &amp; open<\/button>/,
+    );
+    assert.doesNotMatch(linked, /no link/);
+    const bare = /<li [^>]*data-key="send-ENG-7-post in ops"[\s\S]*?<\/li>/.exec(reply)?.[0] ?? "";
+    assert.match(bare, /no link/);
+    assert.doesNotMatch(bare, /Copy &amp; open/);
+  });
+
+  test("a draft on an item row has Copy & open to the item", async () => {
+    await hub(
+      ["item", "put", "--stdin"],
+      '{"source":"github","kind":"review_request","url":"https://github.com/acme/web/pull/77","title":"Cap exports","needs_me":true}',
+    );
+    await hub(["draft", "https://github.com/acme/web/pull/77", "review", "--stdin"], "LGTM");
+    const html = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.match(html, /data-copy="LGTM" data-open="https:\/\/github.com\/acme\/web\/pull\/77">Copy &amp; open</);
+  });
+
   test("a stored layout and hidden list that still name the Drafts card render and save", async () => {
     const db = new DatabaseSync(dbFile);
     db.prepare("INSERT OR REPLACE INTO config(key, value) VALUES (?, ?)").run(

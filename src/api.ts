@@ -286,7 +286,7 @@ export const ROUTES: Route[] = [
       item: {
         type: "string",
         about:
-          "url or ref of the item it answers (a PR, review request or message); its row shows the draft; empty clears it",
+          "url or ref of the item it answers (a PR, review request, or the permalink of the Slack thread or message it replies to); its row shows the draft and opens it; empty clears it",
       },
       verdict: { type: "string", about: "for a PR review: approve, request_changes or comment; empty clears it" },
       comments: {

@@ -517,22 +517,33 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
   );
 }
 
+function draftUrl(ctx: Ctx, d: DraftRow): string | null {
+  if (d.item === null) return null;
+  const item = one<ItemRow>(ctx.db, "SELECT * FROM item WHERE ref = ? OR url = ? ORDER BY id LIMIT 1", d.item, d.item);
+  const url = item?.url ?? d.item;
+  return /^https?:/.test(url) ? url : null;
+}
+
 function sendNeed(ctx: Ctx, d: DraftRow): Need {
   const now = nowIso(ctx.now);
   const later = d.send_at !== null && d.send_at > now;
+  const url = draftUrl(ctx, d);
+  const noLink =
+    url === null ? `<span class="chip tone-grey" title="this draft names no thread or PR">no link</span>` : "";
   return {
     key: `send-${draftOwner(d)}-${d.label}`,
     rank: 2,
     since: d.send_at ?? d.created_at ?? now,
     verb: "Send",
     tone: "teal",
-    title: `<span class="need-title">${line(ctx, d.label)}</span>`,
+    title:
+      url === null ? `<span class="need-title">${line(ctx, d.label)}</span>` : linker(ctx)(url, d.label, "need-title"),
     sub: sourceLine([d.channel, d.ticket_id === null ? itemName(d.item) : null]),
     body: d.body,
     ...draftMore(ctx, [d], false),
-    ask: askChips("", [verdictPill(d), draftButtons(d, "chip-btn")]),
+    ask: askChips("", [verdictPill(d), draftButtons(ctx, d, "chip-btn", url), noLink]),
     ticket: d.ticket_id,
-    href: null,
+    href: url,
     dim: later ? `send ${when(ctx, d.send_at ?? now)}` : null,
     ok: { label: "Sent", data: { act: "sent", ticket: draftOwner(d), label: d.label } },
     undo: null,
@@ -573,7 +584,7 @@ function itemNeed(ctx: Ctx, i: ItemRow): Need {
     sub: sourceLine([githubRef(url) ?? i.source, i.author, i.state, i.detail]),
     ...moreText(i),
     ...draftMore(ctx, drafts, true),
-    ask: itemAsk(ctx, i) + draftChips(ctx, drafts),
+    ask: itemAsk(ctx, i) + draftChips(ctx, drafts, url),
     ticket: i.ticket_id,
     href: url,
     dim,
@@ -974,13 +985,17 @@ function draftTabs(drafts: DraftRow[]): string {
   return openTabs("drafts", openDrafts(drafts), drafts.length);
 }
 
-function draftButtons(d: DraftRow, cls = ""): string {
+function draftButtons(ctx: Ctx, d: DraftRow, cls = "", open: string | null = null): string {
   const which = { ticket: draftOwner(d), label: d.label };
   const mark =
     d.status === "draft"
       ? button("Sent", { act: "sent", ...which }, { cls: `${cls} primary`.trim(), disabled: d.match_ref !== null })
       : button("Not sent", { act: "draft-unsent", ...which }, { cls });
-  return `${button("Copy", { copy: d.sent_text ?? d.body }, { cls })}${mark}`;
+  const copyOpen =
+    open === null || d.status !== "draft"
+      ? ""
+      : button("Copy & open", { copy: d.body, open: appHref(ctx, open).href }, { cls });
+  return `${button("Copy", { copy: d.sent_text ?? d.body }, { cls })}${copyOpen}${mark}`;
 }
 
 const VERDICT: Record<string, { word: string; tone: Tone }> = {
@@ -1059,14 +1074,14 @@ function draftMore(ctx: Ctx, drafts: DraftRow[], withBody: boolean): { drafts?: 
   return html === "" ? {} : { drafts: html };
 }
 
-function draftChips(ctx: Ctx, drafts: DraftRow[]): string {
+function draftChips(ctx: Ctx, drafts: DraftRow[], open: string | null): string {
   if (drafts.length === 0) return "";
   return drafts
     .map((d) =>
       askChips("", [
         `<span class="chip tone-${d.status === "draft" ? "teal" : "grey"}" title="draft">${line(ctx, d.label, 40)}</span>`,
         verdictPill(d),
-        draftButtons(d, "chip-btn"),
+        draftButtons(ctx, d, "chip-btn", open),
       ]),
     )
     .join("");
@@ -1384,7 +1399,7 @@ export function ticketBody(ctx: Ctx, id: string, live: Live): string {
   });
   const draftRows = drafts.map(
     (d) =>
-      `<li class="draft" data-key="td-${esc(ticketDraftKey(d))}"${draftPanel(d)}><div class="d-head">${itemLink(ctx, d.item)}<span class="d-label">${line(ctx, d.label)}</span>${verdictPill(d)}${pill(d.status, d.status === "draft" ? "blue" : "green")}${d.channel ? pill(d.channel, "teal") : ""}<span class="d-actions">${draftButtons(d)}${moreMenu(
+      `<li class="draft" data-key="td-${esc(ticketDraftKey(d))}"${draftPanel(d)}><div class="d-head">${itemLink(ctx, d.item)}<span class="d-label">${line(ctx, d.label)}</span>${verdictPill(d)}${pill(d.status, d.status === "draft" ? "blue" : "green")}${d.channel ? pill(d.channel, "teal") : ""}<span class="d-actions">${draftButtons(ctx, d, "", draftUrl(ctx, d))}${moreMenu(
         `menu-td-${ticketDraftKey(d)}`,
         [
           menuItem("edit", "Rename", {

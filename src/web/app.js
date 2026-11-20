@@ -747,14 +747,15 @@ document.addEventListener("click", async (e) => {
     return;
   }
   if (b && !b.disabled) {
-    if (b.dataset.open !== undefined) {
-      closeMenus();
-      openHref(b.dataset.open, true);
-      return;
-    }
     if (b.dataset.copy !== undefined) {
       closeMenus();
       await navigator.clipboard.writeText(b.dataset.copy);
+      if (b.dataset.open !== undefined) openHref(b.dataset.open, true);
+      return;
+    }
+    if (b.dataset.open !== undefined) {
+      closeMenus();
+      openHref(b.dataset.open, true);
       return;
     }
     if (b.dataset.config) {
