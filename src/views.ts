@@ -397,7 +397,7 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
       verb: v.verb,
       tone: v.tone,
       title: link(url, withoutTicket(i.title ?? i.ref, i.ticket_id), "need-title"),
-      sub: sourceLine([githubRef(url) ?? i.source, i.author, i.state]),
+      sub: sourceLine([githubRef(url) ?? i.source, i.author, i.state, i.detail]),
       ...moreText(i),
       ask: "",
       ticket: i.ticket_id,

@@ -1383,6 +1383,9 @@ a.chip-btn:hover {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.need:has(.n-fold[open]) .need-sub {
+  white-space: normal;
+}
 .n-fold[open] > summary > :is(.need-line, .n-line),
 .n-fold:not([open]) .n-body {
   display: none;
