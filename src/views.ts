@@ -950,7 +950,7 @@ function todaySection(ctx: Ctx): string {
     day === undefined || day.date === today(ctx.now, ctx.config.timezone)
       ? ""
       : `<span class="muted">${esc(day.date)}</span>`;
-  const listed = (body.match(/<li[\s>]/g) ?? []).length;
+  const listed = (body.match(/<li class="md-task/g) ?? []).length;
   const checked = (body.match(/<li class="md-task done"/g) ?? []).length;
   return section("Today", null, body, "today", date + openTabs("today", listed - checked, listed));
 }

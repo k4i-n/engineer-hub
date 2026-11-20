@@ -220,7 +220,7 @@ describe("serve", () => {
     const html = await (await fetch(`${server.url}/?part=1`)).text();
     const fix = /data-group="fix"[\s\S]*?<\/section>/.exec(html)?.[0] ?? "";
     assert.deepEqual(tabCounts(fix, "needs-fix"), { open: 1, all: 1 });
-    assert.deepEqual(tabCounts(html, "today"), { open: 2, all: 3 });
+    assert.deepEqual(tabCounts(html, "today"), { open: 1, all: 2 });
     const activity = tabCounts(html, "activity");
     assert.equal((activity.all ?? 0) - (activity.work ?? 0) >= 1, true);
     assert.match(
