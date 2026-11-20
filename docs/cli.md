@@ -13,7 +13,7 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 | `hub changed --since <date\|yesterday\|today>` | events and state changes since a day |
 | `hub search <query> [-n 10]` | full-text search over tickets, notes, events and drafts |
 | `hub events <id> [-n 20] [--full]`, `hub notes <id>`, `hub note-show <id> <title>` | timeline and notes |
-| `hub drafts [id]`, `hub draft-show <id> <label>` | messages for humans to post |
+| `hub drafts [id]`, `hub draft-show <id> <label>` | messages for humans to post; `id` is a ticket, or an item's url or ref for the drafts on that item |
 | `hub items [--needs-me] [--source <s>] [--ticket <id>] [--all]` | open items (PRs, threads, review requests, alerts…), the ones that need you first |
 | `hub waits [--due]` | questions asked of someone; `--due` lists the ones to ping now |
 | `hub sources` | each source's last sync, cursor and error |
@@ -31,10 +31,10 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 | `hub rename <id> <new id>` | changes the ticket's id (a `NEW-` ticket to its tracker id once filed); its timeline, notes, drafts, steps, items, waits and pins follow, and a later write to the old id fails naming the new one |
 | `hub log <id> <text> [--kind log] [--source agent] [--ref <url>]` | adds an event stamped in the configured timezone |
 | `hub note <id> <title> (--file <path> \| --stdin) [--kind detail]` | adds or replaces a note |
-| `hub draft <id> <label> (--file \| --stdin) [--channel <c>] [--send-at <when>]` | adds or replaces a draft; `--send-at` takes `30m`, `4h`, `tomorrow`, `12:00`, `tomorrow 12:00` or `2026-11-20 12:00` |
+| `hub draft <id> <label> (--file \| --stdin) [--channel <c>] [--send-at <when>] [--item <url>]` | adds or replaces a draft; `--send-at` takes `30m`, `4h`, `tomorrow`, `12:00`, `tomorrow 12:00` or `2026-11-20 12:00`. `--item` names the PR, review request or message it answers (kept when left out, `""` clears it); that row on the dashboard shows the draft with Copy and Sent. With no ticket, `<id>` is the item's url or ref; every draft command then takes that url in place of the ticket id |
 | `hub draft-later <id> <label> [--for <when>]` | moves a draft's send time (default tomorrow) |
-| `hub posted <id> <label> [--at <when>] [--channel <c>] [--answer <text>] [--ref <url>] [--file \| --stdin]` | marks a draft posted or answered; the text given is the wording actually sent, which may differ from the draft (without it the draft shows "wording pending") |
-| `hub unposted <id> <label>` | marks a sent draft not sent again, dropping its sent wording, permalink and answer |
+| `hub posted <id> <label> [--at <when>] [--channel <c>] [--answer <text>] [--ref <url>] [--file \| --stdin]` | marks a draft posted or answered; the text given is the wording actually sent, which may differ from the draft (without it the draft shows "wording pending"). A draft on an open review request also marks the request done |
+| `hub unposted <id> <label>` | marks a sent draft not sent again, dropping its sent wording, permalink and answer, and reopens the review request its Sent closed |
 | `hub link <id> <url> [--kind <k>] [--title <t>]` | attaches the URL to the ticket as an item; source and kind come from the URL |
 | `hub match <id> <label> --ref <url> (--file \| --stdin)`, `hub match <id> <label> (yes \| no)` | proposes a sent message as the wording of a draft when the agent is unsure; yes marks the draft posted with it, no drops it |
 | `hub step add <id> <title> [--at <n>]`, `hub step done <id> <n> [--evidence <url>]` | adds a step (at the end, or at place n with the rest moving down), marks one done and logs it |
