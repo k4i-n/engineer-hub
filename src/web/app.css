@@ -457,10 +457,14 @@ a.chip:hover {
 /* needs */
 .need {
   display: grid;
-  grid-template-columns: 82px minmax(0, 1fr) 76px 30px 100px;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 8px 9px 10px;
+  grid-template-columns: 24px 82px minmax(0, 1fr) 76px 30px 100px;
+  grid-template-areas:
+    "caret verb main ticket age rail"
+    ". . ask ask ask ask"
+    ". . more more more more";
+  align-items: start;
+  column-gap: 10px;
+  padding: 9px 8px 9px 4px;
   margin: 0 -8px;
   border-left: 3px solid var(--tone);
   border-radius: 6px;
@@ -489,7 +493,12 @@ a.chip:hover {
 .verb-inline {
   flex: none;
 }
+.need > .verb {
+  grid-area: verb;
+  margin-top: 1px;
+}
 .need-main {
+  grid-area: main;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -512,7 +521,9 @@ a.need-title:hover {
   white-space: nowrap;
 }
 .need-ticket {
+  grid-area: ticket;
   min-width: 0;
+  line-height: 20px;
   text-align: right;
 }
 .need-line {
@@ -520,8 +531,11 @@ a.need-title:hover {
   align-items: center;
   gap: 5px;
   min-width: 0;
+  min-height: 20px;
 }
 .need-age {
+  grid-area: age;
+  line-height: 20px;
   color: var(--muted);
   font-size: 12px;
   text-align: right;
@@ -532,6 +546,24 @@ a.need-title:hover {
   align-items: center;
   justify-content: flex-end;
   gap: 2px;
+}
+.need > .rail {
+  grid-area: rail;
+  margin: -5px 0;
+}
+.n-ask {
+  grid-area: ask;
+  min-width: 0;
+}
+.n-more {
+  grid-area: more;
+  min-width: 0;
+}
+.need:not(.open) > .n-more {
+  display: none;
+}
+.need[data-fold-key] > :is(.verb, .need-main, .need-ticket, .need-age) {
+  cursor: pointer;
 }
 .ask {
   display: flex;
@@ -1024,11 +1056,13 @@ button.busy::after {
   font-weight: 400;
   margin: 8px 0 0;
   padding: 8px 10px;
-  max-height: 9em;
-  overflow: auto;
   background: var(--sunk);
   border-radius: 8px;
   overflow-wrap: anywhere;
+}
+.d-body {
+  max-height: 9em;
+  overflow: auto;
 }
 
 /* activity and timeline */
@@ -1294,7 +1328,6 @@ a.chip-btn:hover {
 }
 .ngroup,
 .cleared,
-.n-fold,
 .more-fold {
   padding: 0;
   border-top: 0;
@@ -1304,13 +1337,11 @@ a.chip-btn:hover {
 }
 .ngroup > summary,
 .cleared > summary,
-.n-fold > summary,
 .more-fold > summary {
   list-style: none;
 }
 .ngroup > summary::-webkit-details-marker,
 .cleared > summary::-webkit-details-marker,
-.n-fold > summary::-webkit-details-marker,
 .more-fold > summary::-webkit-details-marker {
   display: none;
 }
@@ -1349,7 +1380,11 @@ a.chip-btn:hover {
   font-variant-numeric: tabular-nums;
 }
 .ngroup .need {
-  grid-template-columns: minmax(0, 1fr) 76px 30px 100px;
+  grid-template-columns: 24px minmax(0, 1fr) 76px 30px 100px;
+  grid-template-areas:
+    "caret main ticket age rail"
+    ". ask ask ask ask"
+    ". more more more more";
 }
 .cleared > summary,
 .more-fold > summary,
@@ -1380,34 +1415,44 @@ a.chip-btn:hover {
 .n-draft {
   border-left: 3px solid var(--teal);
 }
-.n-fold {
-  min-width: 0;
-}
-.n-fold > summary {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  font-weight: inherit;
-}
 .n-caret {
-  flex: none;
-  display: inline-flex;
+  grid-area: caret;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  min-width: 0;
+  height: 24px;
+  margin: -2px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
   color: var(--muted);
-  transform: rotate(-90deg);
 }
-.n-fold[open] .n-caret {
-  transform: none;
+button.n-caret {
+  cursor: pointer;
+}
+button.n-caret:hover {
+  background: var(--line);
+  color: var(--text);
 }
 .n-caret svg {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   fill: none;
   stroke: currentColor;
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.n-fold[open] :is(.need-title, .need-sub) {
+button.n-caret {
+  transform: rotate(-90deg);
+  transition: transform 0.15s;
+}
+.need.open > .n-caret {
+  transform: none;
+}
+.need.open :is(.need-title, .need-sub) {
   white-space: normal;
   overflow-wrap: anywhere;
 }
@@ -2184,29 +2229,47 @@ kbd {
     flex-basis: 100%;
   }
   .need {
-    grid-template-columns: auto minmax(0, 1fr) auto auto;
-    grid-template-areas: "verb ticket age rail" "main main main main";
-    row-gap: 6px;
+    grid-template-columns: 24px auto minmax(0, 1fr) auto auto;
+    grid-template-areas:
+      "caret verb ticket age rail"
+      ". main main main main"
+      ". ask ask ask ask"
+      ". more more more more";
   }
-  .verb {
-    grid-area: verb;
+  .need > .need-main {
+    margin-top: 6px;
   }
   .need-ticket {
-    grid-area: ticket;
     text-align: left;
   }
-  .need-age {
-    grid-area: age;
+  .need-ticket:empty {
+    display: none;
   }
-  .rail {
-    grid-area: rail;
-  }
-  .need-main {
-    grid-area: main;
+  .need > .rail {
+    margin: -8px 0;
   }
   .ngroup .need {
-    grid-template-columns: minmax(0, 1fr) auto auto;
-    grid-template-areas: "main main main" "ticket age rail";
+    grid-template-columns: 24px minmax(0, 1fr) auto auto;
+    grid-template-areas:
+      "caret main age rail"
+      ". ticket ticket ticket"
+      ". ask ask ask"
+      ". more more more";
+  }
+  .ngroup .need > .need-main {
+    margin-top: 0;
+  }
+  .d-comments li {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .d-path {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .d-cbody {
+    grid-column: 1 / -1;
+    grid-row: 2;
   }
   .need-title,
   .need-sub {

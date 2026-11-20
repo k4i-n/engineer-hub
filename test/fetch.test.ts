@@ -146,7 +146,7 @@ describe("github", () => {
     const page = await (await fetch(`${server.url}/?part=1`)).text();
     assert.match(
       page,
-      /data-key="nfold-item-\d+"><summary>(?:(?!<\/summary>)[\s\S])*<span class="n-caret">[\s\S]*?<\/summary><div class="n-body md"><p>Adds the <strong>cookie<\/strong> path\.<\/p><ul><li>one<\/li><li>two<\/li><\/ul><p>Notes<br>keeps Map&lt;string, number&gt;<\/p><\/div>/,
+      /data-fold-key="nfold-item-\d+">\s*<button type="button" class="n-caret" data-fold-toggle aria-expanded="false"(?:(?!<\/li>)[\s\S])*<div class="n-more"><div class="n-body md"><p>Adds the <strong>cookie<\/strong> path\.<\/p><ul><li>one<\/li><li>two<\/li><\/ul><p>Notes<br>keeps Map&lt;string, number&gt;<\/p><\/div>/,
     );
     assert.doesNotMatch(page, /describe the change/);
   });

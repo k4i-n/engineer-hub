@@ -297,6 +297,7 @@ async function refresh() {
     if (!r.ok) return;
     const html = await r.text();
     const open = new Set([...app.querySelectorAll("details[open][data-key]")].map((d) => d.dataset.key));
+    const folds = new Set([...app.querySelectorAll("li.open[data-fold-key]")].map((li) => li.dataset.foldKey));
     const scroll = new Map(
       [...app.querySelectorAll("[data-keep-scroll][data-key]")].map((e) => [e.dataset.key, e.scrollTop]),
     );
@@ -308,6 +309,7 @@ async function refresh() {
     const shown = shownKeys();
     app.innerHTML = html;
     for (const d of app.querySelectorAll("details[data-key]")) if (open.has(d.dataset.key)) d.open = true;
+    for (const li of app.querySelectorAll("li[data-fold-key]")) if (folds.has(li.dataset.foldKey)) setFolded(li, true);
     for (const e of app.querySelectorAll("[data-keep-scroll][data-key]")) e.scrollTop = scroll.get(e.dataset.key) ?? 0;
     const newBox = app.querySelector("[data-search-box]");
     if (newBox && query !== "") {
@@ -663,6 +665,18 @@ function select(li) {
   li.scrollIntoView({ block: "nearest" });
 }
 
+function setFolded(li, open) {
+  li.classList.toggle("open", open);
+  const caret = li.querySelector(":scope > .n-caret");
+  if (!caret) return;
+  caret.setAttribute("aria-expanded", String(open));
+  caret.setAttribute("aria-label", open ? "Show less" : "Show more");
+}
+
+function toggleFolded(li) {
+  setFolded(li, !li.classList.contains("open"));
+}
+
 function reveal(li) {
   for (let d = li.closest("details"); d; d = d.parentElement?.closest("details")) d.open = true;
   hideResults();
@@ -721,6 +735,10 @@ document.addEventListener("click", async (e) => {
     setFold(b, folded);
     return;
   }
+  if (b?.dataset.foldToggle !== undefined) {
+    toggleFolded(b.closest("li[data-fold-key]"));
+    return;
+  }
   if (b?.dataset.tab) {
     e.preventDefault();
     store(`hub.tab.${b.closest("[data-tabs]")?.dataset.tabs}`, b.dataset.tab);
@@ -751,7 +769,12 @@ document.addEventListener("click", async (e) => {
     if (b.dataset.act) act(b);
     return;
   }
-  if (e.target.closest("a, input, textarea, summary")) return;
+  if (e.target.closest("a, button, input, textarea, summary")) return;
+  const head = e.target.closest("li[data-fold-key]");
+  if (head && !e.target.closest(".n-ask, .n-more, .chip, .pill") && getSelection().isCollapsed) {
+    toggleFolded(head);
+    return;
+  }
   const ticket = e.target.closest(".ticket[data-href]");
   if (ticket) openHref(ticket.dataset.href);
 });
@@ -929,6 +952,8 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "j" || e.key === "ArrowDown") select(list[Math.min(current + 1, list.length - 1)] ?? list[0]);
   else if (e.key === "k" || e.key === "ArrowUp") select(list[Math.max(current - 1, 0)]);
   else if ((e.key === "Enter" || e.key === "o") && li) openHref(li.dataset.href, true);
+  else if (e.key === " " && li?.dataset.foldKey && !li.contains(e.target.closest("button, a, summary")))
+    toggleFolded(li);
   else if (["e", "s", "y", "n", "p"].includes(e.key) && li) {
     const b = li.querySelector(`button[data-hotkey="${e.key}"]:not(:disabled)`);
     if (b) act(b);

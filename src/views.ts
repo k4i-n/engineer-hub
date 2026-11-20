@@ -590,18 +590,22 @@ function needRow(ctx: Ctx, n: Need, pinned: boolean, showVerb: boolean | "inline
   const panel =
     n.panel === undefined ? "" : ` data-tab-panel="${n.panel}"${n.panel.split(" ").includes("open") ? "" : " hidden"}`;
   const folds = n.fold === true || n.body !== undefined || n.drafts !== undefined;
-  const caret = folds ? `<span class="n-caret">${svg("down")}</span>` : "";
-  const main = `<span class="need-line">${pin}${showVerb === "inline" ? `<span class="verb verb-inline">${esc(n.verb)}</span>` : ""}${n.title}${caret}</span><span class="need-sub">${dim}${n.sub}</span>`;
-  const more = `${n.body === undefined ? "" : `<div class="n-body md">${markdown(ctx, n.body)}</div>`}${n.drafts ?? ""}`;
-  const shown = folds
-    ? `<details class="n-fold" data-key="nfold-${esc(n.key)}"><summary>${main}</summary>${more}</details>`
-    : main;
-  return `<li class="${cls}" data-key="${esc(n.key)}"${href}${panel}>
+  const fold = folds ? ` data-fold-key="nfold-${esc(n.key)}"` : "";
+  const caret = folds
+    ? `<button type="button" class="n-caret" data-fold-toggle aria-expanded="false" title="Show more · space" aria-label="Show more">${svg("down")}</button>`
+    : `<span class="n-caret"></span>`;
+  const main = `<span class="need-main"><span class="need-line">${pin}${showVerb === "inline" ? `<span class="verb verb-inline">${esc(n.verb)}</span>` : ""}${n.title}</span><span class="need-sub">${dim}${n.sub}</span></span>`;
+  const ask = n.ask === "" ? "" : `<div class="n-ask">${n.ask}</div>`;
+  const body = n.body === undefined ? "" : `<div class="n-body md">${markdown(ctx, n.body)}</div>`;
+  const more = folds && body + (n.drafts ?? "") !== "" ? `<div class="n-more">${body}${n.drafts ?? ""}</div>` : "";
+  return `<li class="${cls}" data-key="${esc(n.key)}"${href}${panel}${fold}>
+${caret}
 ${showVerb === true ? `<span class="verb">${esc(n.verb)}</span>` : ""}
-<span class="need-main">${shown}${n.ask}</span>
+${main}
 <span class="need-ticket">${ticketLink(n.ticket)}</span>
 <span class="need-age">${esc(ago(ctx, n.since))}</span>
 ${rail(n, pinned, target)}
+${ask}${more}
 </li>`;
 }
 
