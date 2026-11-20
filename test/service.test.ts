@@ -9,6 +9,8 @@ import type { System } from "../src/service.ts";
 let home = "";
 let calls: string[][] = [];
 let printed = "";
+let stillRunning = 0;
+let sleeps = 0;
 
 function fakeSystem(platform: NodeJS.Platform = "darwin"): System {
   return {
@@ -17,9 +19,16 @@ function fakeSystem(platform: NodeJS.Platform = "darwin"): System {
     uid: 501,
     launchctl: (args) => {
       calls.push(args);
+      if (args[0] === "print" && stillRunning > 0) {
+        stillRunning--;
+        return { code: 0, out: "state = running" };
+      }
       if (args[0] === "print")
         return printed === "" ? { code: 113, out: "Could not find service" } : { code: 0, out: printed };
       return { code: 0, out: "" };
+    },
+    sleep: () => {
+      sleeps++;
     },
   };
 }
@@ -47,6 +56,8 @@ beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), "hub-service-"));
   calls = [];
   printed = "";
+  stillRunning = 0;
+  sleeps = 0;
 });
 
 afterEach(() => {
@@ -64,8 +75,21 @@ test("install writes a LaunchAgent that serves the database at login and keeps i
   assert.match(plist, /<key>RunAtLoad<\/key>\s*<true\/>\s*<key>KeepAlive<\/key>\s*<true\/>/);
   assert.deepEqual(calls, [
     ["bootout", "gui/501/engineer-hub"],
+    ["print", "gui/501/engineer-hub"],
     ["bootstrap", "gui/501", join(home, "Library", "LaunchAgents", "engineer-hub.plist")],
   ]);
+  assert.equal(sleeps, 0);
+});
+
+test("install waits for the old job to exit before bootstrapping", async () => {
+  stillRunning = 3;
+  const r = await hub(["service", "install"]);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(sleeps, 3);
+  assert.deepEqual(
+    calls.map((args) => args[0]),
+    ["bootout", "print", "print", "print", "print", "bootstrap"],
+  );
 });
 
 test("status reports running with its pid, and exits 1 when not installed", async () => {
