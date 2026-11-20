@@ -1760,6 +1760,7 @@ export function page(ctx: Ctx, title: string, body: string, token: string): stri
 </head>
 <body data-notify="${ctx.config.notifyNew}" data-sound="${ctx.config.notifySound}">
 <div id="app">${body}</div>
+<div class="news" aria-live="polite" hidden></div>
 <div class="toasts" aria-live="polite"></div>
 </body>
 </html>`;
