@@ -17,6 +17,8 @@ hub config githubReviewQuery '"is:pr is:open review-requested:@me archived:false
 hub config githubPrQuery '"is:pr author:@me -repo:acme/noisy-repo"'
 ```
 
+A `-repo:owner/name` term also hides the review requests or PRs from that repo hub already has, and taking it out shows them again.
+
 A source that fails shows its reason in Settings and in the header, with the command that fixes it. Sources with an API key call through sealcall when `sealcall routes` lists a route named after the source, so hub never sees the key; otherwise hub reads its own Keychain item `engineer-hub/<source>` (`HUB_<SOURCE>_KEY` off macOS), which any process running as you can read. For Linear:
 
 ```sh

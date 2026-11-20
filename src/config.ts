@@ -32,7 +32,6 @@ export type Config = {
   githubReviewQuery: string;
   githubPrQuery: string;
   slackAlertChannels: string[];
-  ignoreRepos: Record<string, string[]>;
   hiddenBlocks: string[];
   progressStyle: string;
   horizon: string;
@@ -116,7 +115,6 @@ export const DEFAULTS: Config = {
   githubReviewQuery: "is:pr is:open review-requested:@me archived:false",
   githubPrQuery: "is:pr author:@me",
   slackAlertChannels: [],
-  ignoreRepos: { review_request: [], pr: [] },
   hiddenBlocks: [],
   progressStyle: "ring",
   horizon: "14d",
@@ -232,12 +230,6 @@ function semanticError(key: Key, value: unknown): string | undefined {
     const bad = (value as string[]).find((name) => !/^#?[a-z0-9][a-z0-9._-]{0,79}$/.test(name));
     if (bad !== undefined)
       return `slackAlertChannels has ${bad}, which is not a Slack channel name, e.g. ["alerts-prod"]`;
-  }
-  if (key === "ignoreRepos") {
-    const lists = Object.values(value as Record<string, unknown>);
-    if (lists.some((l) => !Array.isArray(l) || l.some((r) => typeof r !== "string" || !/^[\w.-]+\/[\w.-]+$/.test(r)))) {
-      return 'ignoreRepos takes owner/repo lists, e.g. {"review_request":["acme/noisy"],"pr":[]}';
-    }
   }
   if (key === "backupDir" && !/^($|~$|~\/|\/)/.test(String(value))) {
     return 'backupDir is an absolute folder or ~/..., or "" for backups/ next to the database';
