@@ -50,7 +50,9 @@ type Need = {
   verb: string;
   tone: Tone;
   title: string;
+  full?: string;
   sub: string;
+  body?: string;
   ask: string;
   ticket: string | null;
   href: string | null;
@@ -414,7 +416,8 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
       since: d.posted_at ?? now,
       verb: "Sent?",
       tone: "blue",
-      title: `<span class="need-title">“${line(ctx, d.match_text ?? "", 180)}”</span>`,
+      title: `<span class="need-title">“${line(ctx, d.match_text ?? "")}”</span>`,
+      full: d.match_text ?? "",
       sub: "",
       ask: askChips(`Your draft ${line(ctx, d.label)}${esc(where)}?`, [
         answerChip("Yes", { ...proposal, answer: "yes" }, "y"),
@@ -436,7 +439,8 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
       verb: "Send",
       tone: "teal",
       title: `<span class="need-title">${line(ctx, d.label)}</span>`,
-      sub: line(ctx, [d.channel, d.body].filter(Boolean).join(" · "), 160),
+      sub: esc(d.channel ?? ""),
+      body: d.body,
       ask: askChips("", [button("Copy", { copy: d.body }, { cls: "chip-btn" })]),
       ticket: d.ticket_id,
       href: null,
@@ -457,6 +461,7 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
         verb: "Approve?",
         tone: "amber",
         title: `<span class="need-title">${line(ctx, t.gate ?? "")}</span>`,
+        full: t.gate ?? "",
         sub: line(ctx, t.title ?? "", 80),
         ask: askChips("", [
           answerChip("Yes", { act: "gate", ticket: t.id, answer: "yes" }, "y"),
@@ -478,6 +483,7 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
         verb: "Decide",
         tone: "amber",
         title: `<span class="need-title">${line(ctx, t.decide ?? "")}</span>`,
+        full: t.decide ?? "",
         sub: line(ctx, t.title ?? "", 80),
         ask: askChips("", [`<a class="chip-btn" href="${esc(page)}">Open ticket</a>`]),
         ticket: t.id,
@@ -543,6 +549,10 @@ function waitNeed(ctx: Ctx, w: WaitRow): Need {
   };
 }
 
+function fold(ctx: Ctx, key: string, shown: string, text: string): string {
+  return `<details class="n-fold" data-key="${esc(key)}"><summary>${shown}<div class="n-body md">${markdown(ctx, text)}</div></summary></details>`;
+}
+
 function needRow(ctx: Ctx, n: Need, pinned: boolean, showVerb: boolean | "inline" = true): string {
   const target = n.href === null ? null : appHref(ctx, n.href).href;
   const href = target === null ? "" : ` data-href="${esc(target)}"`;
@@ -552,9 +562,10 @@ function needRow(ctx: Ctx, n: Need, pinned: boolean, showVerb: boolean | "inline
   const cls = `need tone-${n.tone}${n.dim === null ? "" : " is-dim"}${finished ? " is-done" : ""}${pinned ? " pinned" : ""}`;
   const panel =
     n.panel === undefined ? "" : ` data-tab-panel="${n.panel}"${n.panel.split(" ").includes("open") ? "" : " hidden"}`;
+  const head = `<span class="need-line">${pin}${showVerb === "inline" ? `<span class="verb verb-inline">${esc(n.verb)}</span>` : ""}${n.title}</span>`;
   return `<li class="${cls}" data-key="${esc(n.key)}"${href}${panel}>
 ${showVerb === true ? `<span class="verb">${esc(n.verb)}</span>` : ""}
-<span class="need-main"><span class="need-line">${pin}${showVerb === "inline" ? `<span class="verb verb-inline">${esc(n.verb)}</span>` : ""}${n.title}</span><span class="need-sub">${dim}${n.sub}</span>${n.ask}</span>
+<span class="need-main">${n.full === undefined ? head : fold(ctx, `nfold-${n.key}`, head, n.full)}<span class="need-sub">${dim}${n.sub}</span>${n.body === undefined ? "" : fold(ctx, `nbody-${n.key}`, `<span class="n-line">${line(ctx, n.body)}</span>`, n.body)}${n.ask}</span>
 <span class="need-ticket">${ticketLink(n.ticket)}</span>
 <span class="need-age">${esc(ago(ctx, n.since))}</span>
 ${rail(n, pinned, target)}

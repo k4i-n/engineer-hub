@@ -995,7 +995,8 @@ button.busy::after {
   gap: 6px;
 }
 .d-body,
-.d-line {
+.d-line,
+.n-body {
   font-weight: 400;
   margin: 8px 0 0;
   padding: 8px 10px;
@@ -1270,6 +1271,7 @@ a.chip-btn:hover {
 .ngroup,
 .cleared,
 .d-fold,
+.n-fold,
 .more-fold {
   padding: 0;
   border-top: 0;
@@ -1280,12 +1282,14 @@ a.chip-btn:hover {
 .ngroup > summary,
 .cleared > summary,
 .d-fold > summary,
+.n-fold > summary,
 .more-fold > summary {
   list-style: none;
 }
 .ngroup > summary::-webkit-details-marker,
 .cleared > summary::-webkit-details-marker,
 .d-fold > summary::-webkit-details-marker,
+.n-fold > summary::-webkit-details-marker,
 .more-fold > summary::-webkit-details-marker {
   display: none;
 }
@@ -1363,6 +1367,24 @@ a.chip-btn:hover {
 }
 .d-fold[open] .d-line,
 .d-fold:not([open]) .d-body {
+  display: none;
+}
+.n-fold {
+  min-width: 0;
+}
+.n-fold > summary {
+  font-weight: inherit;
+}
+.n-line {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.n-fold[open] > summary > :is(.need-line, .n-line),
+.n-fold:not([open]) .n-body {
   display: none;
 }
 .search {
