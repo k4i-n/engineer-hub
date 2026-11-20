@@ -1,7 +1,7 @@
 import type { AwayState } from "./away.ts";
 import type { Backup, BackupState } from "./backup.ts";
 import { area, bar, donut, half, legend, percent, ring, type Slice, stack } from "./charts.ts";
-import { byOrder, type Ctx, has, openTickets, recentlyDone } from "./commands.ts";
+import { byOrder, type Ctx, has, letters, openTickets, recentlyDone } from "./commands.ts";
 import { BLOCKS, type Config, DEFAULT_LAYOUT, type Layout, sectionId } from "./config.ts";
 import {
   all,
@@ -335,6 +335,23 @@ function flat(text: string): string {
 function moreText(i: ItemRow): { body?: string; fold?: true } {
   if (i.body !== null && !flat(i.title ?? "").includes(flat(i.body))) return { body: i.body };
   return i.detail === null ? {} : { fold: true };
+}
+
+const TRACKER_NAME: [RegExp, string][] = [
+  [/(^|\.)linear\.app$/, "Linear"],
+  [/(^|\.)atlassian\.net$/, "Jira"],
+  [/(^|\.)github\.com$/, "GitHub"],
+];
+
+function trackerName(url: string | null): string {
+  const host = URL.parse(url ?? "")?.hostname ?? "";
+  return TRACKER_NAME.find(([pattern]) => pattern.test(host))?.[1] ?? "Tracker";
+}
+
+function trackerPill(t: Ticket): string {
+  const state = t.tracker_state?.trim() ?? "";
+  if (state === "" || letters(state) === letters(t.dir ?? "")) return "";
+  return pill(`${trackerName(t.tracker_url)}: ${state}`, "violet");
 }
 
 function itemTitle(i: ItemRow): string {
@@ -1314,7 +1331,7 @@ export function ticketBody(ctx: Ctx, id: string, live: Live): string {
     menuItem("merge", "Merge into…", { act: "ticket-merge", ticket: t.id, ask: "Merge into", go: "/t/{value}" }),
     menuItem("trash", "Delete", { act: "ticket-delete", ticket: t.id, confirm: `Delete ${t.id}?`, go: "/" }),
   ]);
-  const head = `<div class="page-head">${priorityMark(t.tracker_priority)}${ticketLink(t.id)}<h1>${line(ctx, t.title ?? "")}</h1>${ticketMenu}${pill(DIR_LABEL[t.dir ?? ""] ?? t.dir ?? "", DIR_TONE[t.dir ?? ""] ?? "grey")}${t.tracker_state ? pill(t.tracker_state, "violet") : ""}${link(t.tracker_url, "tracker ↗", "head-link")}</div>`;
+  const head = `<div class="page-head">${priorityMark(t.tracker_priority)}${ticketLink(t.id)}<h1>${line(ctx, t.title ?? "")}</h1>${ticketMenu}${pill(DIR_LABEL[t.dir ?? ""] ?? t.dir ?? "", DIR_TONE[t.dir ?? ""] ?? "grey")}${trackerPill(t)}${link(t.tracker_url, "tracker ↗", "head-link")}</div>`;
   const state = `<dl class="state">${field(ctx, "Status", t.status)}${field(ctx, "Next", t.next, "blue")}${field(ctx, "Approve?", t.gate, "amber")}${field(ctx, "Decide", t.decide, "amber")}${field(ctx, "Repo", [t.repo, t.branch].filter(Boolean).join(" · "))}${field(ctx, "PRs", t.prs)}${field(ctx, "Owner", t.owner)}</dl>`;
   const openSteps = steps.filter((s) => s.done_at === null).length;
   const openItems = items.filter((i) => i.closed_at === null).length;

@@ -416,6 +416,23 @@ describe("serve", () => {
     assert.match(row, /chip-pop">.*pull\/4.*pull\/5/);
   });
 
+  test("the ticket page shows the tracker state only when it differs from the folder, named by its tracker", async () => {
+    const db = new DatabaseSync(dbFile);
+    const setTracker = (state: string) =>
+      db
+        .prepare("UPDATE ticket SET dir = 'inprogress', tracker_state = ?, tracker_url = ? WHERE id = 'ENG-7'")
+        .run(state, "https://linear.app/acme/issue/ENG-7");
+    const head = async () =>
+      /<div class="page-head">[\s\S]*?class="head-link"/.exec(
+        await (await fetch(`${server.url}/t/ENG-7?part=1`)).text(),
+      )?.[0] ?? "";
+    setTracker("In Progress");
+    assert.equal([...(await head()).matchAll(/class="pill /g)].length, 1);
+    setTracker("In Review");
+    assert.match(await head(), /<span class="pill tone-violet">Linear: In Review<\/span>/);
+    db.close();
+  });
+
   test("an item with no title or an empty message is named (no text) with its sender, never by its url", async () => {
     const slackUrl = "https://acme.slack.com/archives/C09/p1763350000123456";
     await hub(

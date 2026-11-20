@@ -45,7 +45,7 @@ function rank(priority: string | null): number {
   return PRIORITY_RANK[(priority ?? "").trim().toLowerCase()] ?? 4;
 }
 
-function letters(value: string): string {
+export function letters(value: string): string {
   return value.toLowerCase().replace(/[^a-z]/g, "");
 }
 
