@@ -12,6 +12,7 @@ export type System = {
   home: string;
   uid: number;
   launchctl: (args: string[]) => { code: number; out: string };
+  sleep: (ms: number) => void;
 };
 
 export type ServiceSpec = { node: string; cli: string; dbFile: string; port: number; path: string };
@@ -24,6 +25,9 @@ export function system(env: NodeJS.ProcessEnv): System {
     launchctl: (args) => {
       const run = spawnSync("launchctl", args, { encoding: "utf8" });
       return { code: run.status ?? 1, out: `${run.stdout ?? ""}${run.stderr ?? ""}`.trim() };
+    },
+    sleep: (ms) => {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
     },
   };
 }
@@ -83,6 +87,8 @@ export function install(sys: System, spec: ServiceSpec): Result {
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, plist(spec));
   sys.launchctl(["bootout", `${domain}/${LABEL}`]);
+  // bootout returns before the old job exits; bootstrapping the same label meanwhile fails with error 5.
+  for (let tries = 0; tries < 50 && sys.launchctl(["print", `${domain}/${LABEL}`]).code === 0; tries++) sys.sleep(100);
   const loaded = sys.launchctl(["bootstrap", domain, file]);
   if (loaded.code !== 0) throw new HubError(`launchctl bootstrap failed: ${loaded.out}`);
   const url = `http://127.0.0.1:${spec.port}`;
