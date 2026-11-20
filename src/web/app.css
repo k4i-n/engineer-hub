@@ -993,6 +993,27 @@ button.busy::after {
   padding: 0;
   background: none;
 }
+.md-table {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 6px 0;
+}
+.md table {
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.md th,
+.md td {
+  border: 1px solid var(--line);
+  padding: 4px 8px;
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: normal;
+}
+.md th {
+  background: var(--sunk);
+  font-weight: 600;
+}
 .md-quote {
   color: var(--muted);
   border-left: 3px solid var(--line);
