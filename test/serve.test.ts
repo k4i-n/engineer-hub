@@ -618,6 +618,52 @@ describe("serve", () => {
     assert.match(await row(), /data-act="item-answer"/);
   });
 
+  test("a review request answered Yes is dimmed as queued and leaves the count until the PR changes again", async () => {
+    const pr = "https://github.com/acme/web/pull/160";
+    const put = (detail: string) =>
+      hub(
+        ["item", "put", "--stdin"],
+        JSON.stringify({
+          source: "github",
+          kind: "review_request",
+          url: pr,
+          title: "Queue me",
+          needs_me: true,
+          detail,
+        }),
+      );
+    await put("+10 -2");
+    const home = async () => {
+      const html = await (await fetch(`${server.url}/?part=1`)).text();
+      return {
+        row: /<li[^>]*data-key="item-\d+"(?:(?!<\/li>)[\s\S])*Queue me[\s\S]*?<\/li>/.exec(html)?.[0] ?? "",
+        needs: Number(/data-needs-count="(\d+)"/.exec(html)?.[1]),
+      };
+    };
+    const before = await home();
+    const id = /data-key="item-(\d+)"/.exec(before.row)?.[1] ?? "";
+    const answered = await fetch(`${server.url}/api/v1/items/${id}/answer`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${server.token}`, "x-hub-actor": "human" },
+      body: JSON.stringify({ answer: "yes" }),
+    });
+    assert.equal(answered.status, 200);
+    const queuedRow = await home();
+    assert.match(queuedRow.row, /class="need tone-[a-z]+ is-dim"/);
+    assert.match(queuedRow.row, /<span class="dim-label">Yes · queued<\/span>/);
+    assert.equal(queuedRow.needs, before.needs - 1);
+
+    const db = new DatabaseSync(dbFile);
+    db.prepare("UPDATE item SET changed_at = '2026-01-01T00:00:00Z', ask_at = '2026-01-01T00:00:01Z' WHERE id = ?").run(
+      Number(id),
+    );
+    db.close();
+    await put("+14 -2");
+    const back = await home();
+    assert.doesNotMatch(back.row, /queued/);
+    assert.equal(back.needs, before.needs);
+  });
+
   test("a human answer to a review request reaches moved once, and No closes the row until Undo", async () => {
     const pr = "https://github.com/acme/web/pull/150";
     await hub(
