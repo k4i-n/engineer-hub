@@ -453,7 +453,7 @@ export function serve(options: ServeOptions): Promise<Server> {
       let body: string;
       let title = BRAND;
       try {
-        if (url.pathname === "/") body = indexBody(c, live(c));
+        if (url.pathname === "/") body = indexBody(c, live(c), url.searchParams.get("day"));
         else if (url.pathname === "/settings") {
           title = `Settings · ${BRAND}`;
           const schema = one<{ value: string }>(db, "SELECT value FROM meta WHERE key = 'schema_version'")?.value;

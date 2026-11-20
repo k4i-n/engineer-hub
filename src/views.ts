@@ -25,7 +25,7 @@ import { esc, renderLine, renderMarkdown } from "./markdown.ts";
 import { pins } from "./pins.ts";
 import { sections } from "./scripts.ts";
 import { progress } from "./steps.ts";
-import { githubRef, nowIso, nowTs, sinceDate, startOfDayIso, today } from "./util.ts";
+import { githubRef, isDate, nowIso, nowTs, sinceDate, startOfDayIso, today } from "./util.ts";
 
 export const BRAND = "EngineerHub";
 
@@ -197,6 +197,8 @@ const ICON: Record<string, string> = {
   issue: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="1.5"/>',
   link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
   down: '<path d="m6 9 6 6 6-6"/>',
+  left: '<path d="m15 18-6-6 6-6"/>',
+  right: '<path d="m9 18 6-6-6-6"/>',
   logo: '<path d="M12 9.4V6.8M14.24 13.31l2.71 1.58M9.76 13.31l-2.71 1.58"/><circle cx="12" cy="12" r="2.6" class="core"/><circle cx="12" cy="5" r="1.8"/><circle cx="18.5" cy="15.8" r="1.8"/><circle cx="5.5" cy="15.8" r="1.8"/>',
   gear: '<path d="M12.2 2h-.4a2 2 0 0 0-2 2v.2a2 2 0 0 1-1 1.7l-.4.3a2 2 0 0 1-2 0l-.2-.1a2 2 0 0 0-2.7.7l-.2.4a2 2 0 0 0 .7 2.7l.2.1a2 2 0 0 1 1 1.7v.5a2 2 0 0 1-1 1.8l-.2.1a2 2 0 0 0-.7 2.7l.2.4a2 2 0 0 0 2.7.7l.2-.1a2 2 0 0 1 2 0l.4.3a2 2 0 0 1 1 1.7v.2a2 2 0 0 0 2 2h.4a2 2 0 0 0 2-2v-.2a2 2 0 0 1 1-1.7l.4-.3a2 2 0 0 1 2 0l.2.1a2 2 0 0 0 2.7-.7l.2-.4a2 2 0 0 0-.7-2.7l-.2-.1a2 2 0 0 1-1-1.7v-.5a2 2 0 0 1 1-1.8l.2-.1a2 2 0 0 0 .7-2.7l-.2-.4a2 2 0 0 0-2.7-.7l-.2.1a2 2 0 0 1-2 0l-.4-.3a2 2 0 0 1-1-1.7V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
 };
@@ -292,13 +294,13 @@ function priorityMark(priority: string | null): string {
   return `<span class="${cls}"${label}><svg viewBox="0 0 16 16">${bar(1, 1.5, 9)}${bar(2, 6.5, 5.5)}${bar(3, 11.5, 2)}</svg></span>`;
 }
 
-function heading(title: string): string {
-  return `<h2><button type="button" class="fold" data-fold="${esc(title)}" aria-expanded="true">${esc(title)}</button></h2>`;
+function heading(title: string, label = title): string {
+  return `<h2><button type="button" class="fold" data-fold="${esc(title)}" aria-expanded="true">${esc(label)}</button></h2>`;
 }
 
-function section(title: string, count: number | null, body: string, cls: string, extra = ""): string {
+function section(title: string, count: number | null, body: string, cls: string, extra = "", label = title): string {
   const badge = count === null ? "" : `<span class="count">${count}</span>`;
-  return `<section class="${cls}"><div class="sec-head">${heading(title)}${badge}${extra}</div>${body}</section>`;
+  return `<section class="${cls}"><div class="sec-head">${heading(title, label)}${badge}${extra}</div>${body}</section>`;
 }
 
 function empty(): string {
@@ -1137,22 +1139,50 @@ function ticketsSection(ctx: Ctx, tickets: Ticket[], needing: Map<string, Need[]
   return `<section class="tickets"><div class="sec-head">${heading("Tickets")}${tabs}</div>${lists}</section>`;
 }
 
-function todaySection(ctx: Ctx): string {
+function dayLabel(date: string): string {
+  const weekday = new Date(`${date}T00:00:00Z`).toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
+  return `${weekday} ${date}`;
+}
+
+function dayStep(icon: string, label: string, date: string | undefined, now: string): string {
+  const target = date === undefined ? " disabled" : ` data-day="${date === now ? "" : esc(date)}"`;
+  return `<button type="button" class="ic" title="${label}" aria-label="${label}"${target}>${svg(icon)}</button>`;
+}
+
+function dayNav(ctx: Ctx, shown: string, now: string): string {
+  const prev = one<{ date: string }>(ctx.db, "SELECT date FROM day WHERE date < ? ORDER BY date DESC LIMIT 1", shown);
+  const next = one<{ date: string }>(
+    ctx.db,
+    "SELECT date FROM day WHERE date > ? AND date <= ? ORDER BY date LIMIT 1",
+    shown,
+    now,
+  );
+  const pick = `<input type="date" data-day-pick value="${esc(shown)}" max="${esc(now)}" aria-label="Open a day">`;
+  return `<span class="day-nav">${dayStep("left", "Previous plan", prev?.date, now)}${pick}${dayStep("right", "Next plan", next?.date, now)}</span>`;
+}
+
+function todaySection(ctx: Ctx, asked: string | null): string {
+  const now = today(ctx.now, ctx.config.timezone);
+  const picked = asked !== null && isDate(asked) && asked < now ? asked : null;
   const day =
-    one<DayRow>(ctx.db, "SELECT * FROM day WHERE date = ?", today(ctx.now, ctx.config.timezone)) ??
-    one<DayRow>(ctx.db, "SELECT * FROM day ORDER BY date DESC LIMIT 1");
+    picked === null
+      ? (one<DayRow>(ctx.db, "SELECT * FROM day WHERE date = ?", now) ??
+        one<DayRow>(ctx.db, "SELECT * FROM day ORDER BY date DESC LIMIT 1"))
+      : one<DayRow>(ctx.db, "SELECT * FROM day WHERE date = ?", picked);
+  const shown = picked ?? day?.date ?? now;
   const link = linker(ctx);
+  const missing = picked === null ? empty() : `<p class="empty">No plan for ${esc(picked)}</p>`;
   const body =
     day === undefined
-      ? empty()
+      ? missing
       : `<div class="md" data-keep-scroll data-key="today">${renderMarkdown(day.body, (url, text) => link(url, text), ctx.config.resumeHeading)}</div>`;
-  const date =
-    day === undefined || day.date === today(ctx.now, ctx.config.timezone)
-      ? ""
-      : `<span class="muted">${esc(day.date)}</span>`;
+  const past = shown !== now;
+  const readOnly = past ? pill("read only", "grey") : "";
+  const back = picked === null ? "" : `<a class="day-back" href="/" data-day="">Back to today</a>`;
   const listed = (body.match(/<li class="md-task/g) ?? []).length;
   const checked = (body.match(/<li class="md-task done"/g) ?? []).length;
-  return section("Today", null, body, "today", date + openTabs("today", listed - checked, listed));
+  const head = readOnly + back + openTabs("today", listed - checked, listed) + dayNav(ctx, shown, now);
+  return section("Today", null, body, "today", head, past ? dayLabel(shown) : "Today");
 }
 
 function eventRow(ctx: Ctx, e: EventRow, showTicket: boolean): string {
@@ -1284,7 +1314,7 @@ ${syncControl(live.sync)}
 </header>`;
 }
 
-export function indexBody(ctx: Ctx, live: Live): string {
+export function indexBody(ctx: Ctx, live: Live, day: string | null): string {
   const order = ctx.config.openDirs;
   const tickets = openTickets(ctx).sort(
     (a, b) => order.indexOf(a.dir ?? "") - order.indexOf(b.dir ?? "") || byOrder(a, b),
@@ -1297,7 +1327,7 @@ export function indexBody(ctx: Ctx, live: Live): string {
     overview: overviewSection(ctx, tickets, list, extra),
     ...needsCards(ctx, list, extra),
     tickets: ticketsSection(ctx, tickets, needCounts(list)),
-    today: todaySection(ctx),
+    today: todaySection(ctx, day),
     activity: activitySection(ctx),
   };
   const cols = columns(

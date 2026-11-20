@@ -1785,3 +1785,103 @@ describe("backups", () => {
     }
   });
 });
+
+describe("today day switcher", () => {
+  async function card(query = ""): Promise<string> {
+    const html = await (await fetch(`${server.url}/?part=1${query}`)).text();
+    return /<section class="today">[\s\S]*?<\/section>/.exec(html)?.[0] ?? "";
+  }
+
+  function title(html: string): string {
+    return /data-fold="Today" aria-expanded="true">([^<]+)</.exec(html)?.[1] ?? "";
+  }
+
+  function step(html: string, label: string): string | null {
+    const b = new RegExp(`<button type="button" class="ic" title="${label}"[^>]*>`).exec(html)?.[0];
+    assert.ok(b, `no ${label} button`);
+    return / disabled>$/.test(b) ? null : (/data-day="([^"]*)"/.exec(b)?.[1] ?? "");
+  }
+
+  async function plan(date: string, body: string): Promise<void> {
+    await hub(["day", "set", date, "--stdin"], body);
+  }
+
+  test("no day opens today's plan as Today, else the latest plan under its date", async () => {
+    const latest = await card();
+    assert.equal(title(latest), "Fri 2026-11-13");
+    assert.match(latest, /class="pill tone-grey">read only</);
+    assert.doesNotMatch(latest, /Back to today/);
+
+    await plan(today(), "## Today\n\n- [ ] ship it\n");
+    const now = await card();
+    assert.equal(title(now), "Today");
+    assert.doesNotMatch(now, /read only|Back to today/);
+    assert.match(now, new RegExp(`data-day-pick value="${today()}" max="${today()}"`));
+  });
+
+  test("arrows step over days with no plan; forward stops at today, back at the first plan", async () => {
+    await plan("2026-11-16", "## Today\n\n- [ ] port Friday\n");
+    await plan(today(), "## Today\n\n- [ ] ship it\n");
+
+    const monday = await card("&day=2026-11-16");
+    assert.equal(title(monday), "Mon 2026-11-16");
+    assert.match(monday, /port Friday/);
+    assert.equal(step(monday, "Previous plan"), "2026-11-13");
+    assert.equal(step(monday, "Next plan"), "");
+
+    const friday = await card("&day=2026-11-13");
+    assert.equal(step(friday, "Next plan"), "2026-11-16");
+    assert.equal(step(friday, "Previous plan"), null);
+
+    const now = await card();
+    assert.equal(step(now, "Next plan"), null);
+    assert.equal(step(now, "Previous plan"), "2026-11-16");
+  });
+
+  test("a picked day with no plan says so and the arrows still step from it", async () => {
+    const empty = await card("&day=2026-11-14");
+    assert.equal(title(empty), "Sat 2026-11-14");
+    assert.match(empty, /No plan for 2026-11-14/);
+    assert.equal(step(empty, "Previous plan"), "2026-11-13");
+    assert.equal(step(empty, "Next plan"), null);
+    assert.deepEqual(tabCounts(empty, "today"), { open: 0, all: 0 });
+  });
+
+  test("the picked day survives a write and live refresh", async () => {
+    await plan(today(), "## Today\n\n- [ ] ship it\n");
+    await hub(["log", "ENG-42", "started the migration"]);
+    const after = await card("&day=2026-11-13");
+    assert.equal(title(after), "Fri 2026-11-13");
+    assert.match(after, /ENG-7 read the export handler/);
+    const script = await (await fetch(`${server.url}/app.js`)).text();
+    assert.match(script, /new URLSearchParams\(location\.search\);\s*params\.set\("part", "1"\)/);
+  });
+
+  test("a past day is read only: dated title, chip, Back to today, no controls on its tasks", async () => {
+    await plan(
+      "2026-11-16",
+      "## Today\n\n- [x] write the migration\n- [ ] ship it\n- [ ] tell QA\n- read the handler\n",
+    );
+    await plan(today(), "## Today\n\n- [ ] ship it\n");
+    const past = await card("&day=2026-11-16");
+    assert.equal(title(past), "Mon 2026-11-16");
+    assert.match(
+      past,
+      /class="pill tone-grey">read only<\/span><a class="day-back" href="\/" data-day="">Back to today<\/a>/,
+    );
+    const md = /<div class="md"[\s\S]*<\/div>/.exec(past)?.[0] ?? "";
+    assert.match(md, /<li class="md-task"><span class="box"><\/span>ship it/);
+    assert.doesNotMatch(md, /<button|<input|data-act|contenteditable/);
+    assert.deepEqual(tabCounts(past, "today"), { open: 2, all: 3 });
+  });
+
+  test("a bad or future day falls back to today's card", async () => {
+    await plan(today(), "## Today\n\n- [ ] ship it\n");
+    for (const day of ["foo", "2026-13-40", "2026-02-30", "2999-01-01"]) {
+      const res = await fetch(`${server.url}/?day=${day}`);
+      assert.equal(res.status, 200, day);
+      const html = /<section class="today">[\s\S]*?<\/section>/.exec(await res.text())?.[0] ?? "";
+      assert.equal(title(html), "Today", day);
+    }
+  });
+});

@@ -293,7 +293,9 @@ async function refresh() {
   }
   busy = true;
   try {
-    const r = await fetch(`${location.pathname}?part=1`, { cache: "no-store" });
+    const params = new URLSearchParams(location.search);
+    params.set("part", "1");
+    const r = await fetch(`${location.pathname}?${params}`, { cache: "no-store" });
     if (!r.ok) return;
     const html = await r.text();
     const open = new Map([...app.querySelectorAll("details[data-key]")].map((d) => [d.dataset.key, d.open]));
@@ -725,9 +727,20 @@ document.addEventListener(
   true,
 );
 
+function openDay(date) {
+  history.pushState(null, "", date === "" ? "/" : `/?day=${date}`);
+  refresh();
+}
+
 document.addEventListener("click", async (e) => {
   closeMenus(e.target.closest("details.menu"));
   if (!e.target.closest(".search")) hideResults();
+  const day = e.target.closest("[data-day]");
+  if (day && !day.disabled) {
+    e.preventDefault();
+    openDay(day.dataset.day);
+    return;
+  }
   const b = e.target.closest("button");
   if (b?.dataset.todayToggle !== undefined) {
     store("hub.todayExpanded", !stored("hub.todayExpanded", false));
@@ -924,6 +937,13 @@ document.addEventListener("change", async (e) => {
     el.classList.add("invalid");
   }
 });
+
+document.addEventListener("change", (e) => {
+  if (!e.target.matches("[data-day-pick]") || e.target.value === "") return;
+  openDay(e.target.value === e.target.max ? "" : e.target.value);
+});
+
+window.addEventListener("popstate", refresh);
 
 document.addEventListener("change", (e) => {
   const el = e.target.closest("[data-config-input]");
