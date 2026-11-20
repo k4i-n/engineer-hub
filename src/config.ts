@@ -23,6 +23,9 @@ export type Config = {
   openLinearIn: string;
   notifyNew: boolean;
   notifySound: boolean;
+  awayPing: boolean;
+  awayAfter: string;
+  awayEvery: string;
   theme: string;
   layout: Layout;
   autoSync: boolean;
@@ -106,6 +109,9 @@ export const DEFAULTS: Config = {
   openLinearIn: "browser",
   notifyNew: false,
   notifySound: false,
+  awayPing: false,
+  awayAfter: "10m",
+  awayEvery: "30m",
   theme: "system",
   layout: DEFAULT_LAYOUT,
   autoSync: false,
@@ -136,6 +142,8 @@ const CHOICES: Partial<Record<keyof Config, string[]>> = {
   theme: ["system", "light", "dark"],
   syncEvery: ["15m", "30m", "1h", "2h", "4h"],
   fetchEvery: ["1m", "5m", "15m", "30m"],
+  awayAfter: ["5m", "10m", "15m", "30m"],
+  awayEvery: ["15m", "30m", "1h", "2h"],
   progressStyle: ["ring", "half", "bar"],
   horizon: HORIZONS,
   backupEvery: ["1h", "6h", "12h", "1d", "7d"],

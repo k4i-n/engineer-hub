@@ -283,6 +283,7 @@ const ROUTES = {
   "source-remove": (d) => ["POST", `/sources/${e(d.name)}/remove`, {}],
   sync: (d) => ["POST", "/sync", { what: d.what }],
   backup: () => ["POST", "/backups", {}],
+  "away-test": () => ["POST", "/away/test", {}],
 };
 
 async function api(method, path, body) {

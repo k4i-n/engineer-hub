@@ -1054,6 +1054,7 @@ describe("mcp", () => {
     const { tools } = await result<{ tools: Tool[] }>(await rpc("tools/list"));
     const names = tools.map((t) => t.name);
     for (const gone of [
+      "away_test",
       "gate",
       "pin",
       "config_set",

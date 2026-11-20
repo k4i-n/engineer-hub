@@ -87,7 +87,7 @@ What makes a setup work well is a **ticket id that appears in branch names, PR b
 
 - [CLI](docs/cli.md): every command, field limits, config keys, importing a markdown ticket folder
 - [Sources](docs/sources.md): GitHub, Linear and Slack fetched by hub itself, script sources, items from agent connectors
-- [Dashboard](docs/dashboard.md): the page, the macOS service, Sync and auto sync
+- [Dashboard](docs/dashboard.md): the page, the macOS service, Sync and auto sync, pings to a webhook while you are away
 - [Agents](docs/agents.md): the Claude Code plugin and hooks, instructions for agents, the MCP server and the JSON API
 
 ## Development
