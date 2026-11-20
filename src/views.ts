@@ -562,6 +562,10 @@ function itemUndo(i: ItemRow): string {
   return i.closed_at !== null && i.closed_at === i.ask_at ? "item-unanswer" : "item-reopen";
 }
 
+function queued(i: ItemRow): boolean {
+  return i.ask_answer === "yes" && i.ask_at !== null && i.changed_at <= i.ask_at;
+}
+
 function itemNeed(ctx: Ctx, i: ItemRow): Need {
   const now = nowIso(ctx.now);
   const v = itemVerb(i);
@@ -573,7 +577,9 @@ function itemNeed(ctx: Ctx, i: ItemRow): Need {
         ? "done"
         : snoozed
           ? `until ${when(ctx, i.snoozed_until ?? now)}`
-          : null;
+          : queued(i)
+            ? "Yes · queued"
+            : null;
   const url = i.url ?? (/^https?:/.test(i.ref) ? i.ref : null);
   const drafts = itemDrafts(ctx, i, dim === null);
   return {
