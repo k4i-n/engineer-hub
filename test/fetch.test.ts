@@ -146,7 +146,7 @@ describe("github", () => {
     const page = await (await fetch(`${server.url}/?part=1`)).text();
     assert.match(
       page,
-      /data-key="nbody-item-\d+"><summary><span class="n-line">Adds the <strong>cookie<\/strong> path\. one two Notes keeps Map&lt;string, number&gt;<\/span><div class="n-body md"><p>Adds the <strong>cookie<\/strong> path\.<\/p><ul><li>one<\/li><li>two<\/li><\/ul><p>Notes<br>keeps Map&lt;string, number&gt;<\/p><\/div>/,
+      /data-key="nfold-item-\d+"><summary>(?:(?!<\/summary>)[\s\S])*<span class="n-caret">[\s\S]*?<\/summary><div class="n-body md"><p>Adds the <strong>cookie<\/strong> path\.<\/p><ul><li>one<\/li><li>two<\/li><\/ul><p>Notes<br>keeps Map&lt;string, number&gt;<\/p><\/div>/,
     );
     assert.doesNotMatch(page, /describe the change/);
   });
@@ -486,7 +486,7 @@ describe("linear", () => {
       page,
       /<div class="n-body md"><p>CSV export of <strong>50k rows<\/strong> hits the 30s limit\.<\/p><\/div>/,
     );
-    assert.equal([...page.matchAll(/data-key="nbody-/g)].length, 1);
+    assert.equal([...page.matchAll(/<div class="n-body md">/g)].length, 1);
   });
 
   test("new comments from others on my issues and tickets are Reply items on the ticket timeline", async () => {

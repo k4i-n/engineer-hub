@@ -465,7 +465,7 @@ describe("serve", () => {
     assert.match(html, /<span class="need-title">use <code>retry_after<\/code> or <strong>backoff<\/strong>\?<\/span>/);
     assert.match(
       html,
-      /<details class="n-fold" data-key="nfold-decide-ENG-7"><summary><span class="need-line"><span class="need-title">use [\s\S]*?<\/span><\/span><div class="n-body md"><p>use <code>retry_after<\/code> or <strong>backoff<\/strong>\?<\/p><\/div><\/summary><\/details>/,
+      /<details class="n-fold" data-key="nfold-decide-ENG-7"><summary><span class="need-line"><span class="need-title">use <code>retry_after[\s\S]*?<\/span><span class="n-caret"><svg[^>]*>[\s\S]*?<\/svg><\/span><\/span><span class="need-sub">[^<]*<\/span><\/summary><\/details>/,
     );
     const page = await (await fetch(`${server.url}/t/ENG-7?part=1`)).text();
     assert.match(
@@ -1152,7 +1152,7 @@ describe("send later", () => {
     assert.match(reply, /data-key="send-ENG-7-due now"[\s\S]*?data-copy="ping product"/);
     assert.match(
       reply,
-      /data-key="nbody-send-ENG-7-due now"><summary><span class="n-line">ping product<\/span><div class="n-body md"><p>ping product<\/p><\/div>/,
+      /data-key="nfold-send-ENG-7-due now"><summary>[\s\S]*?<\/summary><div class="n-body md"><p>ping product<\/p><\/div><\/details>/,
     );
     assert.match(reply, /data-act="sent" data-ticket="ENG-7" data-label="due now"/);
     assert.match(reply, /data-act="draft-later" data-ticket="ENG-7" data-label="due now" data-for="tomorrow"/);
