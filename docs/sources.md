@@ -45,7 +45,7 @@ hub config slackAlertChannels '["alerts-prod","oncall"]'
 
 Every new message there from someone other than you, bot posts included, is an alert that needs you; a message with no text (a bot post) is named by the first attachment text it has, else its block text, else "(no text)" after the sender. Your ✅ on it takes it off; replying in its thread does not. Each channel is one more `search.messages` call per fetch (Slack allows about 20 a minute), and a private channel needs you to be a member.
 
-The second group of scopes is optional: a scope the token lacks (or an endpoint the sealcall route does not allow) only leaves that detail out, ids stay ids, and the source shows an amber warning naming the missing scopes in the header and in Settings → Sources. Adding a scope to an installed app needs a reinstall, which issues a new token; store it again (`sealcall rotate slack` keeps the route).
+The second group of scopes is optional: a scope the token lacks (or an endpoint the sealcall route does not allow) only leaves that detail out, ids stay ids, and the source shows an amber warning naming the missing scopes in the header and in Settings → Sources. Adding a scope to an installed app needs a reinstall, which issues a new token; store it again (`sealcall rotate slack` keeps the route). A rate limit or Slack error while checking a DM's sender holds that DM, and the cursor, for the next fetch; the warning names the failed call.
 
 ### Script sources
 

@@ -1248,6 +1248,52 @@ describe("slack", () => {
     assert.match(page, /--allow &#39;GET \/api\/reactions\.get&#39;/);
   });
 
+  test("a DM whose sender lookup fails is held with the cursor and checked again next sync", async () => {
+    await hub("config", "fetch", '{"github":false,"slack":true}');
+    answers.security = (args) =>
+      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+    const link = (channel: string, t: string) => `https://acme.slack.com/archives/${channel}/p${t.replace(".", "")}`;
+    const dm = (t: string, user: string, text: string, channel: string) => ({
+      ts: t,
+      text,
+      user,
+      channel: { id: channel, is_im: true },
+      permalink: link(channel, t),
+    });
+    const toMe = [
+      dm(ts(100), "U2", "can we talk?", "D01"),
+      dm(ts(90), "U7", "incident declared", "D03"),
+      dm(ts(80), "U7", "incident resolved", "D03"),
+    ];
+    let lookup = (_id: string) => ({ status: 429, body: JSON.stringify({ ok: false, error: "ratelimited" }) });
+    const ok = (body: unknown) => ({ status: 200, body: JSON.stringify({ ok: true, ...(body as object) }) });
+    httpAnswer = (url) => {
+      const u = new URL(url);
+      const p = u.searchParams;
+      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, user: "khai" });
+      if (u.pathname === "/api/search.messages")
+        return ok({ messages: { matches: (p.get("query") ?? "").startsWith("to:") ? toMe : [] } });
+      if (u.pathname === "/api/users.info") return lookup(p.get("user") ?? "");
+      if (u.pathname === "/api/conversations.info") return ok({ channel: { id: p.get("channel"), is_im: true } });
+      if (u.pathname === "/api/reactions.get") return ok({ message: { reactions: [] } });
+      return { status: 404, body: "" };
+    };
+    assert.match(await hub("fetch", "slack"), /nothing new/);
+    const sources = await hub("sources");
+    assert.match(sources, /warning: failed users\.info slack\.com answered 429; 3 DMs from unchecked senders wait/);
+    assert.doesNotMatch(sources, /missing users:read/);
+    const cursor = /slack \| last sync .* \| cursor (\d+(?:\.\d+)?)/.exec(sources)?.[1];
+    assert.ok(cursor !== undefined && Number(cursor) < Number(ts(100)));
+
+    lookup = (id) =>
+      ok({ user: { id, is_bot: id === "U7", profile: { display_name: id === "U2" ? "Ana" : "incident" } } });
+    assert.match(await hub("fetch", "slack"), /items: 1 new/);
+    const all = await hub("items", "--source", "slack");
+    assert.match(all, /DM · Ana: can we talk\? \| dm/);
+    assert.doesNotMatch(all, /incident/);
+    assert.doesNotMatch(await hub("sources"), /warning/);
+  });
+
   test("a Slack error answer is the source error", async () => {
     answers.security = () => ({ code: 0, stdout: "xoxp-1\n", stderr: "" });
     httpAnswer = () => ({ status: 200, body: JSON.stringify({ ok: false, error: "missing_scope" }) });

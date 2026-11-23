@@ -1,7 +1,7 @@
 import type { Ctx } from "../commands.ts";
 import { all, type ItemRow, type WaitRow } from "../db.ts";
 import type { Fetched, Fetcher } from "../fetch.ts";
-import { type KeySpec, keyedCall, type System, type Way } from "../keys.ts";
+import { HttpError, type KeySpec, keyedCall, type System, type Way } from "../keys.ts";
 import { clip, cut, HubError } from "../util.ts";
 import { keyCheck, keyWay } from "./keyed.ts";
 
@@ -97,8 +97,15 @@ function conversationScope(channel: Channel | string): string {
   return "channels:read";
 }
 
+function transient(error: unknown): string | null {
+  if (error instanceof SlackError) return NO_SCOPE.has(error.code) ? null : error.code;
+  if (error instanceof HttpError && (error.status === 429 || error.status >= 500)) return error.message;
+  return null;
+}
+
 class Directory {
   readonly missing = new Set<string>();
+  readonly failed = new Set<string>();
   private readonly users = new Map<string, string | null>();
   private readonly bots = new Map<string, boolean>();
   private readonly avatars = new Map<string, string | null>();
@@ -117,9 +124,9 @@ class Directory {
     try {
       return await slackGet<T>(this.sys, this.way, method, args);
     } catch (error) {
-      if (!(error instanceof SlackError) || NO_SCOPE.has(error.code)) {
-        this.missing.add(error instanceof SlackError ? (error.needed ?? scope) : scope);
-      }
+      const failure = transient(error);
+      if (failure !== null) this.failed.add(`${method} ${failure}`);
+      else this.missing.add(error instanceof SlackError ? (error.needed ?? scope) : scope);
       return null;
     }
   }
@@ -129,8 +136,8 @@ class Directory {
     const u = r?.user;
     const name = u?.profile?.display_name || u?.profile?.real_name || u?.real_name || u?.name || null;
     this.users.set(id, name ?? this.users.get(id) ?? null);
-    this.bots.set(id, u?.is_bot === true);
     this.avatars.set(id, u?.profile?.image_48 ?? null);
+    if (r !== null || this.missing.has("users:read")) this.bots.set(id, u?.is_bot === true);
   }
 
   async user(id: string): Promise<string> {
@@ -143,10 +150,10 @@ class Directory {
     return this.avatars.get(id) ?? null;
   }
 
-  async fromApp(m: Match): Promise<boolean> {
+  async fromApp(m: Match): Promise<boolean | null> {
     if (m.bot_id !== undefined || m.user === undefined || m.user === SLACKBOT) return true;
     if (!this.bots.has(m.user)) await this.lookup(m.user);
-    return this.bots.get(m.user) === true;
+    return this.bots.get(m.user) ?? null;
   }
 
   async channel(id: string, hint: Channel = { id }): Promise<Channel> {
@@ -339,6 +346,7 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
   for (const m of [...mentions, ...sent, ...dms, ...alerts, ...inThreads]) newest = Math.max(newest, Number(m.ts));
 
   const out: Record<string, unknown>[] = [];
+  const held = new Set<string>();
   const seen = new Set(alerts.map(spot));
   for (const m of alerts) {
     out.push({
@@ -354,7 +362,9 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
   }
   for (const m of mentions) {
     if (m.user === me || seen.has(spot(m))) continue;
-    if (m.channel !== undefined && inDm(m.channel) && (await dir.fromApp(m))) continue;
+    const app = m.channel !== undefined && inDm(m.channel) ? await dir.fromApp(m) : false;
+    if (app === null) held.add(spot(m));
+    if (app !== false) continue;
     seen.add(spot(m));
     out.push({
       source: "slack",
@@ -368,7 +378,11 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
     });
   }
   const fromPeople: Match[] = [];
-  for (const m of dms) if (!(await dir.fromApp(m))) fromPeople.push(m);
+  for (const m of dms) {
+    const app = await dir.fromApp(m);
+    if (app === null) held.add(spot(m));
+    if (app === false) fromPeople.push(m);
+  }
   for (const [m, state] of [
     ...fromPeople.map((d) => [d, "dm"] as const),
     ...inThreads.map((r) => [r, "reply"] as const),
@@ -477,11 +491,13 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
       needs_me: true,
     });
   }
-  const warning =
-    dir.missing.size === 0
-      ? null
-      : `missing ${[...dir.missing].sort().join(", ")}: names, DMs or reactions are left out`;
-  return { items: out, cursor: newest.toFixed(6), answered, warning };
+  const notes = [
+    dir.missing.size === 0 ? "" : `missing ${[...dir.missing].sort().join(", ")}: names, DMs or reactions are left out`,
+    dir.failed.size === 0 ? "" : `failed ${[...dir.failed].sort().join(", ")}`,
+    held.size === 0 ? "" : `${held.size} DMs from unchecked senders wait for the next sync`,
+  ].filter((n) => n !== "");
+  const next = held.size === 0 ? newest.toFixed(6) : since;
+  return { items: out, cursor: next, answered, warning: notes.length === 0 ? null : notes.join("; ") };
 }
 
 export const slack: Fetcher = {
