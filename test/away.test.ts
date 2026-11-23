@@ -122,7 +122,9 @@ describe("away ping without a judge", () => {
     clock += 10 * MIN;
     idle = 12 * MIN;
     await away().check();
-    assert.deepEqual(posts, ["hub: 3 new | Fix now 1 | Reply 2"]);
+    assert.deepEqual(posts, [
+      "hub: 3 new | Fix now 1 | Reply 2\nFix now: #alerts (Grafana) ×2, [FIRING:3] HighErrorRate\nReply: DM (ana) ×2, question 5\nReply: DM (bo), question 6",
+    ]);
     assert.equal(awayState(ctx()).lastPing, new Date(clock).toISOString());
   });
 
@@ -140,7 +142,10 @@ describe("away ping without a judge", () => {
     clock += 30 * MIN;
     idle += 30 * MIN;
     await hub.check();
-    assert.deepEqual(posts, ["hub: 1 new | Fix now 1", "hub: 1 new | Reply 1"]);
+    assert.deepEqual(posts, [
+      "hub: 1 new | Fix now 1\nFix now: #alerts (Grafana), [FIRING:1] HighErrorRate",
+      "hub: 1 new | Reply 1\nReply: DM (ana), question 2",
+    ]);
     clock += 30 * MIN;
     idle += 30 * MIN;
     await hub.check();
@@ -153,7 +158,7 @@ describe("away ping without a judge", () => {
     idle = 30_000;
     locked = true;
     await away().check();
-    assert.deepEqual(posts, ["hub: 1 new | Reply 1"]);
+    assert.deepEqual(posts, ["hub: 1 new | Reply 1\nReply: DM (ana), question 1"]);
   });
 
   test("closed rows and review requests are not candidates", async () => {
@@ -162,7 +167,7 @@ describe("away ping without a judge", () => {
     idle = 20 * MIN;
     clock += 10 * MIN;
     await away().check();
-    assert.deepEqual(posts, ["hub: 1 new | Reply 1"]);
+    assert.deepEqual(posts, ["hub: 1 new | Reply 1\nReply: DM (bo), question 2"]);
   });
 
   test("no webhook URL: the error is kept and nothing is posted", async () => {
@@ -202,8 +207,10 @@ describe("away ping without a judge", () => {
     const linux = away(sys("linux", { HUB_WEBHOOK_KEY: HOOK }));
     await linux.check();
     assert.deepEqual(posts, []);
+    const sample =
+      "hub test: 3 new | Fix now 1 | Reply 2\nFix now: #alerts (Grafana) ×3, API 5xx above 2%\nReply: #help-desk (ana), can you confirm the app scopes?\nReply: DM (bo), got a minute?";
     assert.equal(await linux.test(), "posted hub test: 3 new | Fix now 1 | Reply 2");
-    assert.deepEqual(posts, ["hub test: 3 new | Fix now 1 | Reply 2"]);
+    assert.deepEqual(posts, [sample]);
   });
 });
 
@@ -337,7 +344,9 @@ describe("judge", () => {
   test("a failed judge posts the count, keeps its error and stores no verdict", async () => {
     judge = () => ({ code: 1, stdout: "", stderr: "rate limited" });
     await away().check();
-    assert.deepEqual(posts, ["hub: 3 new | Fix now 1 | Reply 2, judge failed"]);
+    assert.deepEqual(posts, [
+      "hub: 3 new | Fix now 1 | Reply 2, judge failed\nFix now: #alerts (Grafana) ×2, [FIRING:4] HighErrorRate\nReply: DM (kida), question 1\nReply: #general (taro), thanks everyone!",
+    ]);
     assert.equal(awayState(ctx()).judgeError, "judge exit 1: rate limited");
     assert.equal(all<ItemRow>(db, "SELECT * FROM item WHERE judged_at IS NOT NULL").length, 0);
   });
@@ -345,7 +354,9 @@ describe("judge", () => {
   test("an answer that is not JSON is a failed judge", async () => {
     judge = () => ({ code: 0, stdout: "I think the first one matters.", stderr: "" });
     await away().check();
-    assert.deepEqual(posts, ["hub: 3 new | Fix now 1 | Reply 2, judge failed"]);
+    assert.deepEqual(posts, [
+      "hub: 3 new | Fix now 1 | Reply 2, judge failed\nFix now: #alerts (Grafana) ×2, [FIRING:4] HighErrorRate\nReply: DM (kida), question 1\nReply: #general (taro), thanks everyone!",
+    ]);
     assert.equal(awayState(ctx()).judgeError, "judge answer was not JSON with a verdict per id");
   });
 
