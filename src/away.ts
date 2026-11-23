@@ -101,11 +101,32 @@ export function labelOf(i: ItemRow): string {
   return i.kind === "alert" ? "Fix now" : "Reply";
 }
 
-export function countText(groups: Candidate[], head = "hub"): string {
+function lineOf(group: Candidate, detail: string): string {
+  const who = group.item.author ? ` (${group.item.author})` : "";
+  const times = group.ids.length > 1 ? ` ×${group.ids.length}` : "";
+  return `${labelOf(group.item)}: ${placeOf(group.item)}${who}${times}${detail === "" ? "" : `, ${detail}`}`;
+}
+
+function gist(i: ItemRow): string {
+  const title = i.title ?? i.ref;
+  const place = placeOf(i);
+  const said = title.startsWith(place)
+    ? title
+        .slice(place.length)
+        .replace(/^ · [^:]*:/, "")
+        .trim()
+    : title;
+  return cut(said, WHY_MAX);
+}
+
+export function countText(groups: Candidate[], head = "hub", note = ""): string {
   const counts = new Map<string, number>();
   for (const g of groups) counts.set(labelOf(g.item), (counts.get(labelOf(g.item)) ?? 0) + 1);
   const parts = ["Fix now", "Reply"].filter((l) => counts.has(l)).map((l) => `${l} ${counts.get(l)}`);
-  return [`${head}: ${groups.length} new`, ...parts].join(" | ");
+  const lines = [...groups]
+    .sort((a, b) => Number(b.item.kind === "alert") - Number(a.item.kind === "alert"))
+    .map((g) => lineOf(g, gist(g.item)));
+  return [`${[`${head}: ${groups.length} new`, ...parts].join(" | ")}${note}`, ...lines].join("\n");
 }
 
 export function prRef(url: string | null): string | null {
@@ -182,21 +203,17 @@ function saveVerdicts(ctx: Ctx, groups: Candidate[], verdicts: Map<number, Verdi
 }
 
 export function pingText(picks: { group: Candidate; why: string }[], head = "hub"): string {
-  const lines = picks.map(({ group, why }) => {
-    const who = group.item.author ? ` (${group.item.author})` : "";
-    const times = group.ids.length > 1 ? ` ×${group.ids.length}` : "";
-    return `${labelOf(group.item)}: ${placeOf(group.item)}${who}${times}${why === "" ? "" : `, ${why}`}`;
-  });
+  const lines = picks.map(({ group, why }) => lineOf(group, why));
   return [`${head}: ${picks.length} need you`, ...lines].join("\n");
 }
 
-function sampleGroup(kind: string, place: string, author: string, count: number): Candidate {
+function sampleGroup(kind: string, place: string, author: string, count: number, text: string): Candidate {
   const item: ItemRow = {
     id: 0,
     source: "slack",
     ref: "",
     kind,
-    title: `${place} · ${author}: sample`,
+    title: `${place} · ${author}: ${text}`,
     url: null,
     state: null,
     author,
@@ -222,9 +239,9 @@ function sampleGroup(kind: string, place: string, author: string, count: number)
 }
 
 export function sampleText(judged: boolean): string {
-  const reply = sampleGroup("message", "#help-desk", "ana", 1);
-  const alert = sampleGroup("alert", "#alerts", "Grafana", 3);
-  if (!judged) return countText([alert, reply, sampleGroup("message", "DM", "bo", 1)], "hub test");
+  const reply = sampleGroup("message", "#help-desk", "ana", 1, "can you confirm the app scopes?");
+  const alert = sampleGroup("alert", "#alerts", "Grafana", 3, "API 5xx above 2%");
+  if (!judged) return countText([alert, reply, sampleGroup("message", "DM", "bo", 1, "got a minute?")], "hub test");
   return pingText(
     [
       { group: reply, why: "asks you to confirm app scopes" },
@@ -343,7 +360,7 @@ export class Away {
     const verdicts = new Map<number, Verdict>();
     if (fresh.length > 0) {
       const judged = await this.judge(c, fresh);
-      if (judged === null) return `${countText(groups)}, judge failed`;
+      if (judged === null) return countText(groups, "hub", ", judge failed");
       saveVerdicts(c, fresh, judged);
       for (const [id, v] of judged) verdicts.set(id, v);
     }
