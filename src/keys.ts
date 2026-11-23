@@ -86,6 +86,14 @@ export function wayText(way: Way): string {
   return "no key";
 }
 
+export class HttpError extends HubError {
+  readonly status: number;
+  constructor(host: string, status: number) {
+    super(`${host} answered ${status}`);
+    this.status = status;
+  }
+}
+
 export async function keyedCall(
   sys: System,
   way: Way,
@@ -105,7 +113,7 @@ export async function keyedCall(
     );
     const status = /HTTP (\d{3})/.exec(r.stderr)?.[1];
     if (r.code !== 0)
-      throw new HubError(status ? `${spec.host} answered ${status}` : lastLine(r.stderr) || "sealcall failed");
+      throw status ? new HttpError(spec.host, Number(status)) : new HubError(lastLine(r.stderr) || "sealcall failed");
     return r.stdout;
   }
   const [name, template] = spec.header.split(/:\s*/, 2) as [string, string];
@@ -115,6 +123,6 @@ export async function keyedCall(
   if (data !== undefined) init.body = data;
   const r = await sys.http(`https://${spec.host}${path}`, init);
   const text = await r.text();
-  if (r.status >= 400) throw new HubError(`${spec.host} answered ${r.status}`);
+  if (r.status >= 400) throw new HttpError(spec.host, r.status);
   return text.replaceAll(way.key, "<redacted>");
 }
