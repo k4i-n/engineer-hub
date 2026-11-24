@@ -428,13 +428,18 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
   const dms = (await search(sys, way, `to:<@${me}> after:${after}`)).filter(
     (m) => newer(m) && m.user !== me && m.channel !== undefined && inDm(m.channel),
   );
-  const alerts: Match[] = [];
-  for (const c of lists.slackAlertChannels) {
-    if (c.name === "") continue;
-    const found = await search(sys, way, `in:#${c.name} after:${after}`);
-    alerts.push(...found.filter((m) => newer(m) && m.user !== me && kept(m)));
-  }
-  dir.learn([...mentions, ...recent, ...dms, ...alerts]);
+  const inList = async (list: SlackChannel[]): Promise<Match[]> => {
+    const found: Match[] = [];
+    for (const c of list) {
+      if (c.name === "") continue;
+      const got = await search(sys, way, `in:#${c.name} after:${after}`);
+      found.push(...got.filter((m) => newer(m) && m.user !== me && kept(m)));
+    }
+    return found;
+  };
+  const alerts = await inList(lists.slackAlertChannels);
+  const watched = await inList(lists.slackWatchChannels);
+  dir.learn([...mentions, ...recent, ...dms, ...alerts, ...watched]);
   const pinged: [Match, string][] = mentions.map((m) => [m, "mention"]);
   const inGroupChannels = inChannels(lists.slackGroupChannels);
   const groups = lists.slackGroupChannels.length === 0 ? [] : await dir.groupsOf(me);
@@ -449,7 +454,7 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
   const myName = auth.user ?? me;
   const inThreads = await threadReplies(dir, me, since, recent.filter(kept));
   let newest = Number(since);
-  for (const m of [...pinged.map(([m]) => m), ...sent, ...dms, ...alerts, ...inThreads])
+  for (const m of [...pinged.map(([m]) => m), ...sent, ...dms, ...alerts, ...watched, ...inThreads])
     newest = Math.max(newest, Number(m.ts));
 
   const out: Record<string, unknown>[] = [];
@@ -493,6 +498,7 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
   for (const [m, state] of [
     ...fromPeople.map((d) => [d, "dm"] as const),
     ...inThreads.map((r) => [r, "reply"] as const),
+    ...watched.map((w) => [w, "channel"] as const),
   ]) {
     if (seen.has(spot(m))) continue;
     seen.add(spot(m));
