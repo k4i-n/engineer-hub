@@ -237,27 +237,40 @@ class Directory {
   }
 }
 
-export type Resolved = { channels: SlackChannel[]; unknown: string[] };
+export type Resolved = { channels: SlackChannel[]; unknown: string[]; unresolved: string[]; why: string };
+
+function lookupFailure(dir: Directory): string {
+  const parts = [
+    dir.missing.size === 0 ? "" : `missing ${[...dir.missing].sort().join(", ")}`,
+    dir.failed.size === 0 ? "" : `failed ${[...dir.failed].sort().join(", ")}`,
+  ].filter((p) => p !== "");
+  return parts.join("; ") || "Slack returned no name";
+}
 
 async function resolveWith(dir: Directory, list: SlackChannel[]): Promise<Resolved> {
   const channels: SlackChannel[] = [];
   const unknown: string[] = [];
+  const unresolved: string[] = [];
   for (const c of list) {
     if (c.id !== "") {
-      channels.push({ id: c.id, name: (await dir.channel(c.id)).name ?? c.name });
+      const name = (await dir.channel(c.id)).name ?? c.name;
+      const byName = name === "" ? (await dir.idsByName())?.get(c.id.toLowerCase()) : undefined;
+      if (name === "" && byName === undefined) unresolved.push(c.id);
+      channels.push(byName === undefined ? { id: c.id, name } : { id: byName, name: c.id.toLowerCase() });
       continue;
     }
     const named = await dir.idsByName();
     const id = named?.get(c.name);
-    if (named !== null && id === undefined) unknown.push(c.name);
+    if (named === null) unresolved.push(`#${c.name}`);
+    else if (id === undefined) unknown.push(c.name);
     channels.push(id === undefined ? c : { id, name: c.name });
   }
-  return { channels, unknown };
+  return { channels, unknown, unresolved, why: unresolved.length === 0 ? "" : lookupFailure(dir) };
 }
 
 export async function resolveChannels(sys: System, list: SlackChannel[]): Promise<Resolved> {
   const way = await findWay(sys, SLACK_KEY.source);
-  if (way.kind === "missing") return { channels: list, unknown: [] };
+  if (way.kind === "missing") return { channels: list, unknown: [], unresolved: [], why: "" };
   return resolveWith(new Directory(sys, way, []), list);
 }
 
