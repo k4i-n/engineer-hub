@@ -72,16 +72,18 @@ export function sameChannel(a: SlackChannel, b: SlackChannel): boolean {
 }
 
 function channelOf(value: unknown): SlackChannel | null {
+  const text = typeof value === "string" ? value.trim().replace(/^#/, "") : "";
   const given =
     typeof value === "string"
-      ? CHANNEL_ID.test(value.replace(/^#/, ""))
-        ? { id: value.replace(/^#/, ""), name: "" }
-        : { id: "", name: value }
+      ? CHANNEL_ID.test(text)
+        ? { id: text, name: "" }
+        : { id: "", name: text }
       : (value as { id?: unknown; name?: unknown } | null);
   if (given === null || typeof given !== "object") return null;
-  const { id = "", name = "" } = given;
-  if (typeof id !== "string" || typeof name !== "string") return null;
-  const bare = name.replace(/^#/, "");
+  const { id: rawId = "", name = "" } = given;
+  if (typeof rawId !== "string" || typeof name !== "string") return null;
+  const id = rawId.trim();
+  const bare = name.trim().replace(/^#/, "");
   if (id !== "" && !CHANNEL_ID.test(id)) return null;
   if (bare !== "" && !CHANNEL_NAME.test(bare)) return null;
   if (id === "" && bare === "") return null;

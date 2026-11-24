@@ -1078,6 +1078,38 @@ describe("slack", () => {
     assert.ok(settings.includes('<span class="chip tone-grey">#watercooler · C09</span>'));
   });
 
+  test("a channel is given by id or name, trimmed; an id is looked up first, then as a name; a failed lookup is refused", async () => {
+    answers.security = (args) =>
+      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+    const names: Record<string, string> = { C10: "eng", C99: "c42", C07: "alerts-prod" };
+    httpAnswer = (url) => {
+      const u = new URL(url);
+      const ok = (body: unknown) => ({ status: 200, body: JSON.stringify({ ok: true, ...(body as object) }) });
+      if (u.pathname === "/api/conversations.list") {
+        return ok({ channels: Object.entries(names).map(([id, name]) => ({ id, name })) });
+      }
+      if (u.pathname === "/api/conversations.info") {
+        const id = u.searchParams.get("channel") ?? "";
+        if (names[id] === undefined)
+          return { status: 200, body: JSON.stringify({ ok: false, error: "channel_not_found" }) };
+        return ok({ channel: { id, name: names[id] } });
+      }
+      return { status: 404, body: "" };
+    };
+    await hub("config", "slackAlertChannels", '[" C10 ", "#alerts-prod ", "C42"]');
+    assert.match(
+      await hub("config", "slackAlertChannels"),
+      /\[\{"id":"C10","name":"eng"\},\{"id":"C07","name":"alerts-prod"\},\{"id":"C99","name":"c42"\}\]/,
+    );
+    const settings = await (await fetch(`${server.url}/settings`)).text();
+    assert.ok(settings.includes('value="#eng, #alerts-prod, #c42"'));
+    assert.ok(settings.includes('<span class="chip tone-grey">#eng · C10</span>'));
+    await assert.rejects(
+      hub("config", "slackIgnoreChannels", '["C55"]'),
+      /could not look up C55 in Slack: failed conversations\.info channel_not_found/,
+    );
+  });
+
   test("a bot message with no text is named by its block or attachment text, else (no text)", async () => {
     await hub("config", "fetch", '{"github":false,"slack":true}');
     await hub("config", "slackAlertChannels", '["#tech_platform"]');

@@ -60,6 +60,7 @@ async function channelsToStore(ctx: Ctx, key: SlackChannelKey, value: unknown, h
   if (given.every((c) => c.id !== "" && c.name !== "")) return given;
   const r = await hooks.slackChannels(given);
   if (r.unknown.length > 0) throw new HubError(`no Slack channel ${r.unknown.map((n) => `#${n}`).join(", ")}`);
+  if (r.unresolved.length > 0) throw new HubError(`could not look up ${r.unresolved.join(", ")} in Slack: ${r.why}`);
   return r.channels;
 }
 
