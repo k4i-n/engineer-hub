@@ -826,12 +826,12 @@ describe("slack", () => {
     assert.equal(threadOf("https://github.com/acme/web/pull/1"), null);
   });
 
-  test("mentions need you, sent messages wait for judging, and a reply in a waited thread closes the wait", async () => {
+  test("mentions need you, sent messages wait for judging, and a reply in a waited thread closes the wait as its author", async () => {
     await hub("config", "fetch", '{"github":false,"slack":true}');
     answers.security = (args) =>
       args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
     const thread = ts(3600);
-    await hub("wait", "ENG-42", "Ken", permalink(thread), "--ping-after", "1d");
+    await hub("wait", "ENG-42", "product", permalink(thread), "--ping-after", "1d");
     const asked = Date.now() / 1000;
     const reply = `${Math.floor(asked) + 30}.000200`;
     const queries: string[] = [];

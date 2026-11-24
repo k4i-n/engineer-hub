@@ -579,16 +579,21 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
     const reply = r.messages.find((m) => m.user !== me && Number(m.ts) > Number(askedAt) && m.ts !== thread.ts);
     let title: string | null = null;
     let body: string | undefined;
+    let author = w.who;
     if (reply !== undefined) {
       body = await full(dir, reply);
-      title = `${w.who} answered: ${(body ?? "").replaceAll("\n", " ")}`;
+      author = reply.user ? await dir.user(reply.user) : (reply.username ?? w.who);
+      title = `${author} answered: ${(body ?? "").replaceAll("\n", " ")}`;
     } else {
       const asked = messageOf(w.url);
       const got = asked === null ? null : await dir.reactions(asked.channel, asked.ts);
       const mine = got !== null && got.user === me;
       const theirs = mine ? got.reactions.find((x) => x.users.some((u) => u !== me)) : undefined;
       const by = theirs?.users.find((u) => u !== me);
-      if (theirs !== undefined && by !== undefined) title = `${await dir.user(by)} reacted :${theirs.name}:`;
+      if (theirs !== undefined && by !== undefined) {
+        author = await dir.user(by);
+        title = `${author} reacted :${theirs.name}:`;
+      }
     }
     if (title === null) continue;
     answered.push(w.url);
@@ -598,7 +603,7 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
       url: w.url,
       title: cut(title, 200),
       body,
-      author: w.who,
+      author,
       ticket: w.ticket_id,
       state: "answered",
       needs_me: true,
