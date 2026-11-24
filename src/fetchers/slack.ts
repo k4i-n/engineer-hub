@@ -1,7 +1,8 @@
 import type { Ctx } from "../commands.ts";
+import { SLACK_CHANNEL_KEYS, type SlackChannel, type SlackChannelKey } from "../config.ts";
 import { all, type ItemRow, type WaitRow } from "../db.ts";
 import type { Fetched, Fetcher } from "../fetch.ts";
-import { HttpError, type KeySpec, keyedCall, type System, type Way } from "../keys.ts";
+import { findWay, HttpError, type KeySpec, keyedCall, type System, type Way } from "../keys.ts";
 import { clip, cut, HubError } from "../util.ts";
 import { keyCheck, keyWay } from "./keyed.ts";
 
@@ -14,6 +15,7 @@ const RECHECK = 30;
 const MAX_BODY = 4000;
 const NO_SCOPE = new Set(["missing_scope", "no_permission", "not_allowed_token_type"]);
 const SLACKBOT = "USLACKBOT";
+const LIST_PAGES = 20;
 
 export const SLACK_KEY: KeySpec = {
   source: "slack",
@@ -24,6 +26,7 @@ export const SLACK_KEY: KeySpec = {
     "GET /api/search.messages",
     "GET /api/conversations.replies",
     "GET /api/conversations.info",
+    "GET /api/conversations.list",
     "GET /api/users.info",
     "GET /api/usergroups.list",
     "GET /api/reactions.get",
@@ -111,6 +114,7 @@ class Directory {
   private readonly avatars = new Map<string, string | null>();
   private readonly channels = new Map<string, Channel | null>();
   private groups: Group[] | null = null;
+  private named: Map<string, string> | null | undefined;
   private readonly sys: System;
   private readonly way: Way;
 
@@ -172,6 +176,28 @@ class Directory {
     return { ...hint, ...(this.channels.get(id) ?? {}) };
   }
 
+  async idsByName(): Promise<Map<string, string> | null> {
+    if (this.named !== undefined) return this.named;
+    const named = new Map<string, string>();
+    let cursor = "";
+    for (let page = 0; page < LIST_PAGES; page++) {
+      const r = await this.soft<Answer & { channels: Channel[]; response_metadata?: { next_cursor?: string } }>(
+        "conversations.list",
+        { types: "public_channel,private_channel", exclude_archived: "true", limit: "1000", cursor },
+        "channels:read",
+      );
+      if (r === null) {
+        this.named = null;
+        return null;
+      }
+      for (const c of r.channels) if (c.name) named.set(c.name, c.id);
+      cursor = r.response_metadata?.next_cursor ?? "";
+      if (cursor === "") break;
+    }
+    this.named = named;
+    return named;
+  }
+
   private async allGroups(): Promise<Group[]> {
     if (this.groups === null) {
       const r = await this.soft<Answer & { usergroups: Group[] }>(
@@ -209,6 +235,35 @@ class Directory {
     );
     return r === null ? null : { user: r.message?.user ?? null, reactions: r.message?.reactions ?? [] };
   }
+}
+
+export type Resolved = { channels: SlackChannel[]; unknown: string[] };
+
+async function resolveWith(dir: Directory, list: SlackChannel[]): Promise<Resolved> {
+  const channels: SlackChannel[] = [];
+  const unknown: string[] = [];
+  for (const c of list) {
+    if (c.id !== "") {
+      channels.push({ id: c.id, name: (await dir.channel(c.id)).name ?? c.name });
+      continue;
+    }
+    const named = await dir.idsByName();
+    const id = named?.get(c.name);
+    if (named !== null && id === undefined) unknown.push(c.name);
+    channels.push(id === undefined ? c : { id, name: c.name });
+  }
+  return { channels, unknown };
+}
+
+export async function resolveChannels(sys: System, list: SlackChannel[]): Promise<Resolved> {
+  const way = await findWay(sys, SLACK_KEY.source);
+  if (way.kind === "missing") return { channels: list, unknown: [] };
+  return resolveWith(new Directory(sys, way, []), list);
+}
+
+function inChannels(list: SlackChannel[]): (m: Match) => boolean {
+  return (m) =>
+    m.channel !== undefined && list.some((c) => (c.id === "" ? c.name === m.channel?.name : c.id === m.channel?.id));
 }
 
 async function byline(dir: Directory, m: Match): Promise<{ author: string | null; avatar: string | null }> {
@@ -339,31 +394,42 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
   const way = await keyWay(sys, SLACK_KEY);
   const auth = await slackGet<Answer & { user_id: string; user?: string }>(sys, way, "auth.test", {});
   const me = auth.user_id;
+  const dir = new Directory(sys, way, []);
+  const lists = {} as Record<SlackChannelKey, SlackChannel[]>;
+  const unknown: string[] = [];
+  for (const key of SLACK_CHANNEL_KEYS) {
+    const r = await resolveWith(dir, ctx.config[key]);
+    lists[key] = r.channels;
+    unknown.push(...r.unknown.map((name) => `#${name} (${key})`));
+  }
+  const ignored = inChannels(lists.slackIgnoreChannels);
+  const kept = (m: Match) => !ignored(m);
   const since = cursor ?? String(Math.floor(ctx.now.getTime() / 1000) - FIRST_LOOK_S);
   const day = (s: number) => new Date((s - DAY_S) * 1000).toISOString().slice(0, 10);
   const after = day(Number(since));
   const threadsAfter = day(Math.min(Number(since), Math.floor(ctx.now.getTime() / 1000) - THREAD_LOOK_S));
   const newer = (m: Match) => Number(m.ts) > Number(since);
-  const mentions = (await search(sys, way, `<@${me}> after:${after}`)).filter(newer);
+  const mentions = (await search(sys, way, `<@${me}> after:${after}`)).filter(newer).filter(kept);
   const recent = await search(sys, way, `from:<@${me}> after:${threadsAfter}`);
-  const sent = recent.filter(newer);
+  const sent = recent.filter(newer).filter(kept);
   const dms = (await search(sys, way, `to:<@${me}> after:${after}`)).filter(
     (m) => newer(m) && m.user !== me && m.channel !== undefined && inDm(m.channel),
   );
   const alerts: Match[] = [];
-  for (const name of ctx.config.slackAlertChannels) {
-    const found = await search(sys, way, `in:#${name.replace(/^#/, "")} after:${after}`);
-    alerts.push(...found.filter((m) => newer(m) && m.user !== me));
+  for (const c of lists.slackAlertChannels) {
+    if (c.name === "") continue;
+    const found = await search(sys, way, `in:#${c.name} after:${after}`);
+    alerts.push(...found.filter((m) => newer(m) && m.user !== me && kept(m)));
   }
-  const dir = new Directory(sys, way, [...mentions, ...recent, ...dms, ...alerts]);
+  dir.learn([...mentions, ...recent, ...dms, ...alerts]);
   const pinged: [Match, string][] = mentions.map((m) => [m, "mention"]);
   for (const g of await dir.groupsOf(me)) {
-    const found = (await search(sys, way, `<!subteam^${g.id}> after:${after}`)).filter(newer);
+    const found = (await search(sys, way, `<!subteam^${g.id}> after:${after}`)).filter(newer).filter(kept);
     dir.learn(found);
     pinged.push(...found.map((m): [Match, string] => [m, `mention @${g.handle}`]));
   }
   const myName = auth.user ?? me;
-  const inThreads = await threadReplies(dir, me, since, recent);
+  const inThreads = await threadReplies(dir, me, since, recent.filter(kept));
   let newest = Number(since);
   for (const m of [...pinged.map(([m]) => m), ...sent, ...dms, ...alerts, ...inThreads])
     newest = Math.max(newest, Number(m.ts));
@@ -520,9 +586,16 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
       : `missing ${[...dir.missing].sort().join(", ")}: names, DMs, group mentions or reactions are left out`,
     dir.failed.size === 0 ? "" : `failed ${[...dir.failed].sort().join(", ")}`,
     held.size === 0 ? "" : `${held.size} DMs from unchecked senders wait for the next sync`,
+    unknown.length === 0 ? "" : `no channel ${unknown.join(", ")}`,
   ].filter((n) => n !== "");
   const next = held.size === 0 ? newest.toFixed(6) : since;
-  return { items: out, cursor: next, answered, warning: notes.length === 0 ? null : notes.join("; ") };
+  return {
+    items: out,
+    cursor: next,
+    answered,
+    warning: notes.length === 0 ? null : notes.join("; "),
+    channels: [...lists.slackAlertChannels, ...lists.slackIgnoreChannels],
+  };
 }
 
 export const slack: Fetcher = {

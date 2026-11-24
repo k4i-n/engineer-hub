@@ -1,4 +1,5 @@
 import { type Ctx, proposeReview, type Result, type Review, setTracker, type TrackerFields } from "./commands.ts";
+import { loadConfig, SLACK_CHANNEL_KEYS, type SlackChannel, sameChannel, setConfig } from "./config.ts";
 import { one, type SourceRow } from "./db.ts";
 import * as items from "./items.ts";
 import { type KeySpec, lastLine, type System, storeCommands } from "./keys.ts";
@@ -14,6 +15,7 @@ export type Fetched = {
   warning?: string | null;
   tracker?: TrackerFields[];
   reviews?: Review[];
+  channels?: SlackChannel[];
 };
 export type Check = { ok: boolean; how: string; fix: string[] };
 export type Fetcher = {
@@ -42,12 +44,21 @@ export function write(ctx: Ctx, name: string, fetched: Fetched): string {
       if (!(error instanceof HubError)) throw error;
     }
   }
+  if (fetched.channels !== undefined) saveChannels(ctx, fetched.channels);
   const updated = (fetched.tracker ?? []).filter((t) => setTracker(ctx, t)).length;
   if (updated > 0) parts.push(`tickets: ${updated} updated`);
   const proposed = (fetched.reviews ?? []).reduce((n, r) => n + proposeReview(ctx, r), 0);
   if (proposed > 0) parts.push(`drafts: ${proposed} sent?`);
   sources.synced(ctx, name, { cursor: fetched.cursor, error: null, warning: fetched.warning ?? null });
   return parts.join("; ") || "nothing new";
+}
+
+function saveChannels(ctx: Ctx, found: SlackChannel[]): void {
+  const current = loadConfig(ctx.db);
+  for (const key of SLACK_CHANNEL_KEYS) {
+    const next = current[key].map((c) => found.find((f) => sameChannel(f, c)) ?? c);
+    if (JSON.stringify(next) !== JSON.stringify(current[key])) setConfig(ctx.db, key, JSON.stringify(next), ctx.now);
+  }
 }
 
 export class Runner {

@@ -39,7 +39,8 @@ export type Config = {
   githubPrQuery: string;
   reviewAsk: string;
   issueRepo: string;
-  slackAlertChannels: string[];
+  slackAlertChannels: SlackChannel[];
+  slackIgnoreChannels: SlackChannel[];
   hiddenBlocks: string[];
   progressStyle: string;
   horizon: string;
@@ -52,6 +53,54 @@ export type Config = {
 };
 
 export type Layout = { top: string[]; left: string[]; right: string[] };
+
+export type SlackChannel = { id: string; name: string };
+
+export const SLACK_CHANNEL_KEYS = ["slackAlertChannels", "slackIgnoreChannels"] as const;
+export type SlackChannelKey = (typeof SLACK_CHANNEL_KEYS)[number];
+
+const CHANNEL_ID = /^[CG][A-Z0-9]{2,}$/;
+const CHANNEL_NAME = /^[a-z0-9][a-z0-9._-]{0,79}$/;
+
+export function isChannelKey(key: string): key is SlackChannelKey {
+  return (SLACK_CHANNEL_KEYS as readonly string[]).includes(key);
+}
+
+export function sameChannel(a: SlackChannel, b: SlackChannel): boolean {
+  if (a.id !== "" && b.id !== "") return a.id === b.id;
+  return a.name !== "" && a.name === b.name;
+}
+
+function channelOf(value: unknown): SlackChannel | null {
+  const given =
+    typeof value === "string"
+      ? CHANNEL_ID.test(value.replace(/^#/, ""))
+        ? { id: value.replace(/^#/, ""), name: "" }
+        : { id: "", name: value }
+      : (value as { id?: unknown; name?: unknown } | null);
+  if (given === null || typeof given !== "object") return null;
+  const { id = "", name = "" } = given;
+  if (typeof id !== "string" || typeof name !== "string") return null;
+  const bare = name.replace(/^#/, "");
+  if (id !== "" && !CHANNEL_ID.test(id)) return null;
+  if (bare !== "" && !CHANNEL_NAME.test(bare)) return null;
+  if (id === "" && bare === "") return null;
+  return { id, name: bare };
+}
+
+export function channelList(key: string, value: unknown): SlackChannel[] {
+  if (!Array.isArray(value)) throw new HubError(`${key} takes a JSON array of Slack channel names or ids`);
+  const list: SlackChannel[] = [];
+  for (const v of value) {
+    const c = channelOf(v);
+    if (c === null)
+      throw new HubError(
+        `${key} has ${JSON.stringify(v)}, which is not a Slack channel name or id, e.g. ["alerts-prod"] or ["C01ABCDEF"]`,
+      );
+    if (!list.some((o) => sameChannel(o, c))) list.push(c);
+  }
+  return list;
+}
 
 export const REPO = /^[\w.-]+\/[\w.-]+$/;
 
@@ -152,6 +201,7 @@ export const DEFAULTS: Config = {
   reviewAsk: "Review this?",
   issueRepo: "",
   slackAlertChannels: [],
+  slackIgnoreChannels: [],
   hiddenBlocks: [],
   progressStyle: "ring",
   horizon: "14d",
@@ -275,11 +325,6 @@ function semanticError(key: Key, value: unknown): string | undefined {
   if (key === "reviewAsk" && (String(value).includes("\n") || String(value).trim().length > MAX_ASK)) {
     return `reviewAsk is one line of at most ${MAX_ASK} chars, or "" for no question`;
   }
-  if (key === "slackAlertChannels") {
-    const bad = (value as string[]).find((name) => !/^#?[a-z0-9][a-z0-9._-]{0,79}$/.test(name));
-    if (bad !== undefined)
-      return `slackAlertChannels has ${bad}, which is not a Slack channel name, e.g. ["alerts-prod"]`;
-  }
   if (key === "backupDir" && !/^($|~$|~\/|\/)/.test(String(value))) {
     return 'backupDir is an absolute folder or ~/..., or "" for backups/ next to the database';
   }
@@ -295,6 +340,10 @@ export function loadConfig(db: DatabaseSync): Config {
   for (const row of rows) {
     if (!isKey(row.key)) continue;
     const value: unknown = JSON.parse(row.value);
+    if (isChannelKey(row.key)) {
+      config[row.key] = channelList(row.key, value);
+      continue;
+    }
     const base = DEFAULTS[row.key];
     const isObject = typeof base === "object" && !Array.isArray(base);
     config[row.key] = isObject ? { ...base, ...(value as object) } : value;
@@ -317,7 +366,8 @@ export function setConfig(db: DatabaseSync, key: string, raw: string, now: Date)
   } catch {
     throw new HubError(`config value must be JSON, e.g. '"Europe/Berlin"' or '["a","b"]'`);
   }
-  const error = shapeError(key, DEFAULTS[key], value) ?? semanticError(key, value);
+  if (isChannelKey(key)) value = channelList(key, value);
+  const error = isChannelKey(key) ? undefined : (shapeError(key, DEFAULTS[key], value) ?? semanticError(key, value));
   if (error) throw new HubError(error);
   db.prepare(
     "INSERT INTO config(key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",

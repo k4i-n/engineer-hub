@@ -1666,6 +1666,15 @@ button.n-caret {
 }
 
 /* settings */
+.set-chips {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.set-chips:empty {
+  display: none;
+}
 .grid.settings {
   grid-template-columns: minmax(0, 880px);
   justify-content: center;

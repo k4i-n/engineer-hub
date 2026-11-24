@@ -2,7 +2,16 @@ import type { AwayState } from "./away.ts";
 import type { Backup, BackupState } from "./backup.ts";
 import { area, bar, donut, half, legend, percent, ring, type Slice, stack } from "./charts.ts";
 import { asks, byOrder, type Ctx, has, letters, openTickets, recentlyDone } from "./commands.ts";
-import { BLOCKS, type Config, DEFAULT_LAYOUT, type Layout, REPO, sectionId } from "./config.ts";
+import {
+  BLOCKS,
+  type Config,
+  DEFAULT_LAYOUT,
+  type Layout,
+  REPO,
+  type SlackChannel,
+  type SlackChannelKey,
+  sectionId,
+} from "./config.ts";
 import {
   all,
   type CommentRow,
@@ -1595,6 +1604,17 @@ function toggle(key: string, on: boolean): string {
   return `<button type="button" role="switch" aria-checked="${on}" class="switch${on ? " on" : ""}" data-config="${esc(key)}" data-value="${esc(JSON.stringify(!on))}"><span class="knob"></span></button>`;
 }
 
+function channelInput(key: SlackChannelKey, list: SlackChannel[]): string {
+  const value = list.map((c) => (c.name === "" ? c.id : `#${c.name}`)).join(", ");
+  const chips = list
+    .map(
+      (c) =>
+        `<span class="chip tone-grey">${esc(c.name === "" ? "?" : `#${c.name}`)} · ${esc(c.id === "" ? "?" : c.id)}</span>`,
+    )
+    .join("");
+  return `<input class="text" data-config-input="${key}" data-list value="${esc(value)}" spellcheck="false"><div class="set-chips">${chips}</div>`;
+}
+
 function row(label: string, control: string, off = false): string {
   return `<div class="set-row${off ? " off" : ""}"${off ? " inert" : ""}><span class="set-label">${esc(label)}</span><div class="set-control">${control}</div></div>`;
 }
@@ -1788,11 +1808,8 @@ ${section(
       `<input class="text" data-config-input="githubPrQuery" value="${esc(c.githubPrQuery)}" spellcheck="false">`,
       c.fetch.github !== true,
     ) +
-    row(
-      "Alert channels",
-      `<input class="text" data-config-input="slackAlertChannels" data-list value="${esc(c.slackAlertChannels.map((n) => `#${n.replace(/^#/, "")}`).join(", "))}" spellcheck="false">`,
-      c.fetch.slack !== true,
-    ) +
+    row("Alert channels", channelInput("slackAlertChannels", c.slackAlertChannels), c.fetch.slack !== true) +
+    row("Ignore channels", channelInput("slackIgnoreChannels", c.slackIgnoreChannels), c.fetch.slack !== true) +
     row(
       "Every",
       segmented("fetchEvery", c.fetchEvery, [
