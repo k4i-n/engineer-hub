@@ -963,6 +963,43 @@ describe("slack", () => {
     assert.match(await hub("waits"), /no open waits/);
   });
 
+  test("a reopened wait closes only on a reply after the reopen, and its old reaction no longer answers it", async () => {
+    await hub("config", "fetch", '{"github":false,"slack":true}');
+    answers.security = (args) =>
+      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+    const thread = ts(3600);
+    await hub("wait", "ENG-42", "product", permalink(thread));
+    const db = new DatabaseSync(dbFile);
+    db.prepare("UPDATE wait SET asked_at = ?").run(new Date((now - 600) * 1000).toISOString());
+    db.close();
+    const first = { ts: ts(300), text: "maybe", user: "U3" };
+    let replies = [first];
+    const oldests: string[] = [];
+    const ok = (body: unknown) => ({ status: 200, body: JSON.stringify({ ok: true, ...(body as object) }) });
+    httpAnswer = (url) => {
+      const u = new URL(url);
+      if (u.pathname === "/api/auth.test") return ok({ user_id: ME });
+      if (u.pathname === "/api/search.messages") return ok({ messages: { matches: [] } });
+      if (u.pathname === "/api/users.list") return ok({ members: [] });
+      if (u.pathname === "/api/users.info") return ok({ user: { id: "U3", profile: { display_name: "Ken" } } });
+      if (u.pathname === "/api/reactions.get")
+        return ok({ message: { user: ME, reactions: [{ name: "+1", users: ["U3"] }] } });
+      if (u.pathname !== "/api/conversations.replies") return { status: 404, body: "" };
+      oldests.push(u.searchParams.get("oldest") ?? "");
+      const oldest = Number(u.searchParams.get("oldest"));
+      return ok({ messages: [{ ts: thread, text: "q", user: ME }, ...replies.filter((m) => Number(m.ts) > oldest)] });
+    };
+    assert.match(await hub("fetch", "slack"), /closed #1/);
+    await hub("wait", "reopen", "1");
+    const reopened = Date.now() / 1000;
+    assert.doesNotMatch(await hub("fetch", "slack"), /closed/);
+    assert.ok(Number(oldests.at(-1)) >= Math.floor(reopened) - 1);
+    assert.match(await hub("waits"), /product/);
+    replies = [first, { ts: `${Math.floor(Date.now() / 1000) + 60}.000300`, text: "yes, ship it", user: "U3" }];
+    assert.match(await hub("fetch", "slack"), /closed #1/);
+    assert.match(await hub("items", "--needs-me", "--source", "slack"), /Ken answered: yes, ship it \| answered/);
+  });
+
   test("with every scope, ids read as names, DMs are named, a ✅ from me closes a mention and a reaction answers a wait", async () => {
     await hub("config", "fetch", '{"github":false,"slack":true}');
     answers.security = (args) =>

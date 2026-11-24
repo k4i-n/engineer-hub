@@ -4,7 +4,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { DEFAULTS } from "./config.ts";
 import { HubError } from "./util.ts";
 
-export const SCHEMA_VERSION = "22";
+export const SCHEMA_VERSION = "23";
 
 export type Ticket = {
   id: string;
@@ -111,6 +111,7 @@ export type WaitRow = {
   ping_after: string | null;
   pinged_at: string | null;
   closed_at: string | null;
+  reopened_at: string | null;
 };
 export type SourceRow = {
   name: string;
@@ -209,7 +210,7 @@ CREATE TABLE item(id INTEGER PRIMARY KEY, source TEXT NOT NULL, ref TEXT NOT NUL
   ask TEXT, ask_answer TEXT, ask_at TEXT, avatar TEXT);
 CREATE INDEX item_ticket ON item(ticket_id);
 CREATE TABLE wait(id INTEGER PRIMARY KEY, ticket_id TEXT NOT NULL, who TEXT NOT NULL, url TEXT NOT NULL,
-  asked_at TEXT NOT NULL, ping_after TEXT, pinged_at TEXT, closed_at TEXT);
+  asked_at TEXT NOT NULL, ping_after TEXT, pinged_at TEXT, closed_at TEXT, reopened_at TEXT);
 CREATE TABLE step(id INTEGER PRIMARY KEY, ticket_id TEXT NOT NULL, n INTEGER NOT NULL, title TEXT NOT NULL,
   done_at TEXT, evidence TEXT, created_at TEXT NOT NULL, UNIQUE(ticket_id, n));
 CREATE TABLE source(name TEXT PRIMARY KEY, cursor TEXT, last_sync TEXT NOT NULL, last_error TEXT, warning TEXT);
@@ -274,6 +275,7 @@ WHERE kind = 'review_request' AND ask IS NULL AND closed_at IS NULL AND ignored 
   },
   "20": { to: "21", sql: "ALTER TABLE item ADD COLUMN avatar TEXT;" },
   "21": { to: "22", sql: PLAN_LINE },
+  "22": { to: "23", sql: "ALTER TABLE wait ADD COLUMN reopened_at TEXT;" },
 };
 
 function excludeIgnoredRepos(key: "githubReviewQuery" | "githubPrQuery", kind: string): string {

@@ -608,7 +608,7 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
   for (const w of waits) {
     const thread = threadOf(w.url);
     if (thread === null) continue;
-    const askedAt = String(Date.parse(w.asked_at) / 1000);
+    const askedAt = String(Math.max(Date.parse(w.asked_at), Date.parse(w.reopened_at ?? w.asked_at)) / 1000);
     const r = await slackGet<Answer & { messages: Match[] }>(sys, way, "conversations.replies", {
       channel: thread.channel,
       ts: thread.ts,
@@ -627,7 +627,7 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
       body = await full(dir, reply);
       author = await nameOf(dir, reply, w.who);
       title = `${author} answered: ${(body ?? "").replaceAll("\n", " ")}`;
-    } else {
+    } else if (w.reopened_at === null) {
       const asked = messageOf(w.url);
       const got = asked === null ? null : await dir.reactions(asked.channel, asked.ts);
       const mine = got !== null && got.user === me;
