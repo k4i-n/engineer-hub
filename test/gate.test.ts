@@ -66,7 +66,7 @@ test("an action with no hub write after it blocks, naming the last commands", ()
       "- gh pr comment 1 --body ok",
       "- gh pr merge 1",
       "- gh issue close 2",
-      "Record them before stopping: log or link on the ticket, then ticket_set next. If they belong to no ticket, log them on the day plan with day_set.",
+      "Record them before stopping: log or link on the ticket, then ticket_set next. If they belong to no ticket, add them to the day plan with plan_add.",
     ].join("\n"),
   );
 });
