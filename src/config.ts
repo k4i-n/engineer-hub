@@ -205,7 +205,7 @@ export const DEFAULTS: Config = {
   syncEvery: "4h",
   fetch: { github: true, linear: false, slack: false },
   fetchEvery: "1m",
-  githubReviewQuery: "is:pr is:open review-requested:@me archived:false",
+  githubReviewQuery: "is:pr is:open review-requested:@me archived:false draft:false",
   githubPrQuery: "is:pr author:@me",
   reviewAsk: "Review this?",
   issueRepo: "",
@@ -325,7 +325,7 @@ function semanticError(key: Key, value: unknown): string | undefined {
     return "laterHour is an hour from 0 to 23";
   }
   if (key === "githubReviewQuery" && String(value).trim() === "") {
-    return 'githubReviewQuery is a GitHub search, e.g. "is:pr is:open review-requested:@me archived:false"';
+    return 'githubReviewQuery is a GitHub search, e.g. "is:pr is:open review-requested:@me archived:false draft:false"';
   }
   if (key === "githubPrQuery" && String(value).trim() === "") {
     return 'githubPrQuery is a GitHub search, e.g. "is:pr author:@me -repo:acme/noisy"';

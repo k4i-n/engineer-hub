@@ -86,7 +86,7 @@ Config lives in the database. `hub config` lists every key with its value:
 | `hiddenBlocks` | `[]` | dashboard cards that are hidden |
 | `progressStyle` | `"ring"` | step progress as `ring`, `half` or `bar` |
 | `horizon` | `"14d"` | the period for Steps done, the Done tab, the done count and Activity: `7d`, `14d`, `30d`, `week`, `month` or `all` |
-| `githubReviewQuery` | `"is:pr is:open review-requested:@me archived:false"` | the GitHub search for review requests |
+| `githubReviewQuery` | `"is:pr is:open review-requested:@me archived:false draft:false"` | the GitHub search for review requests |
 | `issueRepo` | `""` | `owner/name` a note's "Open as GitHub issue" files into when the ticket's `repo` is not one |
 | `reviewAsk` | `"Review this?"` | the yes/no question every new review request asks (not one left out by `-repo:` or ignored); No closes it; `""` asks nothing |
 | `githubPrQuery` | `"is:pr author:@me"` | the GitHub search for your PRs (hub adds `updated:>=` the last fetch) |

@@ -218,11 +218,16 @@ export function upsertItem(ctx: Ctx, input: ItemInput, withEvents: boolean): Ups
   const reopen = ignored === null && (stateChanged || (next.needs_me === 1 && existing.needs_me === 0));
   const closedAt = reopen ? null : ignored === null ? existing.closed_at : (existing.closed_at ?? at);
   const snoozedUntil = reopen ? null : existing.snoozed_until;
+  const askAgain = reopen && next.kind === "review_request";
+  const ask = askAgain ? ctx.config.reviewAsk.trim() || null : existing.ask;
+  const askAnswer = askAgain ? null : existing.ask_answer;
+  const askAt = askAgain ? null : existing.ask_at;
   const values: SQLInputValue[] = fields.map((f) => next[f]);
   db.prepare(
-    `UPDATE item SET ${fields.map((f) => `${f} = ?`).join(", ")}, closed_at = ?, snoozed_until = ?, ignored = ?, changed_at = ?
+    `UPDATE item SET ${fields.map((f) => `${f} = ?`).join(", ")}, closed_at = ?, snoozed_until = ?, ignored = ?, changed_at = ?,
+       ask = ?, ask_answer = ?, ask_at = ?
      WHERE id = ?`,
-  ).run(...values, closedAt, snoozedUntil, ignored, at, existing.id);
+  ).run(...values, closedAt, snoozedUntil, ignored, at, ask, askAnswer, askAt, existing.id);
   if (!withEvents || next.ticket_id === null || ignored !== null) return "changed";
   const merged = { ...existing, ...next };
   if (next.ticket_id !== existing.ticket_id) event(ctx, next.ticket_id, `Attached ${describe(merged)}`, ref);

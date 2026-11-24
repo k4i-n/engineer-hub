@@ -131,7 +131,7 @@ describe("github", () => {
     assert.doesNotMatch(needs, /pull\/102/);
     assert.match(await hub("sources"), /^github \| last sync .* \| cursor \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
     const query = calls.find((c) => c[1] === "api") ?? [];
-    assert.ok(query.includes("requested=is:pr is:open review-requested:@me archived:false"));
+    assert.ok(query.includes("requested=is:pr is:open review-requested:@me archived:false draft:false"));
     assert.ok(query.some((a) => /^mine=is:pr author:@me updated:>=\d{4}-/.test(a)));
     const db = new DatabaseSync(dbFile);
     const avatars = db.prepare("SELECT DISTINCT avatar FROM item WHERE source = 'github'").all();
@@ -394,7 +394,7 @@ describe("github", () => {
   test("the review request search comes from config, shows in Settings, and a narrower one drops what it leaves out", async () => {
     answers.gh = graphql([PR("https://github.com/acme/noisy/pull/1"), PR("https://github.com/acme/web/pull/7")], []);
     await hub("fetch", "github");
-    const narrow = "is:pr is:open review-requested:@me archived:false -repo:acme/noisy";
+    const narrow = "is:pr is:open review-requested:@me archived:false draft:false -repo:acme/noisy";
     await hub("config", "githubReviewQuery", JSON.stringify(narrow));
     answers.gh = graphql([PR("https://github.com/acme/web/pull/7")], []);
     await hub("fetch", "github");
@@ -502,17 +502,57 @@ describe("github", () => {
     assert.match(all, /web\/pull\/7 \| ask: Review this\? \(no answer yet\)$/m);
   });
 
-  test("a review request done and then requested again reopens with its earlier answer", async () => {
+  for (const answer of ["no", "yes"]) {
+    test(`a review request answered ${answer}, done and then requested again asks again`, async () => {
+      const pr = "https://github.com/acme/web/pull/7";
+      answers.gh = graphql([PR(pr)], []);
+      await hub("fetch", "github");
+      await hub("item", "answer", pr, answer);
+      answers.gh = graphql([], []);
+      await hub("fetch", "github");
+      assert.doesNotMatch(await hub("items", "--needs-me"), /pull\/7/);
+      answers.gh = graphql([PR(pr)], []);
+      await hub("fetch", "github");
+      assert.match(await hub("items", "--needs-me"), /pull\/7 \| ask: Review this\? \(no answer yet\)$/m);
+      const page = await (await fetch(`${server.url}/?part=1`)).text();
+      assert.match(page, /<span class="ask"><span>Review this\?<\/span><button[^>]*data-act="item-answer"/);
+    });
+  }
+
+  test("a review request answered no and still requested keeps its answer and stays closed", async () => {
     const pr = "https://github.com/acme/web/pull/7";
     answers.gh = graphql([PR(pr)], []);
     await hub("fetch", "github");
-    await hub("item", "answer", pr, "yes");
-    answers.gh = graphql([], []);
+    await hub("item", "answer", pr, "no");
+    answers.gh = graphql([PR(pr, { title: "renamed" })], []);
     await hub("fetch", "github");
     assert.doesNotMatch(await hub("items", "--needs-me"), /pull\/7/);
+    assert.match(await hub("items", "--all"), /pull\/7 \| ask: Review this\? no \| closed$/m);
+  });
+
+  test("an ignored review request requested again stays ignored with its answer", async () => {
+    const pr = "https://github.com/acme/web/pull/7";
     answers.gh = graphql([PR(pr)], []);
     await hub("fetch", "github");
-    assert.match(await hub("items", "--needs-me"), /pull\/7 \| ask: Review this\? yes$/m);
+    await hub("item", "answer", pr, "no");
+    await hub("item", "ignore", pr);
+    answers.gh = graphql([], []);
+    await hub("fetch", "github");
+    answers.gh = graphql([PR(pr)], []);
+    await hub("fetch", "github");
+    assert.doesNotMatch(await hub("items", "--needs-me"), /pull\/7/);
+    assert.match(await hub("items", "--all"), /pull\/7 \| ask: Review this\? no \| ignored$/m);
+  });
+
+  test("a PR reopened by a state change keeps an agent question's answer", async () => {
+    const mine = "https://github.com/acme/web/pull/9";
+    answers.gh = graphql([], [PR(mine)]);
+    await hub("fetch", "github");
+    await hub("item", "ask", mine, "Approve", "as", "is?");
+    await hub("item", "answer", mine, "yes");
+    answers.gh = graphql([], [PR(mine, { reviewDecision: "CHANGES_REQUESTED" })]);
+    await hub("fetch", "github");
+    assert.match(await hub("items", "--needs-me"), /pull\/9 \| ask: Approve as is\? yes$/m);
   });
 
   test("without gh the source shows the error and Settings says how to fix it", async () => {
