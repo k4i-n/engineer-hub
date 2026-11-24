@@ -52,6 +52,7 @@ type User = {
   name?: string;
   real_name?: string;
   is_bot?: boolean;
+  deleted?: boolean;
   profile?: { display_name?: string; real_name?: string; image_48?: string };
 };
 type Group = { id: string; handle: string; users?: string[] };
@@ -115,6 +116,7 @@ class Directory {
   private readonly channels = new Map<string, Channel | null>();
   private groups: Group[] | null = null;
   private named: Map<string, string> | null | undefined;
+  private people: User[] | null | undefined;
   private readonly sys: System;
   private readonly way: Way;
 
@@ -198,6 +200,39 @@ class Directory {
     return named;
   }
 
+  private async allPeople(): Promise<User[] | null> {
+    if (this.people !== undefined) return this.people;
+    const people: User[] = [];
+    let cursor = "";
+    for (let page = 0; page < LIST_PAGES; page++) {
+      const r = await this.soft<Answer & { members: User[]; response_metadata?: { next_cursor?: string } }>(
+        "users.list",
+        { limit: "1000", cursor },
+        "users:read",
+      );
+      if (r === null) {
+        this.people = null;
+        return null;
+      }
+      people.push(...r.members.filter((u) => u.deleted !== true));
+      cursor = r.response_metadata?.next_cursor ?? "";
+      if (cursor === "") break;
+    }
+    this.people = people;
+    return people;
+  }
+
+  async idsOf(who: string): Promise<Set<string>> {
+    const want = who.trim().replace(/^@/, "").toLowerCase();
+    const people = (await this.allPeople()) ?? [];
+    const called = (u: User) =>
+      [u.name, u.real_name, u.profile?.display_name, u.profile?.real_name]
+        .map((n) => (n ?? "").toLowerCase())
+        .filter((n) => n !== "")
+        .flatMap((n) => [n, n.split(/\s+/)[0]]);
+    return new Set(people.filter((u) => u.id.toLowerCase() === want || called(u).includes(want)).map((u) => u.id));
+  }
+
   private async allGroups(): Promise<Group[]> {
     if (this.groups === null) {
       const r = await this.soft<Answer & { usergroups: Group[] }>(
@@ -277,6 +312,10 @@ export async function resolveChannels(sys: System, list: SlackChannel[]): Promis
 function inChannels(list: SlackChannel[]): (m: Match) => boolean {
   return (m) =>
     m.channel !== undefined && list.some((c) => (c.id === "" ? c.name === m.channel?.name : c.id === m.channel?.id));
+}
+
+async function nameOf(dir: Directory, m: Match, fallback: string): Promise<string> {
+  return m.user ? await dir.user(m.user) : (m.username ?? fallback);
 }
 
 async function byline(dir: Directory, m: Match): Promise<{ author: string | null; avatar: string | null }> {
@@ -576,13 +615,17 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
       oldest: askedAt,
       limit: "100",
     });
-    const reply = r.messages.find((m) => m.user !== me && Number(m.ts) > Number(askedAt) && m.ts !== thread.ts);
+    const after = r.messages.filter((m) => m.user !== me && Number(m.ts) > Number(askedAt) && m.ts !== thread.ts);
+    const waitedOn = after.length === 0 ? new Set<string>() : await dir.idsOf(w.who);
+    const reply = after.find((m) => waitedOn.size === 0 || (m.user !== undefined && waitedOn.has(m.user)));
+    const aside = after.at(-1);
     let title: string | null = null;
     let body: string | undefined;
     let author = w.who;
+    let state = "answered";
     if (reply !== undefined) {
       body = await full(dir, reply);
-      author = reply.user ? await dir.user(reply.user) : (reply.username ?? w.who);
+      author = await nameOf(dir, reply, w.who);
       title = `${author} answered: ${(body ?? "").replaceAll("\n", " ")}`;
     } else {
       const asked = messageOf(w.url);
@@ -595,8 +638,14 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
         title = `${author} reacted :${theirs.name}:`;
       }
     }
+    if (title === null && aside !== undefined) {
+      body = await full(dir, aside);
+      author = await nameOf(dir, aside, w.who);
+      title = `${author} replied: ${(body ?? "").replaceAll("\n", " ")}`;
+      state = "replied";
+    }
     if (title === null) continue;
-    answered.push(w.url);
+    if (state === "answered") answered.push(w.url);
     out.push({
       source: "slack",
       kind: "thread",
@@ -605,7 +654,7 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
       body,
       author,
       ticket: w.ticket_id,
-      state: "answered",
+      state,
       needs_me: true,
     });
   }

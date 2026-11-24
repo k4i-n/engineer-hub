@@ -874,6 +874,11 @@ describe("slack", () => {
       }
       if (u.pathname === "/api/usergroups.list")
         return { status: 200, body: JSON.stringify({ ok: true, usergroups: [] }) };
+      if (u.pathname === "/api/users.list")
+        return {
+          status: 200,
+          body: JSON.stringify({ ok: true, members: [{ id: "U3", profile: { display_name: "Ken" } }] }),
+        };
       if (u.pathname === "/api/conversations.replies") {
         assert.equal(u.searchParams.get("channel"), "C01");
         if (u.searchParams.get("ts") !== thread)
@@ -908,6 +913,54 @@ describe("slack", () => {
       await hub("sources"),
       /slack \| last sync .* \| cursor \d{10}\.\d{6} \| warning: missing reactions:read: names, DMs, group mentions or reactions are left out/,
     );
+  });
+
+  test("a wait on a Slack user closes on their reply; someone else's reply shows and keeps it open", async () => {
+    await hub("config", "fetch", '{"github":false,"slack":true}');
+    answers.security = (args) =>
+      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+    const thread = ts(3600);
+    await hub("wait", "ENG-42", "maciej", permalink(thread));
+    const asked = Math.floor(Date.now() / 1000);
+    const side = { ts: `${asked + 30}.000200`, text: "I think Maciej knows", user: "U5" };
+    const answer = { ts: `${asked + 60}.000300`, text: "yes, ship it", user: "U4" };
+    let replies = [side];
+    const ok = (body: unknown) => ({ status: 200, body: JSON.stringify({ ok: true, ...(body as object) }) });
+    const people: Record<string, string> = { U4: "Maciej Nowak", U5: "Dmitry" };
+    httpAnswer = (url) => {
+      const u = new URL(url);
+      if (u.pathname === "/api/auth.test") return ok({ user_id: ME });
+      if (u.pathname === "/api/search.messages") return ok({ messages: { matches: [] } });
+      if (u.pathname === "/api/users.list")
+        return ok({
+          members: [
+            { id: "U4", real_name: "Maciej Nowak" },
+            { id: "U5", real_name: "Dmitry" },
+            { id: "U6", real_name: "Maciej Old", deleted: true },
+          ],
+        });
+      if (u.pathname === "/api/users.info") {
+        const id = u.searchParams.get("user") ?? "";
+        return ok({ user: { id, profile: { display_name: people[id] ?? "" } } });
+      }
+      if (u.pathname === "/api/conversations.replies")
+        return ok({ messages: [{ ts: thread, text: "q", user: ME }, ...replies] });
+      if (u.pathname === "/api/reactions.get") return ok({ message: { user: ME, reactions: [] } });
+      return { status: 404, body: "" };
+    };
+    assert.doesNotMatch(await hub("fetch", "slack"), /closed/);
+    assert.match(
+      await hub("items", "--needs-me", "--source", "slack"),
+      /slack\/thread \| needs you \| Dmitry replied: I think Maciej knows \| replied \| ENG-42/,
+    );
+    assert.match(await hub("waits"), /maciej/);
+    replies = [side, answer];
+    assert.match(await hub("fetch", "slack"), /closed #1/);
+    assert.match(
+      await hub("items", "--needs-me", "--source", "slack"),
+      /slack\/thread \| needs you \| Maciej Nowak answered: yes, ship it \| answered \| ENG-42/,
+    );
+    assert.match(await hub("waits"), /no open waits/);
   });
 
   test("with every scope, ids read as names, DMs are named, a ✅ from me closes a mention and a reaction answers a wait", async () => {
