@@ -497,3 +497,62 @@ export function carry(ctx: Ctx, date: string): string[] {
     .slice(start)
     .map((s) => lineText(ctx, s));
 }
+
+export const FROM_HUB = "From hub";
+
+export type HubLine = { kind: "pr" | "wait" | "draft" | "gate"; name: string; text: string; href: string | null };
+
+function asksQuestion(value: string | null): value is string {
+  return value !== null && /[?？]$/.test(value.trim());
+}
+
+export function fromHub(ctx: Ctx): HubLine[] {
+  const now = nowIso(ctx.now);
+  const date = today(ctx.now, ctx.config.timezone);
+  const prs = all<ItemRow>(
+    ctx.db,
+    `SELECT * FROM item WHERE kind = 'pr' AND closed_at IS NULL AND ignored IS NULL
+       AND state IS NOT NULL AND state NOT IN ('merged', 'closed') ORDER BY first_seen`,
+  ).map((i): HubLine => {
+    const url = i.url ?? (/^https?:/.test(i.ref) ? i.ref : null);
+    return {
+      kind: "pr",
+      name: githubRef(url) ?? `item ${i.id}`,
+      text: i.title === null ? (i.state ?? "") : `${i.title} · ${i.state ?? ""}`,
+      href: url,
+    };
+  });
+  const waits = all<WaitRow>(
+    ctx.db,
+    "SELECT * FROM wait WHERE closed_at IS NULL ORDER BY coalesce(ping_after, asked_at)",
+  ).map(
+    (w): HubLine => ({
+      kind: "wait",
+      name: `${w.who} (${w.ticket_id})`,
+      text: w.ping_after === null ? "no ping set" : `ping ${clock(ctx, w.ping_after, date)}`,
+      href: w.url,
+    }),
+  );
+  const drafts = all<DraftRow>(
+    ctx.db,
+    "SELECT * FROM draft WHERE status = 'draft' AND internal = 0 AND send_at > ? ORDER BY send_at",
+    now,
+  ).map(
+    (d): HubLine => ({
+      kind: "draft",
+      name: `${draftOwner(d)}/${d.label}`,
+      text: `send ${clock(ctx, d.send_at ?? now, date)}`,
+      href: d.ticket_id === null ? null : `/t/${encodeURIComponent(d.ticket_id)}`,
+    }),
+  );
+  const gates = all<Ticket>(ctx.db, "SELECT * FROM ticket WHERE gate IS NOT NULL ORDER BY id")
+    .filter((t) => asksQuestion(t.gate))
+    .map((t): HubLine => ({ kind: "gate", name: t.id, text: t.gate ?? "", href: `/t/${encodeURIComponent(t.id)}` }));
+  return [...prs, ...waits, ...drafts, ...gates];
+}
+
+export function fromHubMarkdown(ctx: Ctx): string {
+  return fromHub(ctx)
+    .map((l) => `- ${l.kind} ${l.name}: ${l.text}`)
+    .join("\n");
+}

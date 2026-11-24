@@ -1252,6 +1252,19 @@ function planRow(ctx: Ctx, s: plan.LineState, date: string, readOnly: boolean): 
   return `<li class="${cls}" data-key="pl-${s.line.id}" data-tab-panel="${open ? "open all" : "all"}"${open ? "" : " hidden"}>${planBox(s, date, readOnly)}<span class="pl-text">${time}${line(ctx, s.line.text)}${why}${carried}</span><span class="pl-refs">${chips}</span></li>`;
 }
 
+const HUB_TONE: Record<plan.HubLine["kind"], Tone> = { pr: "blue", wait: "orange", draft: "teal", gate: "amber" };
+
+function hubBlock(ctx: Ctx): string {
+  const list = plan.fromHub(ctx);
+  if (list.length === 0) return "";
+  const link = linker(ctx);
+  const rows = list.map((l) => {
+    const name = l.href?.startsWith("/") ? `<a href="${esc(l.href)}">${esc(l.name)}</a>` : link(l.href, l.name);
+    return `<li><span class="pill tone-${HUB_TONE[l.kind]}">${l.kind}</span>${name}<span class="pl-why">${line(ctx, l.text)}</span></li>`;
+  });
+  return `<div class="from-hub"><h4>${plan.FROM_HUB}</h4><ul>${rows.join("")}</ul></div>`;
+}
+
 function todaySection(ctx: Ctx, asked: string | null): string {
   const now = today(ctx.now, ctx.config.timezone);
   const picked = asked !== null && isDate(asked) && asked < now ? asked : null;
@@ -1274,7 +1287,8 @@ function todaySection(ctx: Ctx, asked: string | null): string {
     body.trim() === ""
       ? ""
       : `<div class="md">${renderMarkdown(body, (url, text) => link(url, text), ctx.config.resumeHeading)}</div>`;
-  const content = rows + md === "" ? missing : `<div data-keep-scroll data-key="today">${rows}${md}</div>`;
+  const hub = past ? "" : hubBlock(ctx);
+  const content = rows + hub + md === "" ? missing : `<div data-keep-scroll data-key="today">${rows}${hub}${md}</div>`;
   const readOnly = past ? pill("read only", "grey") : "";
   const back = picked === null ? "" : `<a class="day-back" href="/" data-day="">Back to today</a>`;
   const open = lines.filter((s) => !s.dropped && s.doneAt === null).length;

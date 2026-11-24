@@ -1126,8 +1126,27 @@ button.busy::after {
   margin-left: 6px;
   vertical-align: 1px;
 }
-.plines + .md {
+.plines + :is(.md, .from-hub),
+.from-hub + .md {
   margin-top: 8px;
+}
+.from-hub h4 {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.from-hub ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.from-hub li {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 0;
+  min-width: 0;
 }
 
 /* drafts */
