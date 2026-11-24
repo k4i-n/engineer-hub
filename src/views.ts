@@ -425,36 +425,7 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
     const section = cards.get(i.source);
     list.push({ ...itemNeed(ctx, i), ...(section === undefined ? {} : { section: sectionId(section) }) });
   }
-  for (const d of matches) {
-    const where = d.channel ? ` in ${d.channel}` : "";
-    const proposal = {
-      act: "match",
-      ticket: draftOwner(d),
-      label: d.label,
-      text: d.match_text ?? "",
-      ref: d.match_ref ?? "",
-    };
-    list.push({
-      key: `match-${draftOwner(d)}-${d.label}`,
-      rank: 3,
-      since: d.posted_at ?? now,
-      verb: "Sent?",
-      tone: "blue",
-      title: `<span class="need-title">“${line(ctx, d.match_text ?? "")}”</span>`,
-      fold: true,
-      sub: "",
-      ask: askChips(`Your draft ${line(ctx, d.label)}${esc(where)}?${verdictClash(d)}`, [
-        answerChip("Yes", { ...proposal, answer: "yes" }, "y"),
-        answerChip("No", { ...proposal, answer: "no" }, "n"),
-      ]),
-      ticket: d.ticket_id,
-      href: d.match_ref,
-      dim: null,
-      ok: null,
-      undo: null,
-      later: null,
-    });
-  }
+  for (const d of matches) list.push(matchNeed(ctx, d));
   for (const d of unsent) {
     if (d.item === null || !rowKeys.has(d.item)) list.push(sendNeed(ctx, d));
   }
@@ -569,6 +540,41 @@ function sendNeed(ctx: Ctx, d: DraftRow): Need {
   };
 }
 
+const REVIEW_URL = /#pullrequestreview-\d+$/;
+
+function matchNeed(ctx: Ctx, d: DraftRow): Need {
+  const text = line(ctx, d.match_text ?? "");
+  const pr = REVIEW_URL.test(d.match_ref ?? "") ? githubRef(d.item) : null;
+  const where = d.channel ? ` in ${d.channel}` : "";
+  const proposal = {
+    act: "match",
+    ticket: draftOwner(d),
+    label: d.label,
+    text: d.match_text ?? "",
+    ref: d.match_ref ?? "",
+  };
+  return {
+    key: `match-${draftOwner(d)}-${d.label}`,
+    rank: 3,
+    since: d.posted_at ?? nowIso(ctx.now),
+    verb: pr === null ? "Sent?" : "Reviewed?",
+    tone: pr === null ? "blue" : "violet",
+    title: pr === null ? `<span class="need-title">“${text}”</span>` : linker(ctx)(d.match_ref, pr, "need-title"),
+    fold: true,
+    sub: pr === null ? "" : `“${text}”`,
+    ask: askChips(`Your draft ${line(ctx, d.label)}${esc(where)}?${verdictClash(d)}`, [
+      answerChip("Yes", { ...proposal, answer: "yes" }, "y"),
+      answerChip("No", { ...proposal, answer: "no" }, "n"),
+    ]),
+    ticket: d.ticket_id,
+    href: d.match_ref,
+    dim: null,
+    ok: null,
+    undo: null,
+    later: null,
+  };
+}
+
 function itemOpen(ctx: Ctx, i: ItemRow): boolean {
   return i.ignored === null && i.closed_at === null && (i.snoozed_until === null || i.snoozed_until <= nowIso(ctx.now));
 }
@@ -675,7 +681,7 @@ type Group = { key: string; label: string; tone: Tone; verbs: string[] };
 
 const GROUPS: Group[] = [
   { key: "fix", label: "Fix now", tone: "red", verbs: ["Alert"] },
-  { key: "review", label: "Review", tone: "violet", verbs: ["Review"] },
+  { key: "review", label: "Review", tone: "violet", verbs: ["Review", "Reviewed?"] },
   { key: "reply", label: "Reply", tone: "teal", verbs: ["Reply", "Send", "Sent?"] },
   {
     key: "prs",

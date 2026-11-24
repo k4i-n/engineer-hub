@@ -55,6 +55,10 @@ async function hub(...argv: string[]): Promise<string> {
   return out;
 }
 
+function group(html: string, key: string): string {
+  return html.split('data-group="').find((c) => c.startsWith(`${key}"`)) ?? "";
+}
+
 const PR = (url: string, extra: Record<string, unknown> = {}) => ({
   url,
   title: `title of ${url.split("/").at(-1)}`,
@@ -296,7 +300,8 @@ describe("github", () => {
     answers.gh = graphql([], [], { [url]: review(4, 2, { body: "" }) });
     assert.match(await hub("fetch", "github"), /drafts: 2 sent\?/);
     const home = await (await fetch(`${server.url}/?part=1`)).text();
-    assert.match(home, /<span class="need-title">“approved”<\/span>/);
+    assert.match(group(home, "review"), /class="need-title"[^>]*>acme\/web#650<\/a>/);
+    assert.match(home, /“approved”/);
     assert.match(home, /Your draft nit\? Draft says request changes, GitHub says approve/);
   });
 
