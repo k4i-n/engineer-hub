@@ -114,7 +114,7 @@ export function unpinged(ctx: Ctx, key: string, pingAfter: string | null, pinged
 
 export function reopenWait(ctx: Ctx, key: string): Result {
   const w = openWait(ctx, key);
-  ctx.db.prepare("UPDATE wait SET closed_at = NULL WHERE id = ?").run(w.id);
+  ctx.db.prepare("UPDATE wait SET closed_at = NULL, reopened_at = ? WHERE id = ?").run(nowIso(ctx.now), w.id);
   return { text: `wait #${w.id} reopened`, json: { id: w.id } };
 }
 
