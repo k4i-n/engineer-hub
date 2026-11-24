@@ -1825,6 +1825,7 @@ ${section(
     ) +
     row("Alert channels", channelInput("slackAlertChannels", c.slackAlertChannels), c.fetch.slack !== true) +
     row("Ignore channels", channelInput("slackIgnoreChannels", c.slackIgnoreChannels), c.fetch.slack !== true) +
+    row("Group channels", channelInput("slackGroupChannels", c.slackGroupChannels), c.fetch.slack !== true) +
     row(
       "Every",
       segmented("fetchEvery", c.fetchEvery, [

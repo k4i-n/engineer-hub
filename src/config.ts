@@ -41,6 +41,7 @@ export type Config = {
   issueRepo: string;
   slackAlertChannels: SlackChannel[];
   slackIgnoreChannels: SlackChannel[];
+  slackGroupChannels: SlackChannel[];
   hiddenBlocks: string[];
   progressStyle: string;
   horizon: string;
@@ -56,7 +57,7 @@ export type Layout = { top: string[]; left: string[]; right: string[] };
 
 export type SlackChannel = { id: string; name: string };
 
-export const SLACK_CHANNEL_KEYS = ["slackAlertChannels", "slackIgnoreChannels"] as const;
+export const SLACK_CHANNEL_KEYS = ["slackAlertChannels", "slackIgnoreChannels", "slackGroupChannels"] as const;
 export type SlackChannelKey = (typeof SLACK_CHANNEL_KEYS)[number];
 
 const CHANNEL_ID = /^[CG][A-Z0-9]{2,}$/;
@@ -204,6 +205,7 @@ export const DEFAULTS: Config = {
   issueRepo: "",
   slackAlertChannels: [],
   slackIgnoreChannels: [],
+  slackGroupChannels: [],
   hiddenBlocks: [],
   progressStyle: "ring",
   horizon: "14d",
