@@ -1110,6 +1110,44 @@ describe("slack", () => {
     );
   });
 
+  test("every message in a watch channel needs me, with or without a mention, except my own", async () => {
+    await hub("config", "fetch", '{"github":false,"slack":true}');
+    await hub("config", "slackWatchChannels", '[{"id":"C10","name":"eng"}]');
+    answers.security = (args) =>
+      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+    const [plain, mentioned, mine] = [ts(300), ts(200), ts(100)];
+    const said = (t: string, text: string, user = "U2") => ({
+      ts: t,
+      text,
+      permalink: `https://acme.slack.com/archives/C10/p${t.replace(".", "")}`,
+      user,
+      username: user === ME ? "khai" : "ana",
+      channel: { id: "C10", name: "eng" },
+    });
+    const queries: string[] = [];
+    const ok = (body: unknown) => ({ status: 200, body: JSON.stringify({ ok: true, ...(body as object) }) });
+    httpAnswer = (url) => {
+      const u = new URL(url);
+      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, user: "khai" });
+      if (u.pathname === "/api/reactions.get") return ok({ message: { reactions: [] } });
+      if (u.pathname !== "/api/search.messages") return { status: 404, body: "" };
+      const q = u.searchParams.get("query") ?? "";
+      queries.push(q);
+      const ping = said(mentioned, `<@${ME}> can you check?`);
+      if (q.startsWith(`<@${ME}>`)) return ok({ messages: { matches: [ping] } });
+      if (q.startsWith("in:#eng")) {
+        return ok({ messages: { matches: [said(plain, "build is slow today"), ping, said(mine, "on it", ME)] } });
+      }
+      return ok({ messages: { matches: [] } });
+    };
+    assert.match(await hub("fetch", "slack"), /items: 2 new/);
+    assert.ok(queries.some((q) => /^in:#eng after:\d{4}-\d{2}-\d{2}$/.test(q)));
+    const needs = await hub("items", "--needs-me", "--source", "slack");
+    assert.match(needs, /slack\/message \| needs you \| #eng · ana: build is slow today \| channel/);
+    assert.match(needs, /slack\/message \| needs you \| #eng · ana: @U0ME can you check\? \| mention/);
+    assert.doesNotMatch(needs, /on it/);
+  });
+
   test("a bot message with no text is named by its block or attachment text, else (no text)", async () => {
     await hub("config", "fetch", '{"github":false,"slack":true}');
     await hub("config", "slackAlertChannels", '["#tech_platform"]');
