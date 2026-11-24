@@ -133,11 +133,23 @@ function stepState(ctx: Ctx, ref: Ref, until: string | null): RefState {
   };
 }
 
+const LOCAL_TS = /^(\d{4}-\d{2}-\d{2}) (\d{2}):(\d{2})$/;
+
+function postedIso(ctx: Ctx, d: DraftRow): string {
+  const at = d.posted_at ?? "";
+  if (!Number.isNaN(Date.parse(at)) && at.includes("T")) return at;
+  const local = LOCAL_TS.exec(at);
+  if (local === null) return d.created_at ?? nowIso(ctx.now);
+  const [, date, h, m] = local;
+  const start = Date.parse(startOfDayIso(date ?? "", ctx.config.timezone));
+  return new Date(start + Number(h) * 3_600_000 + Number(m) * 60_000).toISOString();
+}
+
 function draftState(ctx: Ctx, ref: Ref, until: string | null): RefState {
   const d = one<DraftRow>(ctx.db, "SELECT * FROM draft WHERE id = ?", ref.id);
   if (!d) return gone(ref);
   const owner = draftOwner(d);
-  const doneAt = d.status === "draft" ? null : before(d.posted_at ?? d.created_at, until);
+  const doneAt = d.status === "draft" ? null : before(postedIso(ctx, d), until);
   const state = doneAt !== null ? "sent" : d.match_ref !== null ? "sent?" : "not sent";
   return {
     ref,
