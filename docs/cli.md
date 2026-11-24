@@ -90,7 +90,8 @@ Config lives in the database. `hub config` lists every key with its value:
 | `issueRepo` | `""` | `owner/name` a note's "Open as GitHub issue" files into when the ticket's `repo` is not one |
 | `reviewAsk` | `"Review this?"` | the yes/no question every new review request asks (not one left out by `-repo:` or ignored); No closes it; `""` asks nothing |
 | `githubPrQuery` | `"is:pr author:@me"` | the GitHub search for your PRs (hub adds `updated:>=` the last fetch) |
-| `slackAlertChannels` | `[]` | Slack channels whose new messages are alerts (Fix now) |
+| `slackAlertChannels` | `[]` | Slack channels whose new messages are alerts (Fix now); give names or ids, stored as `{"id","name"}` |
+| `slackIgnoreChannels` | `[]` | Slack channels hub pulls nothing from; same form as `slackAlertChannels` |
 | `laterHour` | `9` | the hour "later until tomorrow" means |
 | `recordActions` | `git push`, `gh pr create\|merge\|comment\|review\|close\|edit`, `gh issue create\|comment\|close\|edit` | regular expressions for shell commands a session must record in hub before it stops, and whose printed PR the PostToolUse hook links to the ticket on the current branch; `[]` switches the Stop hook off |
 | `awayPing` | `false` | post to a webhook when new alerts or messages arrive while you are away (see Dashboard) |

@@ -9,10 +9,11 @@ import { type Args, checkFields, findRoute, openapi, queryArgs, runRoute } from 
 import { Away, awayState, webhookCommand } from "./away.ts";
 import { type Backup, backup, backupDir, checkRestorable, listBackups, replaceDb } from "./backup.ts";
 import type { Ctx, Result } from "./commands.ts";
-import { loadConfig } from "./config.ts";
+import { loadConfig, type SlackChannel } from "./config.ts";
 import { one, openDb, SCHEMA_VERSION, type SourceRow } from "./db.ts";
 import { type Fetcher, isOn, Runner } from "./fetch.ts";
 import { FETCHERS } from "./fetchers/index.ts";
+import { resolveChannels } from "./fetchers/slack.ts";
 import { type System, system } from "./keys.ts";
 import { handleRpc } from "./mcp.ts";
 import { loadToken, tokenPath } from "./token.ts";
@@ -400,6 +401,7 @@ export function serve(options: ServeOptions): Promise<Server> {
     syncStatus: () => sync,
     startSync: (what: string) => ({ started: startSync(what), status: sync }),
     fetchNow: (source: string | null) => runner.now(source),
+    slackChannels: (list: SlackChannel[]) => resolveChannels(sys, list),
     awayTest: async (): Promise<Result> => {
       const text = await away.test();
       return { text, json: { posted: true } };

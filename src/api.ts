@@ -1,8 +1,16 @@
 import { brief } from "./brief.ts";
 import type { Ctx, Result } from "./commands.ts";
 import * as commands from "./commands.ts";
-import { loadConfig } from "./config.ts";
+import {
+  channelList,
+  isChannelKey,
+  loadConfig,
+  type SlackChannel,
+  type SlackChannelKey,
+  sameChannel,
+} from "./config.ts";
 import { getTicket, one, SETTABLE_FIELDS, transaction, type WaitRow } from "./db.ts";
+import type { Resolved } from "./fetchers/slack.ts";
 import { applyImport, collectImport, countPlan, formatSummary } from "./importer.ts";
 import * as items from "./items.ts";
 import { moved } from "./moved.ts";
@@ -24,6 +32,7 @@ export type Hooks = {
   startSync: (what: string) => { started: boolean; status: unknown };
   fetchNow: (source: string | null) => Promise<Result>;
   awayTest: () => Promise<Result>;
+  slackChannels: (list: SlackChannel[]) => Promise<Resolved>;
   backupNow: () => Result;
   backupBefore: (what: "delete" | "merge") => string;
   backups: () => Result;
@@ -45,6 +54,14 @@ export const MAX_COUNT = 200;
 
 export const COMMAND_KEYS = ["syncCommand", "judgeCommand"];
 const GITHUB_QUERY_KEYS = ["githubReviewQuery", "githubPrQuery"];
+
+async function channelsToStore(ctx: Ctx, key: SlackChannelKey, value: unknown, hooks: Hooks): Promise<SlackChannel[]> {
+  const given = channelList(key, value).map((c) => ctx.config[key].find((o) => sameChannel(o, c)) ?? c);
+  if (given.every((c) => c.id !== "" && c.name !== "")) return given;
+  const r = await hooks.slackChannels(given);
+  if (r.unknown.length > 0) throw new HubError(`no Slack channel ${r.unknown.map((n) => `#${n}`).join(", ")}`);
+  return r.channels;
+}
 
 function str(a: Args, key: string): string {
   return a[key] as string;
@@ -758,10 +775,11 @@ export const ROUTES: Route[] = [
     path: "/config/{key}",
     about: "Set a config key. Keys that run commands are set from the terminal only.",
     body: { value: { type: "any", required: true, about: "JSON value of the key's type" } },
-    run: (ctx, a) => {
+    run: async (ctx, a, hooks) => {
       const k = str(a, "key");
       if (COMMAND_KEYS.includes(k)) throw new HubError(`${k} is set from the terminal: hub config ${k}`);
-      const result = commands.config(ctx, k, JSON.stringify(a.value));
+      const value = isChannelKey(k) ? await channelsToStore(ctx, k, a.value, hooks) : a.value;
+      const result = commands.config(ctx, k, JSON.stringify(value));
       if (GITHUB_QUERY_KEYS.includes(k)) items.applyExcludedRepos({ ...ctx, config: loadConfig(ctx.db) });
       return result;
     },

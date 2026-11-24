@@ -1010,6 +1010,74 @@ describe("slack", () => {
     await assert.rejects(hub("config", "slackAlertChannels", '["Alerts Prod"]'), /not a Slack channel name/);
   });
 
+  test("channels typed by name are stored with their id, follow a rename, and ignored ones bring nothing", async () => {
+    await hub("config", "fetch", '{"github":false,"slack":true}');
+    answers.security = (args) =>
+      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+    const names: Record<string, string> = { C07: "alerts-prod", C09: "random", C10: "eng" };
+    const queries: string[] = [];
+    const ok = (body: unknown) => ({ status: 200, body: JSON.stringify({ ok: true, ...(body as object) }) });
+    const mention = (t: string, id: string) => ({
+      ts: t,
+      text: `<@${ME}> look`,
+      permalink: `https://acme.slack.com/archives/${id}/p${t.replace(".", "")}`,
+      user: "U2",
+      username: "ana",
+      channel: { id, name: names[id] },
+    });
+    const [inRandom, inEng, alert] = [ts(300), ts(200), ts(100)];
+    httpAnswer = (url) => {
+      const u = new URL(url);
+      const p = u.searchParams;
+      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, user: "khai" });
+      if (u.pathname === "/api/conversations.list") {
+        return ok({ channels: Object.entries(names).map(([id, name]) => ({ id, name })) });
+      }
+      if (u.pathname === "/api/conversations.info") {
+        const id = p.get("channel") ?? "";
+        return ok({ channel: { id, name: names[id] } });
+      }
+      if (u.pathname === "/api/reactions.get") return ok({ message: { reactions: [] } });
+      if (u.pathname !== "/api/search.messages") return { status: 404, body: "" };
+      const q = p.get("query") ?? "";
+      queries.push(q);
+      if (q.startsWith(`<@${ME}>`))
+        return ok({ messages: { matches: [mention(inRandom, "C09"), mention(inEng, "C10")] } });
+      if (q.startsWith("in:#alerts-new"))
+        return ok({ messages: { matches: [{ ...mention(alert, "C07"), text: "disk" }] } });
+      return ok({ messages: { matches: [] } });
+    };
+
+    const db = new DatabaseSync(dbFile);
+    db.prepare("INSERT OR REPLACE INTO config(key, value, updated_at) VALUES (?, ?, ?)").run(
+      "slackIgnoreChannels",
+      '["#random"]',
+      new Date().toISOString(),
+    );
+    db.close();
+    assert.match(await hub("config", "slackIgnoreChannels"), /\[\{"id":"","name":"random"\}\]/);
+    await hub("config", "slackAlertChannels", '["#alerts-prod"]');
+    await hub("config", "slackIgnoreChannels", '["random"]');
+    assert.match(await hub("config", "slackAlertChannels"), /\[\{"id":"C07","name":"alerts-prod"\}\]/);
+    assert.match(await hub("config", "slackIgnoreChannels"), /\[\{"id":"C09","name":"random"\}\]/);
+    await assert.rejects(hub("config", "slackIgnoreChannels", '["random","nope"]'), /no Slack channel #nope/);
+    await assert.rejects(hub("config", "slackAlertChannels", '["Alerts Prod"]'), /not a Slack channel name or id/);
+
+    names.C07 = "alerts-new";
+    names.C09 = "watercooler";
+    assert.match(await hub("fetch", "slack"), /items: 2 new/);
+    assert.match(await hub("config", "slackAlertChannels"), /\[\{"id":"C07","name":"alerts-new"\}\]/);
+    assert.match(await hub("config", "slackIgnoreChannels"), /\[\{"id":"C09","name":"watercooler"\}\]/);
+    assert.ok(queries.some((q) => q.startsWith("in:#alerts-new after:")));
+    const list = await hub("items", "--source", "slack");
+    assert.match(list, /slack\/alert \| needs you \| #alerts-new · ana: disk/);
+    assert.match(list, /#eng · ana: @U0ME look/);
+    assert.doesNotMatch(list, /#watercooler|#random/);
+    const settings = await (await fetch(`${server.url}/settings`)).text();
+    assert.ok(settings.includes('data-config-input="slackAlertChannels" data-list value="#alerts-new"'));
+    assert.ok(settings.includes('<span class="chip tone-grey">#watercooler · C09</span>'));
+  });
+
   test("a bot message with no text is named by its block or attachment text, else (no text)", async () => {
     await hub("config", "fetch", '{"github":false,"slack":true}');
     await hub("config", "slackAlertChannels", '["#tech_platform"]');
