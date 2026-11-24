@@ -1987,4 +1987,15 @@ describe("today plan lines", () => {
     assert.match(need("API 5xx"), /class="pill tone-blue plan-mark"/);
     assert.doesNotMatch(need("DB slow"), /plan-mark/);
   });
+
+  test("the card shows From hub on today's plan only", async () => {
+    await hub(["set", "ENG-42", "gate", "merge the migration?"]);
+    await hub(["plan", "add", "lunch"]);
+    assert.match(
+      await card(),
+      /<div class="from-hub"><h4>From hub<\/h4><ul><li><span class="pill tone-amber">gate<\/span><a href="\/t\/ENG-42">ENG-42<\/a><span class="pl-why">merge the migration\?<\/span><\/li><\/ul><\/div>/,
+    );
+    const past = await (await fetch(`${server.url}/?part=1&day=2026-11-13`)).text();
+    assert.doesNotMatch(/<section class="today">[\s\S]*?<\/section>/.exec(past)?.[0] ?? "", /from-hub/);
+  });
 });
