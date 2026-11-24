@@ -9,6 +9,8 @@ hub service status       # running (pid) or not installed; exit 1 when not runni
 hub service uninstall
 ```
 
+A Homebrew install runs it with `brew services start engineer-hub` instead, since `hub service install` would point launchd at a versioned path that the next `brew upgrade` removes.
+
 `hub serve` is the only process that opens the database (`~/.hub/hub.db`; `HUB_DB` or `--db <path>` points elsewhere, created on first start). Every other command, and every agent, goes through it: the CLI calls its API at `http://127.0.0.1:7420` (`HUB_URL` for another) with the token next to the database, and says so when it is not running. The CLI sends the database path it was pointed at, and a hub serving another database refuses. `hub config syncCommand` is the one write made straight to the file, since the API refuses keys that run commands.
 
 The database is the only copy of your tickets, so `hub serve` backs it up: once a day by default into `backups/` next to it (`hub-YYYYMMDD-HHMMSS.db`, UTC, mode 600), keeping the newest 14. Settings → Database switches it off, sets the schedule (1 hour to 7 days), the number kept and the folder; point the folder at a synced or external drive (`~/Library/Mobile Documents/com~apple~CloudDocs/hub`, say) so a backup outlives the disk. A failed backup shows as "backup failed" in the header. `hub backup` backs up now, `hub backups` lists them, and `hub restore <name>` saves the current database as a `-before-restore` backup and then swaps the named one in without stopping hub. A backup from an older hub is upgraded when restored and one from a newer hub is refused; to move to a new machine, copy a backup in as `hub.db` before the first `hub serve`.

@@ -8,7 +8,15 @@ Agents that keep ticket state in markdown re-read the whole file for every edit,
 
 ## Install
 
-Needs Node.js 24 or newer (`node:sqlite` with FTS5 and native TypeScript type stripping). No runtime dependencies.
+With Homebrew (macOS or Linux):
+
+```sh
+brew install nhkhai-vn/tap/engineer-hub
+brew services start engineer-hub    # runs hub serve at login and restarts it if it stops
+hub board
+```
+
+From source, with Node.js 24 or newer (`node:sqlite` with FTS5 and native TypeScript type stripping). No runtime dependencies.
 
 ```sh
 git clone https://github.com/nhkhai-vn/engineer-hub
@@ -17,6 +25,8 @@ ln -s "$PWD/src/cli.ts" ~/.local/bin/hub   # any folder on PATH
 hub service install                         # macOS; elsewhere run hub serve under a supervisor
 hub board
 ```
+
+Run hub serve one way only: `brew services` and `hub service install` both take port 7420.
 
 `hub serve` is the only process that opens the database (`~/.hub/hub.db`, or `HUB_DB` / `--db <path>`). The CLI, the dashboard and every agent go through its API at `http://127.0.0.1:7420`.
 
