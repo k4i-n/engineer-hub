@@ -10,7 +10,7 @@ The hub MCP tools (`mcp__plugin_engineer-hub_hub__*`) are named below by their s
 1. Run the `hub-sync` skill first, unless `sources` shows a sync in the last 30 minutes.
 2. Read, in this order, and nothing else unless a ticket needs it: `items` with `needs_me: true`, `waits` with `due: true`, `gates`, `next`, `day`.
 3. Order the day: what blocks other people first (review requests, questions asked of the engineer, alerts), then pings that are due, then decisions waiting on the engineer, then ticket work by priority. Yesterday's open lines are carried over by the first `day_set` of the day, which lists them: `plan_drop` (with `why`) or `plan_edit` each that no longer holds.
-4. Write the body into hub, never into a file: `day_set` with `date` and `body`: the RESUME block, decisions and order rules, nothing hub already holds (open PRs, waits, drafts and gates show on their own cards). If today already has a plan, read it with `day` and `full: true`, merge into it, and pass its `rev`; when `day_set` says the plan changed, read and merge again:
+4. Write the body into hub, never into a file: `day_set` with `date` and `body`: the RESUME block, decisions, order rules, parked and backlog. Never copy what hub already holds: open PRs, waits, drafts set for later and open gates show under `## From hub` in `day` and on the cards, and needs-you triage is the needs cards; `day_set` refuses a body with `## From hub`. If today already has a plan, read it with `day` and `full: true`, merge into it, and pass its `rev`; when `day_set` says the plan changed, read and merge again:
 
    ```markdown
    # Plan <YYYY-MM-DD>
