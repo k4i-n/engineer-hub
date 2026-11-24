@@ -14,6 +14,9 @@ const UNDO = {
   pin: (d) => ["pin", { ...d, on: flip(d.on) }],
   "source-set": (d) => ["source-set", { ...d, on: flip(d.on) }],
   "step-undo": (d) => ["step-done", d],
+  "step-done": (d) => ["step-undo", d],
+  "plan-done": (d) => ["plan-undo", d],
+  "plan-undo": (d) => ["plan-done", d],
   "ticket-title": (d) => ["ticket-title", { ...d, value: d.askValue }],
   "step-edit": (d) => ["step-edit", { ...d, value: d.askValue }],
   "note-rename": (d) => ["note-rename", { ...d, title: d.value, value: d.askValue }],
@@ -243,7 +246,12 @@ function foldToday() {
   for (const b of app.querySelectorAll('[data-key="today"] .more-btn')) b.remove();
   for (const ul of app.querySelectorAll('[data-key="today"] ul, [data-key="today"] ol')) {
     const items = [...ul.children];
-    const shown = items.filter((li) => all || !li.classList.contains("done"));
+    const lines = ul.classList.contains("plines");
+    const shown = items.filter((li) =>
+      lines
+        ? all || li.dataset.tabPanel?.split(" ").includes("open") || li.classList.contains("leaving")
+        : all || !li.classList.contains("done"),
+    );
     for (const li of items) li.hidden = !shown.includes(li);
     if (shown.length <= TODAY_SHOWN) continue;
     for (const li of shown.slice(TODAY_SHOWN)) li.hidden = !expanded;
@@ -367,6 +375,8 @@ const ROUTES = {
   "gate-reopen": (d) => ["POST", `/tickets/${e(d.ticket)}/gate/reopen`, {}],
   "item-attach": (d) => ["POST", `/items/${e(d.id)}/attach`, { ticket: d.ticket }],
   "step-done": (d) => ["POST", `/tickets/${e(d.ticket)}/steps/${e(d.n)}/done`, {}],
+  "plan-done": (d) => ["POST", `/plan/${e(d.line)}/done`, { date: d.date }],
+  "plan-undo": (d) => ["POST", `/plan/${e(d.line)}/undo`, { date: d.date }],
   "wait-unpinged": (d) => [
     "POST",
     `/waits/${e(d.id)}/unpinged`,

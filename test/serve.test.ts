@@ -1912,9 +1912,10 @@ describe("today day switcher", () => {
       past,
       /class="pill tone-grey">read only<\/span><a class="day-back" href="\/" data-day="">Back to today<\/a>/,
     );
-    const md = /<div class="md"[\s\S]*<\/div>/.exec(past)?.[0] ?? "";
-    assert.match(md, /<li class="md-task"><span class="box"><\/span>2\. ship it/);
-    assert.doesNotMatch(md, /<button|<input|data-act|contenteditable/);
+    const lines = /<ul class="rows plines">[\s\S]*?<\/ul>/.exec(past)?.[0] ?? "";
+    assert.match(lines, /<span class="pbox">✓<\/span><span class="pl-text">write the migration/);
+    assert.match(lines, /<span class="pbox"><\/span><span class="pl-text">ship it/);
+    assert.doesNotMatch(lines, /<button|<input|data-act|contenteditable/);
     assert.deepEqual(tabCounts(past, "today"), { open: 2, all: 3 });
   });
 
@@ -1926,5 +1927,64 @@ describe("today day switcher", () => {
       const html = /<section class="today">[\s\S]*?<\/section>/.exec(await res.text())?.[0] ?? "";
       assert.equal(title(html), "Today", day);
     }
+  });
+});
+
+describe("today plan lines", () => {
+  async function card(): Promise<string> {
+    const html = await (await fetch(`${server.url}/?part=1`)).text();
+    return /<section class="today">[\s\S]*?<\/section>/.exec(html)?.[0] ?? "";
+  }
+
+  function row(html: string, text: string): string {
+    return new RegExp(`<li class="pline[^"]*"[^>]*>(?:(?!</li>)[\\s\\S])*${text}[\\s\\S]*?</li>`).exec(html)?.[0] ?? "";
+  }
+
+  test("a click on a step line marks the step done, ticks the line and shows on the ticket page", async () => {
+    await hub(["step", "add", "ENG-42", "write the migration"]);
+    await hub(["plan", "add", "migration", "--ref", "step:ENG-42#1", "--time", "16:00"]);
+    const before = row(await card(), "migration");
+    assert.match(before, /data-act="step-done" data-ticket="ENG-42" data-n="1"/);
+    assert.match(before, /<span class="pl-time">16:00<\/span>migration/);
+    assert.match(before, /<a class="chip tone-amber" href="\/t\/ENG-42">ENG-42 step 1 · open<\/a>/);
+    const route = ROUTES.find((r) => r.name === "step_done");
+    assert.equal(route?.path, "/tickets/{id}/steps/{n}/done");
+    assert.equal((await call("POST", "/tickets/ENG-42/steps/1/done", {})).status, 200);
+    const after = await card();
+    assert.match(row(after, "migration"), /class="pline is-done" data-key="pl-\d+" data-tab-panel="all" hidden/);
+    assert.deepEqual(tabCounts(after, "today"), { open: 0, all: 1 });
+    const page = await (await fetch(`${server.url}/t/ENG-42?part=1`)).text();
+    assert.match(page, /class="done" data-key="s-1"/);
+  });
+
+  test("lines without refs tick through plan done; gate and multi-ref lines have no box button", async () => {
+    await hub(["set", "ENG-42", "gate", "merge the migration?"]);
+    await hub(["step", "add", "ENG-7", "fix"]);
+    await hub(["plan", "add", "lunch"]);
+    await hub(["plan", "add", "migration go", "--ref", "gate:ENG-42"]);
+    await hub(["plan", "add", "fix and close", "--ref", "step:ENG-7#1 ticket:ENG-7"]);
+    const html = await card();
+    assert.match(row(html, "lunch"), /data-act="plan-done" data-line="1" data-date="\d{4}-\d{2}-\d{2}"/);
+    assert.match(row(html, "migration go"), /<span class="pbox"><\/span>[\s\S]*href="\/t\/ENG-42">gate ENG-42 · open</);
+    assert.doesNotMatch(row(html, "fix and close"), /<button/);
+    assert.equal((row(html, "fix and close").match(/class="chip /g) ?? []).length, 2);
+    assert.equal((await call("POST", "/plan/1/done", { date: today() })).status, 200);
+    assert.match(row(await card(), "lunch"), /data-act="plan-undo"/);
+  });
+
+  test("needs rows that today's plan points at carry a today mark", async () => {
+    await hub(
+      ["item", "put", "--stdin"],
+      JSON.stringify({ source: "grafana", kind: "alert", ref: "alert-1", title: "API 5xx", needs_me: true }),
+    );
+    await hub(
+      ["item", "put", "--stdin"],
+      JSON.stringify({ source: "grafana", kind: "alert", ref: "alert-2", title: "DB slow", needs_me: true }),
+    );
+    await hub(["plan", "add", "look at the 5xx", "--ref", "item:alert-1"]);
+    const html = await (await fetch(`${server.url}/?part=1`)).text();
+    const need = (title: string) => html.split('<li class="need').find((li) => li.includes(`>${title}<`)) ?? "";
+    assert.match(need("API 5xx"), /class="pill tone-blue plan-mark"/);
+    assert.doesNotMatch(need("DB slow"), /plan-mark/);
   });
 });
