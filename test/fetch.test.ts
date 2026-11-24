@@ -127,7 +127,7 @@ describe("github", () => {
     assert.doesNotMatch(needs, /pull\/102/);
     assert.match(await hub("sources"), /^github \| last sync .* \| cursor \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
     const query = calls.find((c) => c[1] === "api") ?? [];
-    assert.ok(query.includes("requested=is:pr is:open review-requested:@me archived:false"));
+    assert.ok(query.includes("requested=is:pr is:open review-requested:@me archived:false draft:false"));
     assert.ok(query.some((a) => /^mine=is:pr author:@me updated:>=\d{4}-/.test(a)));
     const db = new DatabaseSync(dbFile);
     const avatars = db.prepare("SELECT DISTINCT avatar FROM item WHERE source = 'github'").all();
