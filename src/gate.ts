@@ -13,9 +13,9 @@ type Transcript = { uses: ToolUse[]; results: Map<string, string> };
 
 const SHOWN = 3;
 const WRITE_TOOL =
-  /hub__(log|ticket_set|ticket_new|link|step_add|step_done|draft_save|draft_later|posted|match|day_set|note_save|wait_add|wait_close|wait_pinged|item_attach|item_put)$/;
+  /hub__(log|ticket_set|ticket_new|link|step_add|step_done|draft_save|draft_later|posted|match|day_set|plan_(?:add|edit|move|done|undo|drop)|note_save|wait_add|wait_close|wait_pinged|item_attach|item_put)$/;
 const WRITE_COMMAND =
-  /(^|[\s;&|(/])hub\s+(log|set|ticket-new|link|step\s+(add|done)|draft|draft-later|posted|match|day\s+set|note|wait(?!\s+reopen\b)|item\s+(attach|put))(?=[\s;&|)]|$)/m;
+  /(^|[\s;&|(/])hub\s+(log|set|ticket-new|link|step\s+(add|done)|draft|draft-later|posted|match|day\s+set|plan\s+(add|edit|move|done|undo|drop)|note|wait(?!\s+reopen\b)|item\s+(attach|put))(?=[\s;&|)]|$)/m;
 const PR_URL = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g;
 const HEREDOC = /<<-?\s*(['"]?)(\w+)\1([^\n]*)\n[\s\S]*?\n[ \t]*\2[ \t]*(?=\n|$)/g;
 
@@ -100,7 +100,7 @@ export function gate(
   const reason = [
     "Nothing was recorded in hub after:",
     ...shown,
-    "Record them before stopping: log or link on the ticket, then ticket_set next. If they belong to no ticket, log them on the day plan with day_set.",
+    "Record them before stopping: log or link on the ticket, then ticket_set next. If they belong to no ticket, add them to the day plan with plan_add.",
   ].join("\n");
   return JSON.stringify({ decision: "block", reason });
 }

@@ -15,6 +15,7 @@ import { applyImport, collectImport, countPlan, formatSummary } from "./importer
 import * as items from "./items.ts";
 import { moved } from "./moved.ts";
 import * as pins from "./pins.ts";
+import * as plan from "./plan.ts";
 import * as scripts from "./scripts.ts";
 import * as sources from "./sources.ts";
 import * as steps from "./steps.ts";
@@ -92,7 +93,9 @@ export const PATH_ABOUT: Record<string, string> = {
   name: "source name",
   date: "YYYY-MM-DD",
   row: "dashboard row key",
+  line: "plan line number in the day's order, as day lists it",
 };
+const planDay: Field = { type: "string", about: "YYYY-MM-DD (default today)" };
 const later: Field = { type: "string", about: "30m, 4h, 2d or tomorrow (default 1d)" };
 
 const TICKET_FIELDS: Fields = Object.fromEntries([
@@ -519,7 +522,7 @@ export const ROUTES: Route[] = [
     name: "day",
     method: "GET",
     path: "/day",
-    about: "A day's plan resume and rev (default today, else the latest).",
+    about: "A day's plan resume, Today lines with live state, and rev (default today, else the latest).",
     query: {
       date: { type: "string", about: "YYYY-MM-DD" },
       full: { type: "boolean", about: "the whole plan, not only the resume" },
@@ -530,12 +533,86 @@ export const ROUTES: Route[] = [
     name: "day_set",
     method: "PUT",
     path: "/day/{date}",
-    about: "Write the day's plan. Replacing an existing plan needs the rev day returned.",
+    about:
+      "Write the day's plan: RESUME, notes, decisions. Today's lines are not part of the body (plan_add). Replacing an existing plan needs the rev day returned. The first write of a date carries the open lines of the latest earlier plan.",
     body: {
       body: { type: "string", required: true, about: "markdown" },
       rev: { type: "string", about: "rev from day; required once the date has a plan" },
     },
     run: (ctx, a) => commands.daySet(ctx, str(a, "date"), str(a, "body"), opt(a, "rev")),
+  },
+  {
+    name: "plan_add",
+    method: "POST",
+    path: "/plan",
+    about:
+      "Add a line to the day's plan. Give a ref so it ticks itself when that row is done: step:<ticket>#<n>, draft:<ticket or item url>/<label>, item:<n or url>, wait:<n>, gate:<ticket>, ticket:<ticket>; several, space-separated, tick when all are done.",
+    body: {
+      text: { type: "string", required: true, about: "the line, short" },
+      ref: { type: "string", about: "refs, space-separated" },
+      time: { type: "string", about: "HH:MM" },
+      at: { type: "integer", about: "line number to insert at (default: after the last)" },
+      date: { type: "string", about: "YYYY-MM-DD (default today)" },
+    },
+    run: (ctx, a) =>
+      plan.add(ctx, {
+        text: str(a, "text"),
+        ref: opt(a, "ref"),
+        time: opt(a, "time"),
+        at: a.at === undefined ? null : (a.at as number),
+        date: opt(a, "date"),
+      }),
+  },
+  {
+    name: "plan_edit",
+    method: "PATCH",
+    path: "/plan/{line}",
+    about: "Change a plan line's text, refs (replaces them; empty for none) or time (empty for none).",
+    body: {
+      text: { type: "string", about: "the line" },
+      ref: { type: "string", about: "refs, space-separated" },
+      time: { type: "string", about: "HH:MM" },
+      date: planDay,
+    },
+    run: (ctx, a) =>
+      plan.edit(ctx, str(a, "line"), {
+        text: opt(a, "text"),
+        ref: opt(a, "ref"),
+        time: opt(a, "time"),
+        date: opt(a, "date"),
+      }),
+  },
+  {
+    name: "plan_move",
+    method: "POST",
+    path: "/plan/{line}/move",
+    about: "Move a plan line to another place in the day's order.",
+    body: { to: { type: "integer", required: true, about: "new line number" }, date: planDay },
+    run: (ctx, a) => plan.move(ctx, str(a, "line"), a.to as number, opt(a, "date")),
+  },
+  {
+    name: "plan_done",
+    method: "POST",
+    path: "/plan/{line}/done",
+    about: "Tick a plan line that has no refs; a line with refs ticks itself when its rows are done.",
+    body: { date: planDay },
+    run: (ctx, a) => plan.done(ctx, str(a, "line"), opt(a, "date")),
+  },
+  {
+    name: "plan_undo",
+    method: "POST",
+    path: "/plan/{line}/undo",
+    about: "Untick a plan line that has no refs, or bring back a dropped line.",
+    body: { date: planDay },
+    run: (ctx, a) => plan.undo(ctx, str(a, "line"), opt(a, "date")),
+  },
+  {
+    name: "plan_drop",
+    method: "POST",
+    path: "/plan/{line}/drop",
+    about: "Drop a plan line that slipped or was cancelled; it stays struck through and is not carried over.",
+    body: { why: { type: "string", required: true, about: "why, short" }, date: planDay },
+    run: (ctx, a) => plan.drop(ctx, str(a, "line"), str(a, "why"), opt(a, "date")),
   },
   {
     name: "items",

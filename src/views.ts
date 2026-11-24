@@ -32,6 +32,7 @@ import { series, span } from "./horizon.ts";
 import { KIND_NAME } from "./items.ts";
 import { esc, renderLine, renderMarkdown } from "./markdown.ts";
 import { pins } from "./pins.ts";
+import * as plan from "./plan.ts";
 import { sections } from "./scripts.ts";
 import { progress } from "./steps.ts";
 import { githubRef, isDate, nowIso, nowTs, sinceDate, startOfDayIso, today } from "./util.ts";
@@ -1202,10 +1203,14 @@ function todaySection(ctx: Ctx, asked: string | null): string {
   const shown = picked ?? day?.date ?? now;
   const link = linker(ctx);
   const missing = picked === null ? empty() : `<p class="empty">No plan for ${esc(picked)}</p>`;
+  const md =
+    day === undefined && !plan.hasLines(ctx, shown)
+      ? null
+      : plan.withLines(day?.body ?? "", plan.todayMarkdown(ctx, shown));
   const body =
-    day === undefined
+    md === null
       ? missing
-      : `<div class="md" data-keep-scroll data-key="today">${renderMarkdown(day.body, (url, text) => link(url, text), ctx.config.resumeHeading)}</div>`;
+      : `<div class="md" data-keep-scroll data-key="today">${renderMarkdown(md, (url, text) => link(url, text), ctx.config.resumeHeading)}</div>`;
   const past = shown !== now;
   const readOnly = past ? pill("read only", "grey") : "";
   const back = picked === null ? "" : `<a class="day-back" href="/" data-day="">Back to today</a>`;

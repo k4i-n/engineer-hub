@@ -256,10 +256,10 @@ describe("serve", () => {
       ["item", "put", "--stdin"],
       JSON.stringify({ source: "grafana", kind: "alert", ref: "alert-1", title: "API 5xx", needs_me: true }),
     );
-    await hub(
-      ["day", "set", today(), "--stdin"],
-      "## Today\n\n- [x] write the migration\n- [ ] ship it\n- read the handler\n",
-    );
+    await hub(["day", "set", today(), "--stdin"], "## Notes\n\n- read the handler\n");
+    await hub(["plan", "add", "write the migration"]);
+    await hub(["plan", "done", "1"]);
+    await hub(["plan", "add", "ship it"]);
     await hub(["step", "add", "ENG-42", "write the migration"]);
     await hub(["step", "done", "ENG-42", "1"]);
     await hub(["log", "ENG-42", "read the export code", "--kind", "reading"]);
@@ -349,7 +349,7 @@ describe("serve", () => {
   test("settings show the database and save config through the same checks as the CLI", async () => {
     const html = await (await fetch(`${server.url}/settings`)).text();
     assert.ok(html.includes(dbFile));
-    assert.match(html, /Schema<\/span><div class="set-control">v21/);
+    assert.match(html, /Schema<\/span><div class="set-control">v22/);
     const titles = [...html.matchAll(/<h2><button type="button" class="fold" data-fold="([^"]+)"/g)].map((m) => m[1]);
     assert.deepEqual(titles, ["Sources", "Agent", "Away", "Database", "Behavior", "Dashboard", "Keyboard"]);
     assert.equal(html.match(/<div class="col">/g)?.length, 1);
@@ -1844,8 +1844,9 @@ describe("today day switcher", () => {
     return / disabled>$/.test(b) ? null : (/data-day="([^"]*)"/.exec(b)?.[1] ?? "");
   }
 
-  async function plan(date: string, body: string): Promise<void> {
-    await hub(["day", "set", date, "--stdin"], body);
+  async function plan(date: string, ...lines: string[]): Promise<void> {
+    await hub(["day", "set", date, "--stdin"], "## Notes\n\n- read the handler\n");
+    for (const text of lines) await hub(["plan", "add", text, "--date", date]);
   }
 
   test("no day opens today's plan as Today, else the latest plan under its date", async () => {
@@ -1854,7 +1855,7 @@ describe("today day switcher", () => {
     assert.match(latest, /class="pill tone-grey">read only</);
     assert.doesNotMatch(latest, /Back to today/);
 
-    await plan(today(), "## Today\n\n- [ ] ship it\n");
+    await plan(today(), "ship it");
     const now = await card();
     assert.equal(title(now), "Today");
     assert.doesNotMatch(now, /read only|Back to today/);
@@ -1862,8 +1863,8 @@ describe("today day switcher", () => {
   });
 
   test("arrows step over days with no plan; forward stops at today, back at the first plan", async () => {
-    await plan("2026-11-16", "## Today\n\n- [ ] port Friday\n");
-    await plan(today(), "## Today\n\n- [ ] ship it\n");
+    await plan("2026-11-16", "port Friday");
+    await plan(today(), "ship it");
 
     const monday = await card("&day=2026-11-16");
     assert.equal(title(monday), "Mon 2026-11-16");
@@ -1890,7 +1891,7 @@ describe("today day switcher", () => {
   });
 
   test("the picked day survives a write and live refresh", async () => {
-    await plan(today(), "## Today\n\n- [ ] ship it\n");
+    await plan(today(), "ship it");
     await hub(["log", "ENG-42", "started the migration"]);
     const after = await card("&day=2026-11-13");
     assert.equal(title(after), "Fri 2026-11-13");
@@ -1900,11 +1901,11 @@ describe("today day switcher", () => {
   });
 
   test("a past day is read only: dated title, chip, Back to today, no controls on its tasks", async () => {
-    await plan(
-      "2026-11-16",
-      "## Today\n\n- [x] write the migration\n- [ ] ship it\n- [ ] tell QA\n- read the handler\n",
-    );
-    await plan(today(), "## Today\n\n- [ ] ship it\n");
+    await plan("2026-11-16", "write the migration", "ship it", "tell QA");
+    const db = new DatabaseSync(dbFile);
+    db.exec("UPDATE plan_line SET done_at = '2026-11-16T03:00:00.000Z' WHERE text = 'write the migration'");
+    db.close();
+    await plan(today(), "ship it");
     const past = await card("&day=2026-11-16");
     assert.equal(title(past), "Mon 2026-11-16");
     assert.match(
@@ -1912,13 +1913,13 @@ describe("today day switcher", () => {
       /class="pill tone-grey">read only<\/span><a class="day-back" href="\/" data-day="">Back to today<\/a>/,
     );
     const md = /<div class="md"[\s\S]*<\/div>/.exec(past)?.[0] ?? "";
-    assert.match(md, /<li class="md-task"><span class="box"><\/span>ship it/);
+    assert.match(md, /<li class="md-task"><span class="box"><\/span>2\. ship it/);
     assert.doesNotMatch(md, /<button|<input|data-act|contenteditable/);
     assert.deepEqual(tabCounts(past, "today"), { open: 2, all: 3 });
   });
 
   test("a bad or future day falls back to today's card", async () => {
-    await plan(today(), "## Today\n\n- [ ] ship it\n");
+    await plan(today(), "ship it");
     for (const day of ["foo", "2026-13-40", "2026-02-30", "2999-01-01"]) {
       const res = await fetch(`${server.url}/?day=${day}`);
       assert.equal(res.status, 200, day);

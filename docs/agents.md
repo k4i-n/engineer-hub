@@ -29,11 +29,11 @@ Cold start for a ticket: brief, then board or ticket. Read a note only when the 
 During work: log what changed, readings and decisions; ticket_set next (one action) and gate (a decision waiting on the human, as a question ending in "?"; a standing rule such as "go per deploy" or a condition is not a gate: it shows as a plain Rule line and asks nothing); link every PR, run, thread or doc touched.
 Waiting on someone: wait_add with ping_after; waits with due says whom to ping.
 Drafts for humans to post: draft_save; a review or reply to a PR, review request or message gets item (its url; for a Slack reply, the thread's permalink, never a description like "the owners thread", so the dashboard can open it), and id is that url when there is no ticket; a PR review adds verdict and comments [{path, line, body}]; text for the agent's own use (a PR body) gets internal: true, so it stays off the dashboard; when posted: posted with the wording actually sent and its permalink.
-Daily plan: day to resume; day_set after writing it. To change an existing plan: day with full, merge, day_set with its rev. Longer content: note_save.
+Daily plan: day to resume. Each Today line is plan_add with a ref to the row it is about (step, draft, item, wait, gate or ticket), so it ticks itself when that row is done; plan_drop with why for one that slipped. The body (RESUME, notes, decisions) is day_set: to change it, day with full, merge, day_set with its rev; it holds no Today task lines. Longer content: note_save.
 State fields are one line each; hub refuses more and says where the text belongs. Never answer a gate, a draft match or an item question for the human.
 ```
 
-Without MCP, the same through the CLI: `hub ticket`, `hub log`, `hub set`, `hub link`, `hub wait`, `hub draft`, `hub posted`, `hub day set`, `hub note`.
+Without MCP, the same through the CLI: `hub ticket`, `hub log`, `hub set`, `hub link`, `hub wait`, `hub draft`, `hub posted`, `hub day set`, `hub plan add`, `hub note`.
 
 ## MCP
 
