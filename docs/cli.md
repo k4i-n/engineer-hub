@@ -19,7 +19,7 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 | `hub sources` | each source's last sync, cursor and error |
 | `hub steps <id>` | the ticket's steps, done ones ticked, with their evidence |
 | `hub brief` | what a sync needs to judge new messages: sources and cursors, open tickets, unsent drafts, drafts sent with wording pending, waits, tracked items (each section capped at 40 lines) |
-| `hub day [date] [--full]` | the rev and RESUME block of a day plan (today, else the latest); `--full` gives the whole plan |
+| `hub day [date] [--full]` | the rev, the RESUME block and the Today lines of a day plan (today, else the latest), each line with its live state; `--full` gives the whole plan with the lines under `## Today` |
 | `hub lint` | open tickets missing status, next or owner, over a limit, or with a gate or decide that is not a question (no `?`); exit 1 if any |
 | `hub config [key]` | effective config |
 
@@ -49,7 +49,10 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 | `hub wait edit <wait> [--who <w>] [--ping-after 1d]` | changes who an open wait is on, or when to ping |
 | `hub source <name> [--cursor <c>] [--error <text>]` | records a sync of a source |
 | `hub source add <name> --every 5m -- <program> [args]`, `hub source set <name> [--on \| --off] [--every 5m] [--section <title>]`, `hub source remove <name>` | adds a [script source](sources.md#script-sources) (terminal only), turns one off or on, changes its interval or the dashboard card its items go to, removes one |
-| `hub day set <date> (--file \| --stdin) [--rev <rev>]` | stores a day plan; replacing one needs the rev `hub day` showed, and a stale rev is refused |
+| `hub day set <date> (--file \| --stdin) [--rev <rev>]` | stores a day plan's body (RESUME, notes, decisions); replacing one needs the rev `hub day` showed, and a stale rev is refused. A body with task lines (`- [ ]`) under `## Today` is refused: those are plan lines. The first write of a date carries the open, not dropped lines of the latest earlier plan and lists them |
+| `hub plan add <text> [--ref "<ref> ..."] [--time HH:MM] [--at <n>]` | adds a line to the day's plan (`--date`, default today). A ref points the line at a row, and the line ticks itself when that row is done: `step:<id>#<n>` (step done; kept by the step itself, so renumbering does not move it), `draft:<id or item url>/<label>` (sent; a proposed match shows `sent?` and stays open), `item:<n or url>` or a bare url (closed, merged or done), `wait:<n>` (answered), `gate:<id>` (the human answers it after the line was added), `ticket:<id>` (moved to done). With several refs, all must be done. A ref that names nothing is refused; text that names a ticket with no ref gets a warning. Lines need no rev, so two sessions can add at once |
+| `hub plan edit <n> [text] [--ref <refs>] [--time HH:MM]`, `hub plan move <n> <to>` | changes line n (its place in `hub day`), or moves it; `--ref ""` or `--time ""` clears |
+| `hub plan done <n>`, `hub plan undo <n>`, `hub plan drop <n> <why>` | ticks or unticks a line without refs (on a line with refs it is refused and names the action that ticks it, e.g. `step_done ENG-7 2`), drops a line that slipped or was cancelled (struck through with the reason, never carried over; `undo` brings it back) |
 | `hub ticket-new <id> <title> [--dir todo]`, `hub move <id> <dir>` | creates a ticket, moves it between dirs (a move drops its place in the order) |
 | `hub backup`, `hub backups` | backs up the database now, lists the backups newest first |
 | `hub restore <name>` | backs up the current database as `…-before-restore.db`, then replaces it with the named backup while hub keeps running; a backup made in the same second as another gets `-2`, `-3` |
