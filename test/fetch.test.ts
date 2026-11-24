@@ -783,6 +783,8 @@ describe("slack", () => {
           body: JSON.stringify({ ok: true, user: { id, profile: { display_name: id === "U3" ? "Ken" : "ana" } } }),
         };
       }
+      if (u.pathname === "/api/usergroups.list")
+        return { status: 200, body: JSON.stringify({ ok: true, usergroups: [] }) };
       if (u.pathname === "/api/conversations.replies") {
         assert.equal(u.searchParams.get("channel"), "C01");
         if (u.searchParams.get("ts") !== thread)
@@ -815,7 +817,7 @@ describe("slack", () => {
     assert.equal(auth.Authorization, "Bearer xoxp-1");
     assert.match(
       await hub("sources"),
-      /slack \| last sync .* \| cursor \d{10}\.\d{6} \| warning: missing reactions:read: names, DMs or reactions are left out/,
+      /slack \| last sync .* \| cursor \d{10}\.\d{6} \| warning: missing reactions:read: names, DMs, group mentions or reactions are left out/,
     );
   });
 
@@ -1204,6 +1206,63 @@ describe("slack", () => {
     assert.match(await hub("items", "--source", "slack"), /#ops · Bo: thanks, merged \| replied/);
   });
 
+  test("a mention of a group I am in needs me, named by the group, and a direct mention wins on the same message", async () => {
+    await hub("config", "fetch", '{"github":false,"slack":true}');
+    answers.security = (args) =>
+      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+    const both = ts(100);
+    const group = ts(90);
+    const other = ts(80);
+    const said = (t: string, text: string) => ({
+      ts: t,
+      text,
+      permalink: permalink(t),
+      user: "U2",
+      username: "ana",
+      channel: { id: "C01", name: "ops" },
+    });
+    const queries: string[] = [];
+    const ok = (body: unknown) => ({ status: 200, body: JSON.stringify({ ok: true, ...(body as object) }) });
+    httpAnswer = (url) => {
+      const u = new URL(url);
+      const p = u.searchParams;
+      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, user: "khai" });
+      if (u.pathname === "/api/usergroups.list") {
+        assert.equal(p.get("include_users"), "true");
+        return ok({
+          usergroups: [
+            { id: "S1", handle: "backend", users: ["U2", ME] },
+            { id: "S2", handle: "design", users: ["U2"] },
+          ],
+        });
+      }
+      if (u.pathname === "/api/search.messages") {
+        const q = p.get("query") ?? "";
+        queries.push(q);
+        const matches = q.startsWith(`<@${ME}>`)
+          ? [said(both, `<@${ME}> <!subteam^S1> who owns the queue?`)]
+          : q.startsWith("<!subteam^S1>")
+            ? [
+                said(both, `<@${ME}> <!subteam^S1> who owns the queue?`),
+                said(group, "<!subteam^S1> deploy freeze at 5"),
+              ]
+            : q.startsWith("<!subteam^S2>")
+              ? [said(other, "<!subteam^S2> new icons")]
+              : [];
+        return ok({ messages: { matches } });
+      }
+      if (u.pathname === "/api/reactions.get") return ok({ message: { reactions: [] } });
+      return { status: 404, body: "" };
+    };
+    assert.match(await hub("fetch", "slack"), /items: 2 new/);
+    assert.ok(queries.some((q) => /^<!subteam\^S1> after:\d{4}-\d{2}-\d{2}$/.test(q)));
+    assert.ok(!queries.some((q) => q.startsWith("<!subteam^S2>")));
+    const needs = await hub("items", "--needs-me", "--source", "slack");
+    assert.match(needs, /#ops · ana: @U0ME @backend who owns the queue\? \| mention \|/);
+    assert.match(needs, /#ops · ana: @backend deploy freeze at 5 \| mention @backend/);
+    assert.doesNotMatch(needs, /new icons/);
+  });
+
   test("a scope Slack refuses leaves its details out and becomes a warning, not an error", async () => {
     await hub("config", "fetch", '{"github":false,"slack":true}');
     answers.security = (args) =>
@@ -1234,17 +1293,18 @@ describe("slack", () => {
       if (u.pathname === "/api/users.info") return refused("users:read");
       if (u.pathname === "/api/conversations.info") return refused("im:read");
       if (u.pathname === "/api/reactions.get") return refused("reactions:read");
+      if (u.pathname === "/api/usergroups.list") return refused("usergroups:read");
       return { status: 404, body: "" };
     };
     assert.match(await hub("fetch", "slack"), /items: 1 new/);
     assert.match(await hub("items", "--needs-me", "--source", "slack"), /DM · U2: @U9 ping \| mention/);
     assert.match(
       await hub("sources"),
-      /warning: missing im:read, reactions:read, users:read: names, DMs or reactions are left out/,
+      /warning: missing im:read, reactions:read, usergroups:read, users:read: names, DMs, group mentions or reactions are left out/,
     );
     const page = await (await fetch(`${server.url}/settings?part=1`)).text();
     assert.match(page, /<span class="src src-warn" title="[^"]*missing im:read[^"]*"><i><\/i>Slack<\/span>/);
-    assert.match(page, /tone-text-amber">missing im:read, reactions:read, users:read/);
+    assert.match(page, /tone-text-amber">missing im:read, reactions:read, usergroups:read, users:read/);
     assert.match(page, /--allow &#39;GET \/api\/reactions\.get&#39;/);
   });
 
@@ -1276,6 +1336,7 @@ describe("slack", () => {
       if (u.pathname === "/api/users.info") return lookup(p.get("user") ?? "");
       if (u.pathname === "/api/conversations.info") return ok({ channel: { id: p.get("channel"), is_im: true } });
       if (u.pathname === "/api/reactions.get") return ok({ message: { reactions: [] } });
+      if (u.pathname === "/api/usergroups.list") return ok({ usergroups: [] });
       return { status: 404, body: "" };
     };
     assert.match(await hub("fetch", "slack"), /nothing new/);

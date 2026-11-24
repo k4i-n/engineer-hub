@@ -51,7 +51,7 @@ type User = {
   is_bot?: boolean;
   profile?: { display_name?: string; real_name?: string; image_48?: string };
 };
-type Group = { id: string; handle: string };
+type Group = { id: string; handle: string; users?: string[] };
 type Answer = { ok: boolean; error?: string; needed?: string };
 
 class SlackError extends HubError {
@@ -110,14 +110,18 @@ class Directory {
   private readonly bots = new Map<string, boolean>();
   private readonly avatars = new Map<string, string | null>();
   private readonly channels = new Map<string, Channel | null>();
-  private groups: Map<string, string> | null = null;
+  private groups: Group[] | null = null;
   private readonly sys: System;
   private readonly way: Way;
 
   constructor(sys: System, way: Way, known: Match[]) {
     this.sys = sys;
     this.way = way;
-    for (const m of known) if (m.user && m.username) this.users.set(m.user, m.username);
+    this.learn(known);
+  }
+
+  learn(known: Match[]): void {
+    for (const m of known) if (m.user && m.username && !this.users.has(m.user)) this.users.set(m.user, m.username);
   }
 
   private async soft<T extends Answer>(method: string, args: Record<string, string>, scope: string): Promise<T | null> {
@@ -168,12 +172,24 @@ class Directory {
     return { ...hint, ...(this.channels.get(id) ?? {}) };
   }
 
-  async group(id: string): Promise<string> {
+  private async allGroups(): Promise<Group[]> {
     if (this.groups === null) {
-      const r = await this.soft<Answer & { usergroups: Group[] }>("usergroups.list", {}, "usergroups:read");
-      this.groups = new Map((r?.usergroups ?? []).map((g) => [g.id, g.handle]));
+      const r = await this.soft<Answer & { usergroups: Group[] }>(
+        "usergroups.list",
+        { include_users: "true" },
+        "usergroups:read",
+      );
+      this.groups = r?.usergroups ?? [];
     }
-    return this.groups.get(id) ?? id;
+    return this.groups;
+  }
+
+  async group(id: string): Promise<string> {
+    return (await this.allGroups()).find((g) => g.id === id)?.handle ?? id;
+  }
+
+  async groupsOf(user: string): Promise<Group[]> {
+    return (await this.allGroups()).filter((g) => g.users?.includes(user) === true);
   }
 
   async replies(channel: string, ts: string, oldest: string): Promise<Match[]> {
@@ -340,10 +356,17 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
     alerts.push(...found.filter((m) => newer(m) && m.user !== me));
   }
   const dir = new Directory(sys, way, [...mentions, ...recent, ...dms, ...alerts]);
+  const pinged: [Match, string][] = mentions.map((m) => [m, "mention"]);
+  for (const g of await dir.groupsOf(me)) {
+    const found = (await search(sys, way, `<!subteam^${g.id}> after:${after}`)).filter(newer);
+    dir.learn(found);
+    pinged.push(...found.map((m): [Match, string] => [m, `mention @${g.handle}`]));
+  }
   const myName = auth.user ?? me;
   const inThreads = await threadReplies(dir, me, since, recent);
   let newest = Number(since);
-  for (const m of [...mentions, ...sent, ...dms, ...alerts, ...inThreads]) newest = Math.max(newest, Number(m.ts));
+  for (const m of [...pinged.map(([m]) => m), ...sent, ...dms, ...alerts, ...inThreads])
+    newest = Math.max(newest, Number(m.ts));
 
   const out: Record<string, unknown>[] = [];
   const held = new Set<string>();
@@ -360,7 +383,7 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
       needs_me: true,
     });
   }
-  for (const m of mentions) {
+  for (const [m, state] of pinged) {
     if (m.user === me || seen.has(spot(m))) continue;
     const app = m.channel !== undefined && inDm(m.channel) ? await dir.fromApp(m) : false;
     if (app === null) held.add(spot(m));
@@ -373,7 +396,7 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
       title: await line(dir, me, myName, m),
       body: await full(dir, m),
       ...(await byline(dir, m)),
-      state: "mention",
+      state,
       needs_me: true,
     });
   }
@@ -492,7 +515,9 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
     });
   }
   const notes = [
-    dir.missing.size === 0 ? "" : `missing ${[...dir.missing].sort().join(", ")}: names, DMs or reactions are left out`,
+    dir.missing.size === 0
+      ? ""
+      : `missing ${[...dir.missing].sort().join(", ")}: names, DMs, group mentions or reactions are left out`,
     dir.failed.size === 0 ? "" : `failed ${[...dir.failed].sort().join(", ")}`,
     held.size === 0 ? "" : `${held.size} DMs from unchecked senders wait for the next sync`,
   ].filter((n) => n !== "");
