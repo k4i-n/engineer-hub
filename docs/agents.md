@@ -9,7 +9,7 @@ The repository is a Claude Code plugin: the hub MCP server and two skills.
 - `hub-plan`: syncs, then writes the plan for today with `day_set`.
 
 ```
-/plugin install engineer-hub --marketplace nhkhai-vn/engineer-hub
+/plugin install engineer-hub --marketplace sgl-k/engineer-hub
 ```
 
 Tools show as `mcp__plugin_engineer-hub_hub__<tool>`; allow the whole server with `mcp__plugin_engineer-hub_hub`.
