@@ -55,6 +55,10 @@ async function hub(...argv: string[]): Promise<string> {
   return out;
 }
 
+function group(html: string, key: string): string {
+  return html.split('data-group="').find((c) => c.startsWith(`${key}"`)) ?? "";
+}
+
 const PR = (url: string, extra: Record<string, unknown> = {}) => ({
   url,
   title: `title of ${url.split("/").at(-1)}`,
@@ -296,8 +300,53 @@ describe("github", () => {
     answers.gh = graphql([], [], { [url]: review(4, 2, { body: "" }) });
     assert.match(await hub("fetch", "github"), /drafts: 2 sent\?/);
     const home = await (await fetch(`${server.url}/?part=1`)).text();
-    assert.match(home, /<span class="need-title">“approved”<\/span>/);
+    assert.match(group(home, "review"), /class="need-title"[^>]*>acme\/web#650<\/a>/);
+    assert.match(home, /“approved”/);
     assert.match(home, /Your draft nit\? Draft says request changes, GitHub says approve/);
+  });
+
+  test("my review with the only draft's verdict and no inline comments marks it sent, else it asks", async () => {
+    const review = (url: string, state: string) => ({
+      url,
+      viewerLatestReview: {
+        url: `${url}#pullrequestreview-1`,
+        body: "",
+        state,
+        submittedAt: new Date(Date.now() + 60_000).toISOString(),
+      },
+    });
+    const text = join(dir, "lgtm.md");
+    writeFileSync(text, "LGTM");
+    const comments = join(dir, "comments.json");
+    writeFileSync(comments, JSON.stringify([{ path: "src/a.ts", line: 3, body: "nit" }]));
+    const same = "https://github.com/acme/web/pull/660";
+    const other = "https://github.com/acme/web/pull/661";
+    const inline = "https://github.com/acme/web/pull/662";
+    answers.gh = graphql(
+      [same, other, inline].map((url) => PR(url, { viewerDidAuthor: false })),
+      [],
+    );
+    await hub("fetch", "github");
+    await hub("draft", same, "review", "--file", text, "--verdict", "approve");
+    await hub("draft", other, "review", "--file", text, "--verdict", "request_changes");
+    await hub("draft", inline, "review", "--file", text, "--verdict", "approve", "--comments", comments);
+
+    answers.gh = graphql([], [], {
+      [same]: review(same, "APPROVED"),
+      [other]: review(other, "APPROVED"),
+      [inline]: review(inline, "APPROVED"),
+    });
+    assert.match(await hub("fetch", "github"), /drafts: 1 sent; drafts: 2 sent\?/);
+    assert.match(
+      await hub("draft-show", same, "review"),
+      new RegExp(`--- sent ${same}#pullrequestreview-1\napproved$`),
+    );
+    assert.match(await hub("drafts", other), /match proposed/);
+    assert.match(await hub("drafts", inline), /match proposed/);
+    const home = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.doesNotMatch(home, /acme\/web#660<\/a>/);
+    assert.match(group(home, "review"), /acme\/web#661<\/a>[\s\S]*acme\/web#662<\/a>/);
+    assert.doesNotMatch(await hub("items", "--needs-me"), /pull\/660/);
   });
 
   test("a teammate's PR linked to a ticket gets its state but never needs you", async () => {
