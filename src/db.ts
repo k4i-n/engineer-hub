@@ -4,7 +4,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { DEFAULTS } from "./config.ts";
 import { HubError } from "./util.ts";
 
-export const SCHEMA_VERSION = "23";
+export const SCHEMA_VERSION = "24";
 
 export type Ticket = {
   id: string;
@@ -186,6 +186,18 @@ const PLAN_LINE = `CREATE TABLE plan_line(id INTEGER PRIMARY KEY, date TEXT NOT 
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE INDEX plan_line_date ON plan_line(date, pos);`;
 
+const STEP = `CREATE TABLE IF NOT EXISTS step(id INTEGER PRIMARY KEY, ticket_id TEXT NOT NULL, n INTEGER NOT NULL,
+  title TEXT NOT NULL, done_at TEXT, evidence TEXT, created_at TEXT NOT NULL, UNIQUE(ticket_id, n));`;
+
+const PIN = "CREATE TABLE IF NOT EXISTS pin(key TEXT PRIMARY KEY, pinned_at TEXT NOT NULL);";
+
+const UNMIGRATED_COLUMNS = [
+  ["wait", "pinged_at"],
+  ["item", "snoozed_until"],
+  ["draft", "match_text"],
+  ["draft", "match_ref"],
+] as const;
+
 const SCHEMA = `
 CREATE TABLE ticket(
   id TEXT PRIMARY KEY,
@@ -211,12 +223,11 @@ CREATE TABLE item(id INTEGER PRIMARY KEY, source TEXT NOT NULL, ref TEXT NOT NUL
 CREATE INDEX item_ticket ON item(ticket_id);
 CREATE TABLE wait(id INTEGER PRIMARY KEY, ticket_id TEXT NOT NULL, who TEXT NOT NULL, url TEXT NOT NULL,
   asked_at TEXT NOT NULL, ping_after TEXT, pinged_at TEXT, closed_at TEXT, reopened_at TEXT);
-CREATE TABLE step(id INTEGER PRIMARY KEY, ticket_id TEXT NOT NULL, n INTEGER NOT NULL, title TEXT NOT NULL,
-  done_at TEXT, evidence TEXT, created_at TEXT NOT NULL, UNIQUE(ticket_id, n));
+${STEP}
 CREATE TABLE source(name TEXT PRIMARY KEY, cursor TEXT, last_sync TEXT NOT NULL, last_error TEXT, warning TEXT);
 CREATE TABLE day(date TEXT PRIMARY KEY, resume TEXT, body TEXT, updated_at TEXT);
 ${PLAN_LINE}
-CREATE TABLE pin(key TEXT PRIMARY KEY, pinned_at TEXT NOT NULL);
+${PIN}
 CREATE TABLE script_source(name TEXT PRIMARY KEY, argv TEXT NOT NULL, every TEXT NOT NULL, created_at TEXT NOT NULL,
   enabled INTEGER NOT NULL DEFAULT 1, section TEXT);
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
@@ -228,7 +239,7 @@ ${ftsTable("draft", "draft_fts", "id", ["ticket_id", "label", "body", "sent_text
 INSERT INTO meta(key, value) VALUES ('schema_version', '${SCHEMA_VERSION}');
 `;
 
-const UPGRADES: Record<string, { to: string; sql: string }> = {
+const UPGRADES: Record<string, { to: string; sql: string | ((db: DatabaseSync) => string) }> = {
   "2": { to: "3", sql: "ALTER TABLE draft ADD COLUMN send_at TEXT;" },
   "3": {
     to: "4",
@@ -276,7 +287,17 @@ WHERE kind = 'review_request' AND ask IS NULL AND closed_at IS NULL AND ignored 
   "20": { to: "21", sql: "ALTER TABLE item ADD COLUMN avatar TEXT;" },
   "21": { to: "22", sql: PLAN_LINE },
   "22": { to: "23", sql: "ALTER TABLE wait ADD COLUMN reopened_at TEXT;" },
+  "23": { to: "24", sql: addUnmigrated },
 };
+
+function addUnmigrated(db: DatabaseSync): string {
+  const has = (table: string, column: string) =>
+    db.prepare("SELECT 1 FROM pragma_table_info(?) WHERE name = ?").get(table, column) !== undefined;
+  const columns = UNMIGRATED_COLUMNS.filter(([table, column]) => !has(table, column)).map(
+    ([table, column]) => `ALTER TABLE ${table} ADD COLUMN ${column} TEXT;`,
+  );
+  return [...columns, STEP, PIN].join("\n");
+}
 
 function excludeIgnoredRepos(key: "githubReviewQuery" | "githubPrQuery", kind: string): string {
   const repos = `FROM config c, json_each(c.value, '$.${kind}') r WHERE c.key = 'ignoreRepos'`;
@@ -308,7 +329,7 @@ export function openDb(path: string): DatabaseSync {
   for (let upgrade = UPGRADES[version ?? ""]; upgrade !== undefined; upgrade = UPGRADES[version ?? ""]) {
     const step = upgrade;
     transaction(db, () => {
-      db.exec(step.sql);
+      db.exec(typeof step.sql === "string" ? step.sql : step.sql(db));
       db.prepare("UPDATE meta SET value = ? WHERE key = 'schema_version'").run(step.to);
     });
     version = step.to;
