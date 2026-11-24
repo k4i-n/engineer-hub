@@ -21,6 +21,7 @@ import {
 } from "./db.ts";
 import { span } from "./horizon.ts";
 import { splitResume } from "./parse.ts";
+import * as plan from "./plan.ts";
 import { progress } from "./steps.ts";
 import { cut, HubError, nowIso, nowTs, sendTime, sinceDate, startOfDayIso, today } from "./util.ts";
 
@@ -510,15 +511,36 @@ function rev(row: DayRow): string {
   return row.updated_at ?? "none";
 }
 
+const TASK = /^\s*[-*]\s+\[[ xX]\]/m;
+
+function dayDate(ctx: Ctx, date: string | undefined): string | undefined {
+  if (date !== undefined) return date;
+  const now = today(ctx.now, ctx.config.timezone);
+  if (plan.hasLines(ctx, now)) return now;
+  return (
+    one<DayRow>(ctx.db, "SELECT * FROM day WHERE date = ?", now) ??
+    one<DayRow>(ctx.db, "SELECT * FROM day ORDER BY date DESC LIMIT 1")
+  )?.date;
+}
+
 export function day(ctx: Ctx, date: string | undefined, full: boolean): Result {
-  const row = date
-    ? one<DayRow>(ctx.db, "SELECT * FROM day WHERE date = ?", date)
-    : (one<DayRow>(ctx.db, "SELECT * FROM day WHERE date = ?", today(ctx.now, ctx.config.timezone)) ??
-      one<DayRow>(ctx.db, "SELECT * FROM day ORDER BY date DESC LIMIT 1"));
-  if (!row)
+  const shownDate = dayDate(ctx, date);
+  const found =
+    shownDate === undefined ? undefined : one<DayRow>(ctx.db, "SELECT * FROM day WHERE date = ?", shownDate);
+  if (shownDate === undefined || (found === undefined && !plan.hasLines(ctx, shownDate)))
     throw new HubError(date ? `no day plan for ${date}` : "no day plan yet (hub day set <date> --file <plan.md>)");
-  const shown = full ? row.body : (row.resume ?? `(no ## ${ctx.config.resumeHeading} block)`);
-  return { text: `${row.date}\nrev: ${rev(row)}\n${shown}`, json: { ...row, rev: rev(row) } };
+  const row = found ?? { date: shownDate, resume: null, body: "", updated_at: null };
+  const lines = plan.todayMarkdown(ctx, row.date);
+  const resume = row.resume ?? `(no ## ${ctx.config.resumeHeading} block)`;
+  const shown = full
+    ? plan.withLines(row.body, lines)
+    : lines === ""
+      ? resume
+      : `${resume}\n\n## ${plan.TODAY}\n${lines}`;
+  return {
+    text: `${row.date}\nrev: ${rev(row)}\n${shown}`,
+    json: { ...row, rev: rev(row), lines: plan.lines(ctx, row.date) },
+  };
 }
 
 export function lint(ctx: Ctx): Result {
@@ -976,15 +998,24 @@ export function posted(ctx: Ctx, id: string, label: string, options: PostedOptio
 
 export function daySet(ctx: Ctx, date: string, body: string, expected: string | null): Result {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new HubError(`day date must be YYYY-MM-DD, not ${date}`);
+  if (TASK.test(splitResume(body, plan.TODAY) ?? "")) {
+    throw new HubError(
+      `## ${plan.TODAY} has task lines: they are plan lines now, so use plan_add (plan_edit, plan_drop to change them) and leave them out of the body; day shows them`,
+    );
+  }
   const resume = splitResume(body, ctx.config.resumeHeading);
   const at = nowIso(ctx.now);
-  const { changes } = ctx.db
-    .prepare(
-      `INSERT INTO day(date, resume, body, updated_at) VALUES (:date, :resume, :body, :at)
-       ON CONFLICT(date) DO UPDATE SET resume = excluded.resume, body = excluded.body, updated_at = excluded.updated_at
-       WHERE coalesce(day.updated_at, 'none') = :rev`,
-    )
-    .run({ date, resume, body, at, rev: expected ?? "" });
+  const { changes, carried } = transaction(ctx.db, () => {
+    const first = one(ctx.db, "SELECT 1 FROM day WHERE date = ?", date) === undefined;
+    const { changes } = ctx.db
+      .prepare(
+        `INSERT INTO day(date, resume, body, updated_at) VALUES (:date, :resume, :body, :at)
+         ON CONFLICT(date) DO UPDATE SET resume = excluded.resume, body = excluded.body, updated_at = excluded.updated_at
+         WHERE coalesce(day.updated_at, 'none') = :rev`,
+      )
+      .run({ date, resume, body, at, rev: expected ?? "" });
+    return { changes, carried: first && changes > 0 ? plan.carry(ctx, date) : [] };
+  });
   if (changes === 0) {
     const current = rev(one<DayRow>(ctx.db, "SELECT * FROM day WHERE date = ?", date) as DayRow);
     const merge = `read it with day ${date} (full), merge`;
@@ -997,9 +1028,13 @@ export function daySet(ctx: Ctx, date: string, body: string, expected: string | 
       `plan for ${date} changed since you read it (rev ${current}, yours ${expected}); ${merge}, then retry with rev ${current}`,
     );
   }
+  const carriedText =
+    carried.length === 0
+      ? ""
+      : `\ncarried over (plan_drop or plan_edit each that no longer holds):\n${carried.join("\n")}`;
   return {
-    text: `day ${date} saved, rev: ${at}${resume ? "" : ` (no ## ${ctx.config.resumeHeading} block)`}`,
-    json: { date, resume, rev: at },
+    text: `day ${date} saved, rev: ${at}${resume ? "" : ` (no ## ${ctx.config.resumeHeading} block)`}${carriedText}`,
+    json: { date, resume, rev: at, carried },
   };
 }
 

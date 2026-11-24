@@ -54,6 +54,9 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         step add <id> <title> [--at <n>] | step done <id> <n> [--evidence <url>]
         step edit <id> <n> <title> | step undo <id> <n> | step rm <id> <n>
         day set <date> (--file <path> | --stdin) [--rev <rev>] | ticket-new <id> <title> [--dir todo]
+        plan add <text> [--ref "<kind>:<id> ..."] [--time HH:MM] [--at <n>] [--date <d>]
+        plan edit <n> [text] [--ref <refs>] [--time HH:MM] | plan move <n> <to> | plan done <n> | plan undo <n>
+        plan drop <n> <why> (each plan command takes --date <d>, default today)
         move <id> <dir> | rename <id> <new id> | merge <id> <into id> | ticket-delete <id>
         order <id> <place | -> | gate <id> (yes | no)
         config <key> <json>
@@ -103,6 +106,8 @@ const OPTIONS = {
   port: { type: "string" },
   dir: { type: "string" },
   since: { type: "string" },
+  time: { type: "string" },
+  date: { type: "string" },
   n: { type: "string", short: "n" },
 } as const;
 
@@ -147,6 +152,8 @@ type Values = {
   port?: string;
   dir?: string;
   since?: string;
+  time?: string;
+  date?: string;
   n?: string;
 };
 
@@ -389,6 +396,37 @@ const COMMANDS: Record<string, Handler> = {
     }
     if (sub === "undo") return c("step_undo", { id: arg(a, 1, usage), n: arg(a, 2, usage) });
     if (sub === "rm") return c("step_remove", { id: arg(a, 1, usage), n: arg(a, 2, usage) });
+    throw new HubError(`usage: hub ${usage}`);
+  },
+  plan: (a, v) => {
+    const usage =
+      "plan add <text> [--ref <refs>] [--time HH:MM] [--at <n>] | plan edit <n> [text] [--ref <refs>] [--time HH:MM] | plan move <n> <to> | plan done <n> | plan undo <n> | plan drop <n> <why>";
+    const sub = arg(a, 0, usage);
+    const date = v.date === undefined ? {} : { date: v.date };
+    const line = () => arg(a, 1, usage);
+    if (sub === "add") {
+      return c("plan_add", {
+        text: a.slice(1).join(" ") || arg(a, 1, usage),
+        ...(v.ref === undefined ? {} : { ref: v.ref }),
+        ...(v.time === undefined ? {} : { time: v.time }),
+        ...(v.at === undefined ? {} : { at: Number(v.at) }),
+        ...date,
+      });
+    }
+    if (sub === "edit") {
+      const text = a.slice(2).join(" ");
+      return c("plan_edit", {
+        line: line(),
+        ...(text === "" ? {} : { text }),
+        ...(v.ref === undefined ? {} : { ref: v.ref }),
+        ...(v.time === undefined ? {} : { time: v.time }),
+        ...date,
+      });
+    }
+    if (sub === "move") return c("plan_move", { line: line(), to: Number(arg(a, 2, usage)), ...date });
+    if (sub === "done") return c("plan_done", { line: line(), ...date });
+    if (sub === "undo") return c("plan_undo", { line: line(), ...date });
+    if (sub === "drop") return c("plan_drop", { line: line(), why: a.slice(2).join(" ") || arg(a, 2, usage), ...date });
     throw new HubError(`usage: hub ${usage}`);
   },
   match: (a, v, io) => {

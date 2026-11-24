@@ -1017,23 +1017,23 @@ describe("db", () => {
     db.close();
     assert.throws(
       () => serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] }),
-      /has schema v1, this hub needs v21: move the file aside and re-import/,
+      /has schema v1, this hub needs v22: move the file aside and re-import/,
     );
     server = await serve({ dbPath: join(dir, "other.db"), port: 0, now: () => now, env: {}, fetchers: [] });
   });
 });
 
 describe("schema upgrade", () => {
-  test("a v2 database gains draft.send_at, the script table, ticket.position and item.ignored, source.warning, item.detached, script_source.enabled and section, item verdicts, item.body and item.detail, draft.item, draft.closed_item and draft.match_no, item.ask, draft.verdict and draft comments, draft.internal, item.avatar, and becomes v21, when hub serve opens it", async () => {
+  test("a v2 database gains draft.send_at, the script table, ticket.position and item.ignored, source.warning, item.detached, script_source.enabled and section, item verdicts, item.body and item.detail, draft.item, draft.closed_item and draft.match_no, item.ask, draft.verdict and draft comments, draft.internal, item.avatar, the plan_line table, and becomes v22, when hub serve opens it", async () => {
     await imported();
     await server.close();
     const db = new DatabaseSync(dbFile);
     db.exec(
-      "ALTER TABLE draft DROP COLUMN send_at; DROP TABLE script_source; ALTER TABLE ticket DROP COLUMN position; ALTER TABLE item DROP COLUMN ignored; ALTER TABLE source DROP COLUMN warning; ALTER TABLE item DROP COLUMN detached; ALTER TABLE item DROP COLUMN judged_at; ALTER TABLE item DROP COLUMN away_ping; ALTER TABLE item DROP COLUMN away_why; ALTER TABLE item DROP COLUMN body; ALTER TABLE item DROP COLUMN detail; DROP INDEX draft_item; DROP INDEX draft_item_label; ALTER TABLE draft DROP COLUMN item; ALTER TABLE draft DROP COLUMN closed_item; ALTER TABLE draft DROP COLUMN match_no; ALTER TABLE item DROP COLUMN ask; ALTER TABLE item DROP COLUMN ask_answer; ALTER TABLE item DROP COLUMN ask_at; ALTER TABLE draft DROP COLUMN verdict; ALTER TABLE draft DROP COLUMN match_verdict; DROP TABLE draft_comment; ALTER TABLE draft DROP COLUMN internal; ALTER TABLE item DROP COLUMN avatar; UPDATE meta SET value = '2' WHERE key = 'schema_version'",
+      "ALTER TABLE draft DROP COLUMN send_at; DROP TABLE script_source; ALTER TABLE ticket DROP COLUMN position; ALTER TABLE item DROP COLUMN ignored; ALTER TABLE source DROP COLUMN warning; ALTER TABLE item DROP COLUMN detached; ALTER TABLE item DROP COLUMN judged_at; ALTER TABLE item DROP COLUMN away_ping; ALTER TABLE item DROP COLUMN away_why; ALTER TABLE item DROP COLUMN body; ALTER TABLE item DROP COLUMN detail; DROP INDEX draft_item; DROP INDEX draft_item_label; ALTER TABLE draft DROP COLUMN item; ALTER TABLE draft DROP COLUMN closed_item; ALTER TABLE draft DROP COLUMN match_no; ALTER TABLE item DROP COLUMN ask; ALTER TABLE item DROP COLUMN ask_answer; ALTER TABLE item DROP COLUMN ask_at; ALTER TABLE draft DROP COLUMN verdict; ALTER TABLE draft DROP COLUMN match_verdict; DROP TABLE draft_comment; ALTER TABLE draft DROP COLUMN internal; ALTER TABLE item DROP COLUMN avatar; DROP TABLE plan_line; UPDATE meta SET value = '2' WHERE key = 'schema_version'",
     );
     db.close();
     server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] });
-    assert.equal(sql<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'")[0]?.value, "21");
+    assert.equal(sql<{ value: string }>("SELECT value FROM meta WHERE key = 'schema_version'")[0]?.value, "22");
     assert.equal(
       sql<{ n: number }>("SELECT count(*) AS n FROM draft WHERE item IS NOT NULL OR internal != 0")[0]?.n,
       0,
@@ -1069,7 +1069,7 @@ describe("schema upgrade to v11", () => {
       ALTER TABLE draft DROP COLUMN item; ALTER TABLE draft DROP COLUMN closed_item; ALTER TABLE draft DROP COLUMN match_no;
       ALTER TABLE item DROP COLUMN ask; ALTER TABLE item DROP COLUMN ask_answer; ALTER TABLE item DROP COLUMN ask_at;
       ALTER TABLE draft DROP COLUMN verdict; ALTER TABLE draft DROP COLUMN match_verdict; DROP TABLE draft_comment;
-      ALTER TABLE draft DROP COLUMN internal; ALTER TABLE item DROP COLUMN avatar; UPDATE meta SET value = '10' WHERE key = 'schema_version'`);
+      ALTER TABLE draft DROP COLUMN internal; ALTER TABLE item DROP COLUMN avatar; DROP TABLE plan_line; UPDATE meta SET value = '10' WHERE key = 'schema_version'`);
     db.close();
     server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] });
     assert.equal(
@@ -1085,7 +1085,7 @@ describe("schema upgrade to v20", () => {
   test("open review requests with no question get reviewAsk; closed, ignored and asked ones keep theirs", async () => {
     await server.close();
     const db = new DatabaseSync(dbFile);
-    db.exec("ALTER TABLE item DROP COLUMN avatar");
+    db.exec("ALTER TABLE item DROP COLUMN avatar; DROP TABLE plan_line");
     const insert = db.prepare(
       `INSERT INTO item(source, ref, kind, first_seen, changed_at, closed_at, ignored, ask)
        VALUES ('github', ?, ?, '2026-11-20T00:00:00Z', '2026-11-20T00:00:00Z', ?, ?, ?)`,
@@ -1528,5 +1528,167 @@ describe("cli", () => {
     assert.equal(result.code, 2);
     assert.match(result.err, /^usage: hub/);
     assert.equal((await hub("board", "--nope")).code, 2);
+  });
+});
+
+describe("plan lines", () => {
+  const DAY = "2026-11-13";
+  const PR = "https://github.com/acme/web/pull/71";
+  const REVIEW = "https://github.com/acme/web/pull/80";
+  const THREAD = "https://acme.slack.com/archives/C1/p1";
+
+  async function lines(date = DAY): Promise<string> {
+    return (await ok("day", date)).split(`## Today\n`)[1] ?? "";
+  }
+
+  async function put(item: Record<string, unknown>): Promise<void> {
+    stdin = JSON.stringify({ source: "github", kind: "pr", title: "pr", state: "open", ...item });
+    await ok("item", "put", "--stdin");
+  }
+
+  beforeEach(async () => {
+    await imported();
+  });
+
+  test("a step line ticks on step done and keeps its step when steps renumber", async () => {
+    await ok("step", "add", "ENG-42", "write the migration");
+    await ok("plan", "add", "ENG-42 migration", "--ref", "step:ENG-42#1", "--time", "16:00");
+    await ok("step", "add", "ENG-42", "read the handler", "--at", "1");
+    assert.equal(await lines(), "- [ ] 1. 16:00 ENG-42 migration (ENG-42 step 2: open)");
+    now = new Date("2026-11-13T07:12:00Z");
+    await ok("step", "done", "ENG-42", "2");
+    assert.equal(await lines(), "- [x] 1. 16:00 ENG-42 migration (ENG-42 step 2, 16:12)");
+  });
+
+  test("a draft line stays open while a match is pending and ticks when posted", async () => {
+    stdin = "can we ship?";
+    await ok("draft", "ENG-7", "ask-qa", "--stdin");
+    await ok("plan", "add", "ask QA", "--ref", "draft:ENG-7/ask-qa");
+    stdin = "can we ship on Friday?";
+    await ok("match", "ENG-7", "ask-qa", "--ref", THREAD, "--stdin");
+    assert.equal(await lines(), "- [ ] 1. ask QA (draft ask-qa: sent?)");
+    await ok("match", "ENG-7", "ask-qa", "yes");
+    assert.match(await lines(), /^- \[x\] 1\. ask QA \(draft ask-qa, sent 14:20\)$/);
+  });
+
+  test("an item line ticks on merge, on item close, and when a review request is done", async () => {
+    await put({ url: PR });
+    await put({ url: REVIEW, kind: "review_request", needs_me: true });
+    await ok("plan", "add", "merge my PR", "--ref", PR);
+    await ok("plan", "add", "review", "--ref", `item:${REVIEW}`);
+    await ok("plan", "add", "close it", "--ref", "item:1");
+    await put({ url: PR, state: "merged" });
+    await put({ url: REVIEW, kind: "review_request", state: "done" });
+    const shown = await lines();
+    assert.match(shown, /^- \[x\] 1\. merge my PR \(acme\/web#71, merged 14:20\)$/m);
+    assert.match(shown, /^- \[x\] 2\. review \(acme\/web#80, 14:20\)$/m);
+    await ok("plan", "edit", "3", "--ref", `item:${REVIEW}`);
+    await ok("item", "reopen", REVIEW);
+    await ok("item", "close", REVIEW);
+    assert.match(await lines(), /^- \[x\] 3\. close it/m);
+  });
+
+  test("wait and gate lines tick when the wait closes and when the engineer answers the gate", async () => {
+    await ok("wait", "ENG-7", "ana", THREAD, "--ping-after", "1d");
+    await ok("set", "ENG-42", "gate", "merge the migration?");
+    await ok("plan", "add", "hear from ana", "--ref", "wait:1");
+    await ok("plan", "add", "migration go", "--ref", "gate:ENG-42");
+    assert.equal(
+      await lines(),
+      "- [ ] 1. hear from ana (wait ana: ping 11-14 14:20)\n- [ ] 2. migration go (gate ENG-42: open)",
+    );
+    await ok("wait", "close", "1");
+    await ok("gate", "ENG-42", "yes");
+    assert.equal(
+      await lines(),
+      "- [x] 1. hear from ana (wait ana, answered 14:20)\n- [x] 2. migration go (gate ENG-42: yes)",
+    );
+  });
+
+  test("a line with several refs ticks only when all are done", async () => {
+    await ok("step", "add", "ENG-7", "fix");
+    await ok("plan", "add", "fix and close", "--ref", "step:ENG-7#1 ticket:ENG-7");
+    await ok("step", "done", "ENG-7", "1");
+    assert.match(await lines(), /^- \[ \] 1\. fix and close \(ENG-7 step 1, 14:20 · ENG-7: todo\)$/);
+    await ok("move", "ENG-7", "done");
+    assert.match(await lines(), /^- \[x\] 1\./);
+  });
+
+  test("plan done ticks a line without refs and is refused on a ref line, naming the real action", async () => {
+    await ok("step", "add", "ENG-42", "write the migration");
+    await ok("plan", "add", "lunch with the team");
+    await ok("plan", "add", "migration", "--ref", "step:ENG-42#1");
+    assert.match(await ok("plan", "done", "1"), /^2026-11-13 line 1 done: \[x\] 1\. lunch with the team \(14:20\)$/);
+    assert.equal(
+      (await hub("plan", "done", "2")).err,
+      "plan line done works only on a line without refs; this one ticks from its refs: step_done ENG-42 1",
+    );
+    await ok("plan", "undo", "1");
+    assert.match(await lines(), /^- \[ \] 1\. lunch with the team$/m);
+  });
+
+  test("an unknown ref is refused; a text naming a ticket without a ref warns", async () => {
+    assert.match((await hub("plan", "add", "x", "--ref", "step:ENG-42#9")).err, /no step 9 on ENG-42/);
+    assert.match((await hub("plan", "add", "x", "--ref", "wait:4")).err, /no wait 4/);
+    assert.match((await hub("plan", "add", "x", "--ref", "pr:4")).err, /ref kind pr is not one of/);
+    assert.match((await hub("plan", "add", "x", "--ref", "draft:ENG-7/nope")).err, /no draft ENG-7\/nope/);
+    assert.match(await ok("plan", "add", "ship ENG-7"), /warning: the text names ENG-7 but the line has no ref/);
+    assert.doesNotMatch(await ok("plan", "add", "ship ENG-7", "--ref", "ticket:ENG-7"), /warning/);
+  });
+
+  test("the first day set of a date carries open lines, skips done and dropped ones, and Today tasks are refused", async () => {
+    await ok("plan", "add", "carry me", "--time", "09:00");
+    await ok("plan", "add", "done today");
+    await ok("plan", "add", "not happening");
+    await ok("plan", "done", "2");
+    await ok("plan", "drop", "3", "QA moved it to next week");
+    assert.match(await lines(), /^- ~~3\. not happening~~ \(dropped: QA moved it to next week\)$/m);
+    now = new Date("2026-11-16T00:00:00Z");
+    stdin = "## Today\n\n- [ ] ship it\n";
+    assert.match((await hub("day", "set", "2026-11-16", "--stdin")).err, /## Today has task lines: .*use plan_add/);
+    stdin = "## RESUME\nstart\n\n## Today\n";
+    const saved = await ok("day", "set", "2026-11-16", "--stdin");
+    assert.match(
+      saved,
+      /carried over \(plan_drop or plan_edit each that no longer holds\):\n- \[ \] 1\. 09:00 carry me · carried from 11-13$/,
+    );
+    assert.equal(
+      await ok("day", "2026-11-16", "--full"),
+      "2026-11-16\nrev: 2026-11-16T00:00:00.000Z\n## RESUME\nstart\n\n## Today\n- [ ] 1. 09:00 carry me · carried from 11-13\n",
+    );
+    await ok("day", "set", "2026-11-16", "--stdin", "--rev", "2026-11-16T00:00:00.000Z");
+    assert.equal(sql<{ n: number }>("SELECT count(*) AS n FROM plan_line WHERE date = '2026-11-16'")[0]?.n, 1);
+  });
+
+  test("two sessions adding lines at once keep both, with no rev", async () => {
+    await Promise.all([ok("plan", "add", "one"), ok("plan", "add", "two")]);
+    assert.deepEqual(
+      sql<{ text: string; pos: number }>("SELECT text, pos FROM plan_line ORDER BY pos").map((l) => l.pos),
+      [1, 2],
+    );
+  });
+
+  test("a past day shows a line done only if its ref was done by the end of that day", async () => {
+    await ok("step", "add", "ENG-42", "a");
+    await ok("step", "add", "ENG-42", "b");
+    await ok("plan", "add", "a", "--ref", "step:ENG-42#1");
+    await ok("plan", "add", "b", "--ref", "step:ENG-42#2");
+    now = new Date("2026-11-13T10:00:00Z");
+    await ok("step", "done", "ENG-42", "1");
+    now = new Date("2026-11-13T16:00:00Z");
+    await ok("step", "done", "ENG-42", "2");
+    assert.match(await lines(), /^- \[x\] 1\. a \(ENG-42 step 1, 19:00\)\n- \[ \] 2\. b \(ENG-42 step 2: open\)$/);
+  });
+
+  test("move, edit and drop undo work by line number", async () => {
+    await ok("plan", "add", "one");
+    await ok("plan", "add", "two");
+    await ok("plan", "add", "zero", "--at", "1");
+    await ok("plan", "move", "3", "1");
+    await ok("plan", "edit", "2", "nil", "--time", "08:30");
+    await ok("plan", "drop", "3", "no time");
+    await ok("plan", "undo", "3");
+    assert.equal(await lines(), "- [ ] 1. two\n- [ ] 2. 08:30 nil\n- [ ] 3. one");
+    assert.match((await hub("plan", "done", "4")).err, /no plan line 4 on 2026-11-13/);
   });
 });

@@ -4,7 +4,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { DEFAULTS } from "./config.ts";
 import { HubError } from "./util.ts";
 
-export const SCHEMA_VERSION = "21";
+export const SCHEMA_VERSION = "22";
 
 export type Ticket = {
   id: string;
@@ -128,6 +128,20 @@ export type StepRow = {
   evidence: string | null;
 };
 export type DayRow = { date: string; resume: string | null; body: string; updated_at: string | null };
+export type PlanLineRow = {
+  id: number;
+  date: string;
+  pos: number;
+  time: string | null;
+  text: string;
+  refs: string;
+  done_at: string | null;
+  dropped_at: string | null;
+  why: string | null;
+  carried_from: string | null;
+  created_at: string;
+  updated_at: string;
+};
 
 export const LIMITED_FIELDS = ["status", "repo", "prs", "gate", "decide", "next", "owner"] as const;
 export const SETTABLE_FIELDS = [
@@ -166,6 +180,11 @@ CREATE UNIQUE INDEX draft_item_label ON draft(item, label) WHERE ticket_id IS NU
 const DRAFT_COMMENT = `CREATE TABLE draft_comment(id INTEGER PRIMARY KEY, draft_id INTEGER NOT NULL, pos INTEGER NOT NULL,
   path TEXT NOT NULL, line INTEGER NOT NULL, body TEXT NOT NULL, UNIQUE(draft_id, pos));`;
 
+const PLAN_LINE = `CREATE TABLE plan_line(id INTEGER PRIMARY KEY, date TEXT NOT NULL, pos INTEGER NOT NULL, time TEXT,
+  text TEXT NOT NULL, refs TEXT NOT NULL DEFAULT '[]', done_at TEXT, dropped_at TEXT, why TEXT, carried_from TEXT,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE INDEX plan_line_date ON plan_line(date, pos);`;
+
 const SCHEMA = `
 CREATE TABLE ticket(
   id TEXT PRIMARY KEY,
@@ -195,6 +214,7 @@ CREATE TABLE step(id INTEGER PRIMARY KEY, ticket_id TEXT NOT NULL, n INTEGER NOT
   done_at TEXT, evidence TEXT, created_at TEXT NOT NULL, UNIQUE(ticket_id, n));
 CREATE TABLE source(name TEXT PRIMARY KEY, cursor TEXT, last_sync TEXT NOT NULL, last_error TEXT, warning TEXT);
 CREATE TABLE day(date TEXT PRIMARY KEY, resume TEXT, body TEXT, updated_at TEXT);
+${PLAN_LINE}
 CREATE TABLE pin(key TEXT PRIMARY KEY, pinned_at TEXT NOT NULL);
 CREATE TABLE script_source(name TEXT PRIMARY KEY, argv TEXT NOT NULL, every TEXT NOT NULL, created_at TEXT NOT NULL,
   enabled INTEGER NOT NULL DEFAULT 1, section TEXT);
@@ -253,6 +273,7 @@ ${DRAFT_COMMENT}`,
 WHERE kind = 'review_request' AND ask IS NULL AND closed_at IS NULL AND ignored IS NULL;`,
   },
   "20": { to: "21", sql: "ALTER TABLE item ADD COLUMN avatar TEXT;" },
+  "21": { to: "22", sql: PLAN_LINE },
 };
 
 function excludeIgnoredRepos(key: "githubReviewQuery" | "githubPrQuery", kind: string): string {
