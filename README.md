@@ -11,7 +11,7 @@ Agents that keep ticket state in markdown re-read the whole file for every edit,
 With Homebrew (macOS or Linux):
 
 ```sh
-brew install nhkhai-vn/tap/engineer-hub
+brew install sgl-k/tap/engineer-hub
 brew services start engineer-hub    # runs hub serve at login and restarts it if it stops
 hub board
 ```
@@ -21,7 +21,7 @@ hub board
 From source, with Node.js 24 or newer (`node:sqlite` with FTS5 and native TypeScript type stripping). No runtime dependencies.
 
 ```sh
-git clone https://github.com/nhkhai-vn/engineer-hub
+git clone https://github.com/sgl-k/engineer-hub
 cd engineer-hub
 ln -s "$PWD/src/cli.ts" ~/.local/bin/hub   # any folder on PATH
 hub service install                         # macOS; elsewhere run hub serve under a supervisor
@@ -35,7 +35,7 @@ Run hub serve one way only: `brew services` and `hub service install` both take 
 For Claude Code, install the plugin for the hub MCP tools and the sync and plan skills:
 
 ```
-/plugin install engineer-hub --marketplace nhkhai-vn/engineer-hub
+/plugin install engineer-hub --marketplace sgl-k/engineer-hub
 ```
 
 ## Example
