@@ -77,6 +77,7 @@ type Need = {
   ignore?: number;
   detach?: { id: number; ticket: string };
   fyi?: boolean;
+  today?: boolean;
   section?: string;
   panel?: string;
 };
@@ -493,6 +494,8 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
       later: null,
     });
   }
+  const planned = plannedKeys(ctx);
+  for (const n of list) if (planned.has(n.key)) n.today = true;
   const pinned = pins(ctx.db);
   const byPin = (a: Need, b: Need) => {
     const pa = pinned.get(a.key);
@@ -663,7 +666,8 @@ function needRow(ctx: Ctx, n: Need, pinned: boolean, showVerb: boolean | "inline
   const caret = folds
     ? `<button type="button" class="n-caret" data-fold-toggle aria-expanded="false" title="Show more · space" aria-label="Show more">${svg("down")}</button>`
     : `<span class="n-caret"></span>`;
-  const main = `<span class="need-main"><span class="need-line">${pin}${showVerb === "inline" ? `<span class="verb verb-inline">${esc(n.verb)}</span>` : ""}${n.title}</span><span class="need-sub">${dim}${n.sub}</span></span>`;
+  const mark = n.today === true ? `<span class="pill tone-blue plan-mark" title="In today's plan">today</span>` : "";
+  const main = `<span class="need-main"><span class="need-line">${pin}${showVerb === "inline" ? `<span class="verb verb-inline">${esc(n.verb)}</span>` : ""}${n.title}${mark}</span><span class="need-sub">${dim}${n.sub}</span></span>`;
   const ask = n.ask === "" ? "" : `<div class="n-ask">${n.ask}</div>`;
   const body = n.body === undefined ? "" : `<div class="n-body md">${markdown(ctx, n.body)}</div>`;
   const more = folds && body + (n.drafts ?? "") !== "" ? `<div class="n-more">${body}${n.drafts ?? ""}</div>` : "";
@@ -1192,6 +1196,62 @@ function dayNav(ctx: Ctx, shown: string, now: string): string {
   return `<span class="day-nav">${dayStep("left", "Previous plan", prev?.date, now)}${pick}${dayStep("right", "Next plan", next?.date, now)}</span>`;
 }
 
+function plannedKeys(ctx: Ctx): Set<string> {
+  const keys = new Set<string>();
+  for (const s of plan.lines(ctx, today(ctx.now, ctx.config.timezone))) {
+    if (s.dropped || s.doneAt !== null) continue;
+    for (const r of s.refs) {
+      const act = r.act ?? {};
+      if (r.ref.kind === "item") keys.add(`item-${r.ref.id}`);
+      if (r.ref.kind === "wait") keys.add(`wait-${r.ref.id}`);
+      if (r.ref.kind === "gate") keys.add(`gate-${r.ref.id}`);
+      if (r.ref.kind === "draft") {
+        keys.add(`send-${act.ticket}-${act.label}`);
+        keys.add(`match-${act.ticket}-${act.label}`);
+      }
+    }
+  }
+  return keys;
+}
+
+function refChip(ctx: Ctx, r: plan.RefState): string {
+  const item = r.ref.kind === "item" ? one<ItemRow>(ctx.db, "SELECT * FROM item WHERE id = ?", r.ref.id) : undefined;
+  const open = r.doneAt === null;
+  const state = open && item !== undefined && item.state !== null ? itemVerb(item).verb : r.state;
+  const tone: Tone = !open ? "green" : r.state === "gone" ? "grey" : r.state === "sent?" ? "blue" : "amber";
+  const text = `${r.name} · ${state.toLowerCase()}`;
+  const cls = `chip tone-${tone}`;
+  if (r.href?.startsWith("/")) return `<a class="${cls}" href="${esc(r.href)}">${esc(text)}</a>`;
+  return linker(ctx)(r.href, text, cls);
+}
+
+function planBox(s: plan.LineState, date: string, readOnly: boolean): string {
+  const mark = s.dropped ? "–" : s.doneAt === null ? "" : "✓";
+  const still = `<span class="pbox">${mark}</span>`;
+  if (readOnly || s.dropped) return still;
+  const only = s.refs.length === 1 ? s.refs[0] : undefined;
+  const data =
+    s.refs.length === 0
+      ? { act: s.doneAt === null ? "plan-done" : "plan-undo", line: s.n, date }
+      : s.doneAt === null
+        ? (only?.act ?? null)
+        : null;
+  if (data === null) return still;
+  const label = s.refs.length === 0 && s.doneAt !== null ? "Not done" : "Done";
+  return `<button type="button" class="pbox" title="${label}" aria-label="${label}"${dataAttrs(data)}>${mark}</button>`;
+}
+
+function planRow(ctx: Ctx, s: plan.LineState, date: string, readOnly: boolean): string {
+  const open = !s.dropped && s.doneAt === null;
+  const cls = `pline${s.doneAt === null ? "" : " is-done"}${s.dropped ? " dropped" : ""}`;
+  const time = s.line.time === null ? "" : `<span class="pl-time">${esc(s.line.time)}</span>`;
+  const why = s.dropped ? `<span class="pl-why">${line(ctx, s.line.why ?? "")}</span>` : "";
+  const carried =
+    s.line.carried_from === null ? "" : `<span class="pl-why">from ${esc(s.line.carried_from.slice(5))}</span>`;
+  const chips = s.refs.map((r) => refChip(ctx, r)).join("");
+  return `<li class="${cls}" data-key="pl-${s.line.id}" data-tab-panel="${open ? "open all" : "all"}"${open ? "" : " hidden"}>${planBox(s, date, readOnly)}<span class="pl-text">${time}${line(ctx, s.line.text)}${why}${carried}</span><span class="pl-refs">${chips}</span></li>`;
+}
+
 function todaySection(ctx: Ctx, asked: string | null): string {
   const now = today(ctx.now, ctx.config.timezone);
   const picked = asked !== null && isDate(asked) && asked < now ? asked : null;
@@ -1200,24 +1260,26 @@ function todaySection(ctx: Ctx, asked: string | null): string {
       ? (one<DayRow>(ctx.db, "SELECT * FROM day WHERE date = ?", now) ??
         one<DayRow>(ctx.db, "SELECT * FROM day ORDER BY date DESC LIMIT 1"))
       : one<DayRow>(ctx.db, "SELECT * FROM day WHERE date = ?", picked);
-  const shown = picked ?? day?.date ?? now;
+  const shown = picked ?? (plan.hasLines(ctx, now) ? now : (day?.date ?? now));
+  const body = day?.date === shown ? day.body : "";
+  const past = shown !== now;
+  const lines = plan.lines(ctx, shown);
   const link = linker(ctx);
   const missing = picked === null ? empty() : `<p class="empty">No plan for ${esc(picked)}</p>`;
+  const rows =
+    lines.length === 0
+      ? ""
+      : `<ul class="rows plines">${lines.map((s) => planRow(ctx, s, shown, past)).join("")}${openRows(lines.filter((s) => !s.dropped && s.doneAt === null).length)}</ul>`;
   const md =
-    day === undefined && !plan.hasLines(ctx, shown)
-      ? null
-      : plan.withLines(day?.body ?? "", plan.todayMarkdown(ctx, shown));
-  const body =
-    md === null
-      ? missing
-      : `<div class="md" data-keep-scroll data-key="today">${renderMarkdown(md, (url, text) => link(url, text), ctx.config.resumeHeading)}</div>`;
-  const past = shown !== now;
+    body.trim() === ""
+      ? ""
+      : `<div class="md">${renderMarkdown(body, (url, text) => link(url, text), ctx.config.resumeHeading)}</div>`;
+  const content = rows + md === "" ? missing : `<div data-keep-scroll data-key="today">${rows}${md}</div>`;
   const readOnly = past ? pill("read only", "grey") : "";
   const back = picked === null ? "" : `<a class="day-back" href="/" data-day="">Back to today</a>`;
-  const listed = (body.match(/<li class="md-task/g) ?? []).length;
-  const checked = (body.match(/<li class="md-task done"/g) ?? []).length;
-  const head = readOnly + back + openTabs("today", listed - checked, listed) + dayNav(ctx, shown, now);
-  return section("Today", null, body, "today", head, past ? dayLabel(shown) : "Today");
+  const open = lines.filter((s) => !s.dropped && s.doneAt === null).length;
+  const head = readOnly + back + openTabs("today", open, lines.length) + dayNav(ctx, shown, now);
+  return section("Today", null, content, "today", head, past ? dayLabel(shown) : "Today");
 }
 
 function eventRow(ctx: Ctx, e: EventRow, showTicket: boolean): string {
