@@ -950,9 +950,6 @@ button.busy::after {
 
 /* today */
 .md {
-  margin-top: 8px;
-}
-.md {
   overflow-wrap: anywhere;
 }
 .today .md {
@@ -1129,7 +1126,11 @@ button.busy::after {
   margin-left: 6px;
   vertical-align: 1px;
 }
-.plines + /* drafts */
+.plines + .md {
+  margin-top: 8px;
+}
+
+/* drafts */
 [data-tab-panel][hidden] {
   display: none;
 }
