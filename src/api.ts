@@ -1014,8 +1014,9 @@ function draftNote(ctx: Ctx, a: Args, text: string): Note {
   return { ticket, text: `${text}${on}` };
 }
 
-const HUMAN_NOTES: Record<string, (ctx: Ctx, a: Args) => Note | null> = {
-  item_close: (ctx, a) => itemNote(ctx, str(a, "key"), "done"),
+const HUMAN_NOTES: Record<string, (ctx: Ctx, a: Args) => Note | Note[] | null> = {
+  item_close: (ctx, a) =>
+    [str(a, "key"), ...((a.more as string[] | undefined) ?? [])].map((key) => itemNote(ctx, key, "done")),
   item_snooze: (ctx, a) => itemNote(ctx, str(a, "key"), `later (${opt(a, "for") ?? "1d"})`),
   item_reopen: (ctx, a) => itemNote(ctx, str(a, "key"), "back in the list"),
   item_ignore: (ctx, a) => itemNote(ctx, str(a, "key"), "ignored"),
@@ -1044,9 +1045,9 @@ const HUMAN_NOTES: Record<string, (ctx: Ctx, a: Args) => Note | null> = {
 
 export async function runRoute(ctx: Ctx, route: Route, args: Args, hooks: Hooks, human: boolean): Promise<Result> {
   const describe = human ? HUMAN_NOTES[route.name] : undefined;
-  const note = describe === undefined ? null : describe(ctx, args);
+  const notes = describe === undefined ? [] : [describe(ctx, args) ?? []].flat();
   const result = await route.run(ctx, args, hooks);
-  if (note !== null) {
+  for (const note of notes) {
     ctx.db
       .prepare(
         "INSERT INTO event(ticket_id, ts, kind, text, source, created_at) VALUES (?, ?, 'action', ?, 'human', ?)",

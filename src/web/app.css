@@ -1431,6 +1431,13 @@ a.chip-btn:hover {
   letter-spacing: normal;
   font-weight: 400;
 }
+.ngroup > summary > .ack-all {
+  margin: -4px 40px -4px auto;
+}
+.ngroup > summary > .ack-all:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
 .g-count {
   font-size: 11px;
   color: var(--muted);
@@ -2415,6 +2422,7 @@ kbd {
   margin-left: 8px;
 }
 .ngroup:not([open]) > summary > .tabs,
+.ngroup:not([open]) > summary > .ack-all,
 .ngroup[open] > summary > .g-count,
 .is-folded > :not(.sec-head),
 .is-folded > .sec-head > :not(h2, .count) {

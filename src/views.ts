@@ -700,6 +700,21 @@ function needTabs(g: Group, rows: Need[]): Tab[] {
   return [...tabs, { name: "all", label: "All", count: rows.length }];
 }
 
+const ACK_ALL_GROUPS = ["fix", "review", "reply"];
+
+function ackAll(g: Group, rows: Need[]): string {
+  if (!ACK_ALL_GROUPS.includes(g.key)) return "";
+  const ids = rows.filter((n) => n.dim === null && n.ok?.data.act === "item-done").map((n) => String(n.ok?.data.id));
+  const [first, ...more] = ids;
+  const data =
+    first === undefined
+      ? null
+      : { act: "item-done", id: first, ...(more.length === 0 ? {} : { more: more.join(",") }) };
+  const label = `Ack all ${esc(g.label)}`;
+  const attrs = data === null ? " disabled" : dataAttrs(data);
+  return `<button type="button" class="ic ic-ok ack-all" title="${label}" aria-label="${label}"${attrs}>${svg("ok")}</button>`;
+}
+
 function needsCard(ctx: Ctx, g: Group, rows: Need[], pinned: Set<string>): string {
   const tabs = needTabs(g, rows);
   const prs = g.key === "prs";
@@ -714,7 +729,7 @@ function needsCard(ctx: Ctx, g: Group, rows: Need[], pinned: Set<string>): strin
       );
     })
     .join("");
-  return `<section class="ncard tone-${g.tone}"><details class="ngroup" data-key="group-${g.key}" data-group="${g.key}" open><summary><span class="g-label">${esc(g.label)}</span><span class="g-count">${tabs[0]?.count ?? 0}</span>${tabBar(`needs-${g.key}`, tabs)}</summary><ul class="rows needs-list">${list}</ul></details></section>`;
+  return `<section class="ncard tone-${g.tone}"><details class="ngroup" data-key="group-${g.key}" data-group="${g.key}" open><summary><span class="g-label">${esc(g.label)}</span><span class="g-count">${tabs[0]?.count ?? 0}</span>${tabBar(`needs-${g.key}`, tabs)}${ackAll(g, rows)}</summary><ul class="rows needs-list">${list}</ul></details></section>`;
 }
 
 function needsYou(n: Need): boolean {

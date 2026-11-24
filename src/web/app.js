@@ -4,7 +4,8 @@ const toasts = document.querySelector(".toasts");
 const newsBox = document.querySelector(".news");
 const flip = (on) => (on === "1" ? "0" : "1");
 const UNDO = {
-  "item-done": (d) => ["item-reopen", d],
+  "item-done": (d) =>
+    d.more === undefined ? ["item-reopen", d] : [d.id, ...d.more.split(",")].map((id) => ["item-reopen", { id }]),
   "item-snooze": (d) => ["item-reopen", d],
   "wait-close": (d) => ["wait-reopen", d],
   "item-ignore": (d) => ["item-unignore", d],
@@ -375,7 +376,7 @@ const ROUTES = {
   match: (d) => ["POST", `/tickets/${e(d.ticket)}/drafts/${e(d.label)}/match`, { answer: d.answer }],
   gate: (d) => ["POST", `/tickets/${e(d.ticket)}/gate`, { answer: d.answer }],
   pin: (d) => ["PUT", `/pins/${e(d.row)}`, { on: d.on === "1" }],
-  "item-done": (d) => ["POST", `/items/${e(d.id)}/close`, {}],
+  "item-done": (d) => ["POST", `/items/${e(d.id)}/close`, { more: d.more?.split(",") }],
   "item-snooze": (d) => ["POST", `/items/${e(d.id)}/snooze`, later(d)],
   "item-reopen": (d) => ["POST", `/items/${e(d.id)}/reopen`, {}],
   "item-ignore": (d) => ["POST", `/items/${e(d.id)}/ignore`, {}],
@@ -768,6 +769,7 @@ document.addEventListener("click", async (e) => {
     foldToday();
     return;
   }
+  if (b?.closest("summary")) e.preventDefault();
   if (b && !b.disabled) {
     if (b.dataset.copy !== undefined) {
       closeMenus();

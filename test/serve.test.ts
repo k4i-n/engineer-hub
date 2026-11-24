@@ -1700,6 +1700,48 @@ describe("send later", () => {
     ).text();
     assert.match(again, /from you since [\d-]+ [\d:]+: none$/);
   });
+
+  test("ack all closes every open item of its card in one call, and only items", async () => {
+    await hub(
+      ["item", "put", "--stdin"],
+      [
+        '{"source":"github","kind":"review_request","url":"https://github.com/acme/web/pull/9","title":"Fix login","needs_me":true}',
+        '{"source":"github","kind":"review_request","url":"https://github.com/acme/web/pull/10","title":"Fix logout","needs_me":true}',
+        '{"source":"github","kind":"review_request","url":"https://github.com/acme/web/pull/11","title":"Later one","needs_me":true}',
+      ].join("\n"),
+    );
+    await hub(["item", "snooze", "https://github.com/acme/web/pull/11", "--for", "1d"]);
+    await hub(["draft", "ENG-7", "ask product", "--stdin"], "Can we cap exports?");
+    const ids = async () =>
+      ((await (await call("GET", "/items?needs_me=true")).json()) as { id: number; url: string }[])
+        .filter((i) => /pull\/(9|10)$/.test(i.url))
+        .map((i) => String(i.id))
+        .sort();
+    const [first, second] = await ids();
+    const html = await (await fetch(`${server.url}/?part=1`)).text();
+    const review = /data-group="review"[\s\S]*?<\/summary>/.exec(html)?.[0] ?? "";
+    assert.match(
+      review,
+      new RegExp(`class="ic ic-ok ack-all"[^>]*data-act="item-done" data-id="${first}" data-more="${second}"`),
+    );
+    const reply = /data-group="reply"[\s\S]*?<\/summary>/.exec(html)?.[0] ?? "";
+    assert.match(reply, /class="ic ic-ok ack-all"[^>]* disabled>/);
+
+    const res = await fetch(`${server.url}/api/v1/items/${first}/close`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${server.token}`, "x-hub-actor": "human", "content-type": "application/json" },
+      body: JSON.stringify({ more: [second] }),
+    });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await ids(), []);
+    const brief = await (
+      await fetch(`${server.url}/api/v1/brief`, {
+        headers: { authorization: `Bearer ${server.token}`, accept: "text/plain" },
+      })
+    ).text();
+    assert.match(brief, /done: review_request Fix login/);
+    assert.match(brief, /done: review_request Fix logout/);
+  });
 });
 
 describe("backups", () => {
