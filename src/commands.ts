@@ -894,15 +894,39 @@ const REVIEW_STATE: Record<string, string> = {
   DISMISSED: "dismissed",
 };
 
-export function proposeReview(ctx: Ctx, review: Review): number {
+export type Proposed = { sent: number; asked: number };
+
+export function proposeReview(ctx: Ctx, review: Review): Proposed {
   const text = review.body.trim() || REVIEW_STATE[review.state] || review.state.toLowerCase();
-  const { changes } = ctx.db
-    .prepare(
-      `UPDATE draft SET match_text = ?, match_ref = ?, match_verdict = ?, updated_at = ?
-       WHERE item = ? AND status = 'draft' AND match_ref IS NULL AND coalesce(match_no, '') != ? AND coalesce(created_at, '') <= ?`,
-    )
-    .run(text, review.url, REVIEW_VERDICT[review.state] ?? null, nowIso(ctx.now), review.item, review.url, review.at);
-  return Number(changes);
+  const verdict = REVIEW_VERDICT[review.state] ?? null;
+  const drafts = all<DraftRow>(
+    ctx.db,
+    `SELECT * FROM draft WHERE item = ? AND status = 'draft' AND match_ref IS NULL AND coalesce(match_no, '') != ?
+       AND coalesce(created_at, '') <= ?`,
+    review.item,
+    review.url,
+    review.at,
+  );
+  const [only] = drafts;
+  if (only !== undefined && drafts.length === 1 && reviewIsDraft(ctx, only, verdict)) {
+    posted(ctx, draftOwner(only), only.label, {
+      at: nowTs(new Date(review.at), ctx.config.timezone),
+      channel: null,
+      answer: null,
+      sentText: text,
+      sentRef: review.url,
+    });
+    return { sent: 1, asked: 0 };
+  }
+  const ask = ctx.db.prepare(
+    "UPDATE draft SET match_text = ?, match_ref = ?, match_verdict = ?, updated_at = ? WHERE id = ?",
+  );
+  for (const d of drafts) ask.run(text, review.url, verdict, nowIso(ctx.now), d.id);
+  return { sent: 0, asked: drafts.length };
+}
+
+function reviewIsDraft(ctx: Ctx, d: DraftRow, verdict: string | null): boolean {
+  return verdict !== null && d.verdict === verdict && draftComments(ctx.db, d.id).length === 0;
 }
 
 function openReviewRequest(ctx: Ctx, item: string | null): ItemRow | undefined {

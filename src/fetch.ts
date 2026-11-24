@@ -47,8 +47,11 @@ export function write(ctx: Ctx, name: string, fetched: Fetched): string {
   if (fetched.channels !== undefined) saveChannels(ctx, fetched.channels);
   const updated = (fetched.tracker ?? []).filter((t) => setTracker(ctx, t)).length;
   if (updated > 0) parts.push(`tickets: ${updated} updated`);
-  const proposed = (fetched.reviews ?? []).reduce((n, r) => n + proposeReview(ctx, r), 0);
-  if (proposed > 0) parts.push(`drafts: ${proposed} sent?`);
+  const proposed = (fetched.reviews ?? []).map((r) => proposeReview(ctx, r));
+  const sent = proposed.reduce((n, p) => n + p.sent, 0);
+  const asked = proposed.reduce((n, p) => n + p.asked, 0);
+  if (sent > 0) parts.push(`drafts: ${sent} sent`);
+  if (asked > 0) parts.push(`drafts: ${asked} sent?`);
   sources.synced(ctx, name, { cursor: fetched.cursor, error: null, warning: fetched.warning ?? null });
   return parts.join("; ") || "nothing new";
 }
