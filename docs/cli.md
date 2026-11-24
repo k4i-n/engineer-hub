@@ -93,6 +93,7 @@ Config lives in the database. `hub config` lists every key with its value:
 | `slackAlertChannels` | `[]` | Slack channels whose new messages are alerts (Fix now); give names or ids, stored as `{"id","name"}` |
 | `slackIgnoreChannels` | `[]` | Slack channels hub pulls nothing from; same form as `slackAlertChannels` |
 | `slackGroupChannels` | `[]` | the only Slack channels where a mention of a user group you are in is pulled; empty pulls none; same form as `slackAlertChannels` |
+| `slackWatchChannels` | `[]` | Slack channels whose every new message from others needs you (Reply), with or without a mention; same form as `slackAlertChannels` |
 | `laterHour` | `9` | the hour "later until tomorrow" means |
 | `recordActions` | `git push`, `gh pr create\|merge\|comment\|review\|close\|edit`, `gh issue create\|comment\|close\|edit` | regular expressions for shell commands a session must record in hub before it stops, and whose printed PR the PostToolUse hook links to the ticket on the current branch; `[]` switches the Stop hook off |
 | `awayPing` | `false` | post to a webhook when new alerts or messages arrive while you are away (see Dashboard) |
