@@ -1306,13 +1306,15 @@ describe("slack", () => {
     assert.match(await hub("items", "--source", "slack"), /#ops · Bo: thanks, merged \| replied/);
   });
 
-  test("a mention of a group I am in needs me, named by the group, and a direct mention wins on the same message", async () => {
+  test("a mention of a group I am in needs me only in a group channel, named by the group, and a direct mention wins on the same message", async () => {
     await hub("config", "fetch", '{"github":false,"slack":true}');
+    await hub("config", "slackGroupChannels", '[{"id":"C01","name":"ops"}]');
     answers.security = (args) =>
       args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
     const both = ts(100);
     const group = ts(90);
     const other = ts(80);
+    const elsewhere = ts(70);
     const said = (t: string, text: string) => ({
       ts: t,
       text,
@@ -1345,6 +1347,11 @@ describe("slack", () => {
             ? [
                 said(both, `<@${ME}> <!subteam^S1> who owns the queue?`),
                 said(group, "<!subteam^S1> deploy freeze at 5"),
+                {
+                  ...said(elsewhere, "<!subteam^S1> lunch?"),
+                  permalink: `https://acme.slack.com/archives/C02/p${elsewhere.replace(".", "")}`,
+                  channel: { id: "C02", name: "random" },
+                },
               ]
             : q.startsWith("<!subteam^S2>")
               ? [said(other, "<!subteam^S2> new icons")]
@@ -1361,10 +1368,18 @@ describe("slack", () => {
     assert.match(needs, /#ops · ana: @U0ME @backend who owns the queue\? \| mention \|/);
     assert.match(needs, /#ops · ana: @backend deploy freeze at 5 \| mention @backend/);
     assert.doesNotMatch(needs, /new icons/);
+    assert.doesNotMatch(needs, /lunch/);
+
+    await hub("config", "slackGroupChannels", "[]");
+    queries.length = 0;
+    await hub("fetch", "slack");
+    assert.ok(queries.length > 0);
+    assert.ok(!queries.some((q) => q.startsWith("<!subteam^")));
   });
 
   test("a scope Slack refuses leaves its details out and becomes a warning, not an error", async () => {
     await hub("config", "fetch", '{"github":false,"slack":true}');
+    await hub("config", "slackGroupChannels", '[{"id":"C01","name":"ops"}]');
     answers.security = (args) =>
       args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
     const at = ts(100);

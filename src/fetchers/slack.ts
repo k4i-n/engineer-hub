@@ -436,8 +436,13 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
   }
   dir.learn([...mentions, ...recent, ...dms, ...alerts]);
   const pinged: [Match, string][] = mentions.map((m) => [m, "mention"]);
-  for (const g of await dir.groupsOf(me)) {
-    const found = (await search(sys, way, `<!subteam^${g.id}> after:${after}`)).filter(newer).filter(kept);
+  const inGroupChannels = inChannels(lists.slackGroupChannels);
+  const groups = lists.slackGroupChannels.length === 0 ? [] : await dir.groupsOf(me);
+  for (const g of groups) {
+    const found = (await search(sys, way, `<!subteam^${g.id}> after:${after}`))
+      .filter(newer)
+      .filter(kept)
+      .filter(inGroupChannels);
     dir.learn(found);
     pinged.push(...found.map((m): [Match, string] => [m, `mention @${g.handle}`]));
   }
@@ -607,7 +612,7 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
     cursor: next,
     answered,
     warning: notes.length === 0 ? null : notes.join("; "),
-    channels: [...lists.slackAlertChannels, ...lists.slackIgnoreChannels],
+    channels: SLACK_CHANNEL_KEYS.flatMap((key) => lists[key]),
   };
 }
 
