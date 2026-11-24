@@ -33,8 +33,8 @@ For Slack, create an app in your workspace (api.slack.com/apps → From scratch)
 security add-generic-password -s engineer-hub -a slack -w      # paste the xoxp- token
 sealcall add slack --host slack.com --header 'Authorization: Bearer {key}' \
   --allow 'GET /api/auth.test' --allow 'GET /api/search.messages' --allow 'GET /api/conversations.replies' \
-  --allow 'GET /api/conversations.info' --allow 'GET /api/users.info' --allow 'GET /api/usergroups.list' \
-  --allow 'GET /api/reactions.get'   # or sealcall
+  --allow 'GET /api/conversations.info' --allow 'GET /api/conversations.list' --allow 'GET /api/users.info' \
+  --allow 'GET /api/usergroups.list' --allow 'GET /api/reactions.get'   # or sealcall
 ```
 
 To watch alert channels, list them in Settings → Sources → Alert channels, or:
@@ -44,6 +44,10 @@ hub config slackAlertChannels '["alerts-prod","oncall"]'
 ```
 
 Every new message there from someone other than you, bot posts included, is an alert that needs you; a message with no text (a bot post) is named by the first attachment text it has, else its block text, else "(no text)" after the sender. Your ✅ on it takes it off; replying in its thread does not. Each channel is one more `search.messages` call per fetch (Slack allows about 20 a minute), and a private channel needs you to be a member.
+
+To pull nothing from a channel (no mentions, replies, sent messages or alerts there), list it in Settings → Sources → Ignore channels, or `hub config slackIgnoreChannels '["random"]'`. Ignore wins over alert.
+
+Both lists take channel names or ids and store each channel as `{"id","name"}`. A name is looked up (`conversations.list`, needs `channels:read`, and `groups:read` for private channels) when you save it, and an unknown name is refused; without a Slack key it is stored as typed and looked up on the next fetch. Every Slack fetch reads each channel's current name by id (`conversations.info`), so a renamed channel keeps working and shows its new name. Settings shows each channel's name and id under the input.
 
 The second group of scopes is optional: a scope the token lacks (or an endpoint the sealcall route does not allow) only leaves that detail out, ids stay ids, and the source shows an amber warning naming the missing scopes in the header and in Settings → Sources. Adding a scope to an installed app needs a reinstall, which issues a new token; store it again (`sealcall rotate slack` keeps the route). A rate limit or Slack error while checking a DM's sender holds that DM, and the cursor, for the next fetch; the warning names the failed call.
 
