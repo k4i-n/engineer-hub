@@ -1067,7 +1067,7 @@ button.busy::after {
 
 .plines > li {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto;
+  grid-template-columns: 18px minmax(0, 1fr) fit-content(40%);
   align-items: baseline;
   column-gap: 8px;
   padding: 6px 0;
@@ -2422,6 +2422,11 @@ kbd {
   }
   .ngroup .need > .need-main {
     margin-top: 0;
+  }
+  .pl-refs {
+    grid-column: 2 / -1;
+    justify-content: flex-start;
+    margin-top: 4px;
   }
   .d-comments li {
     grid-template-columns: minmax(0, 1fr) auto;
