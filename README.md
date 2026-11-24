@@ -16,6 +16,8 @@ brew services start engineer-hub    # runs hub serve at login and restarts it if
 hub board
 ```
 
+`brew upgrade engineer-hub` replaces the files; `brew services restart engineer-hub` then runs the new version. `brew services` needs launchd or systemd; without either, run `hub serve` under your own supervisor.
+
 From source, with Node.js 24 or newer (`node:sqlite` with FTS5 and native TypeScript type stripping). No runtime dependencies.
 
 ```sh
@@ -26,7 +28,7 @@ hub service install                         # macOS; elsewhere run hub serve und
 hub board
 ```
 
-Run hub serve one way only: `brew services` and `hub service install` both take port 7420.
+Run hub serve one way only: `brew services` and `hub service install` both take port 7420, so moving a source install to Homebrew starts with `hub service uninstall`.
 
 `hub serve` is the only process that opens the database (`~/.hub/hub.db`, or `HUB_DB` / `--db <path>`). The CLI, the dashboard and every agent go through its API at `http://127.0.0.1:7420`.
 
