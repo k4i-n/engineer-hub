@@ -13,7 +13,7 @@ import { loadConfig, type SlackChannel } from "./config.ts";
 import { one, openDb, SCHEMA_VERSION, type SourceRow } from "./db.ts";
 import { type Fetcher, isOn, Runner } from "./fetch.ts";
 import { FETCHERS } from "./fetchers/index.ts";
-import { resolveChannels } from "./fetchers/slack.ts";
+import { resolveChannels, workspaceFetchers } from "./fetchers/slack.ts";
 import { type System, system } from "./keys.ts";
 import { handleRpc } from "./mcp.ts";
 import { loadToken, tokenPath } from "./token.ts";
@@ -171,7 +171,8 @@ export function serve(options: ServeOptions): Promise<Server> {
   }, options.autoSyncCheckMs ?? AUTO_SYNC_CHECK_MS);
   autoSync.unref();
   const sys = options.system ?? system(options.env);
-  const runner = new Runner(options.fetchers ?? FETCHERS, sys, ctx, broadcast);
+  const builtIns = options.fetchers ?? FETCHERS;
+  const runner = new Runner((c) => [...builtIns, ...workspaceFetchers(c)], sys, ctx, broadcast);
   const fetchTimer = setInterval(() => {
     runner.tick().catch(() => {});
   }, options.fetchCheckMs ?? FETCH_CHECK_MS);

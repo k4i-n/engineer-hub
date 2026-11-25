@@ -1,5 +1,5 @@
 import type { Ctx } from "../commands.ts";
-import { SLACK_CHANNEL_KEYS, type SlackChannel, type SlackChannelKey } from "../config.ts";
+import { type Config, SLACK_CHANNEL_KEYS, type SlackChannel, type SlackChannelKey } from "../config.ts";
 import { all, type ItemRow, type WaitRow } from "../db.ts";
 import type { Fetched, Fetcher } from "../fetch.ts";
 import { findWay, HttpError, type KeySpec, keyedCall, type System, type Way } from "../keys.ts";
@@ -442,8 +442,8 @@ function reactionState(reactions: Reaction[], me: string): { state: string; done
   return { state: `reacted ${mine.map((r) => `:${r.name}:`).join(" ")}`, done };
 }
 
-async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise<Fetched> {
-  const way = await keyWay(sys, SLACK_KEY);
+async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null, spec: KeySpec): Promise<Fetched> {
+  const way = await keyWay(sys, spec);
   const auth = await slackGet<Answer & { user_id: string; user?: string; url: string; team_id: string }>(
     sys,
     way,
@@ -685,9 +685,22 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
   };
 }
 
-export const slack: Fetcher = {
-  name: "slack",
-  key: SLACK_KEY,
-  check: (sys) => keyCheck(sys, SLACK_KEY),
-  fetch: fetchSlack,
-};
+export function slackSources(config: Config): string[] {
+  return ["slack", ...config.slackWorkspaces.map((w) => `slack-${w}`)];
+}
+
+function slackFetcher(name: string): Fetcher {
+  const spec = { ...SLACK_KEY, source: name };
+  return {
+    name,
+    key: spec,
+    check: (sys) => keyCheck(sys, spec),
+    fetch: (sys, ctx, cursor) => fetchSlack(sys, ctx, cursor, spec),
+  };
+}
+
+export const slack = slackFetcher("slack");
+
+export function workspaceFetchers(ctx: Ctx): Fetcher[] {
+  return slackSources(ctx.config).slice(1).map(slackFetcher);
+}

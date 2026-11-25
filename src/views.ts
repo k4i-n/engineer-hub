@@ -1384,7 +1384,7 @@ function sourceChip(ctx: Ctx, name: string, running: boolean): string {
   ]
     .filter(Boolean)
     .join("\n");
-  return chip(SOURCE_NAME[name] ?? name, sourceState(ctx, s, running), title);
+  return chip(sourceLabel(name), sourceState(ctx, s, running), title);
 }
 
 function agentChip(ctx: Ctx, live: Live): string {
@@ -1744,6 +1744,10 @@ export type Fetching = {
 
 const SOURCE_NAME: Record<string, string> = { github: "GitHub", linear: "Linear", slack: "Slack" };
 
+function sourceLabel(name: string): string {
+  return SOURCE_NAME[name] ?? (name.startsWith("slack-") ? `Slack ${name.slice("slack-".length)}` : name);
+}
+
 function fetchStatus(ctx: Ctx, f: Fetching): string {
   const status = (tone: string, text: string) =>
     `<span class="src-status tone-${tone}"><span class="dot"></span>${esc(text)}</span>`;
@@ -1777,7 +1781,7 @@ function sourceRows(ctx: Ctx, list: Fetching[]): string {
           : f.fixes.map(codeBlock).join("");
       const controls = f.script === null ? "" : scriptControls(f);
       return row(
-        SOURCE_NAME[f.name] ?? f.name,
+        sourceLabel(f.name),
         `${swtch}<div class="src-info">${fetchStatus(ctx, f)}${script}${how}${warning}</div>${controls}${fixes}`,
       );
     })

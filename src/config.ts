@@ -42,6 +42,7 @@ export type Config = {
   slackIgnoreChannels: SlackChannel[];
   slackGroupChannels: SlackChannel[];
   slackWatchChannels: SlackChannel[];
+  slackWorkspaces: string[];
   hiddenBlocks: string[];
   progressStyle: string;
   horizon: string;
@@ -67,6 +68,7 @@ export type SlackChannelKey = (typeof SLACK_CHANNEL_KEYS)[number];
 
 const CHANNEL_ID = /^[CG][A-Z0-9]{2,}$/;
 const CHANNEL_NAME = /^[a-z0-9][a-z0-9._-]{0,79}$/;
+export const WORKSPACE = /^[a-z][a-z0-9-]{0,33}$/;
 
 export function isChannelKey(key: string): key is SlackChannelKey {
   return (SLACK_CHANNEL_KEYS as readonly string[]).includes(key);
@@ -211,6 +213,7 @@ export const DEFAULTS: Config = {
   slackIgnoreChannels: [],
   slackGroupChannels: [],
   slackWatchChannels: [],
+  slackWorkspaces: [],
   hiddenBlocks: [],
   progressStyle: "ring",
   horizon: "14d",
@@ -263,7 +266,8 @@ function shapeError(key: string, expected: unknown, value: unknown): string | un
     if (typeof value !== "object" || value === null || Array.isArray(value)) return `${key} takes a JSON object`;
     const sample = Object.values(expected)[0];
     for (const [k, v] of Object.entries(value)) {
-      if (!Object.hasOwn(expected, k)) return `${key}.${k} is not a known key (${Object.keys(expected).join(", ")})`;
+      if (!Object.hasOwn(expected, k) && !(key === "fetch" && k.startsWith("slack-")))
+        return `${key}.${k} is not a known key (${Object.keys(expected).join(", ")})`;
       if (typeof v !== typeof sample) return `${key}.${k} takes a ${typeof sample}`;
     }
     return undefined;
@@ -275,6 +279,13 @@ function shapeError(key: string, expected: unknown, value: unknown): string | un
 function semanticError(key: Key, value: unknown): string | undefined {
   const choices = CHOICES[key];
   if (choices !== undefined && !choices.includes(String(value))) return `${key} must be one of ${choices.join(", ")}`;
+  if (key === "slackWorkspaces") {
+    const names = value as string[];
+    const bad = names.find((n) => !WORKSPACE.test(n));
+    if (bad !== undefined)
+      return `slackWorkspaces has ${bad}: a workspace name is lowercase letters, digits and -, e.g. acme`;
+    if (new Set(names).size !== names.length) return "slackWorkspaces lists a workspace twice";
+  }
   if (key === "timezone") {
     try {
       new Intl.DateTimeFormat("en", { timeZone: String(value) });

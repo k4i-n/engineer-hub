@@ -943,6 +943,21 @@ describe("slack", () => {
     db.close();
   });
 
+  test("hub slack add makes a workspace its own source with its own key, and remove takes it away", async () => {
+    assert.match(await hub("slack", "add", "beta"), /source slack-beta is on and reads the key slack-beta/);
+    assert.match(await hub("config", "slackWorkspaces"), /\["beta"\]/);
+    assert.match(await hub("config", "fetch"), /"slack-beta":true/);
+    await assert.rejects(hub("slack", "add", "Beta!"), /lowercase letters, digits and -/);
+    await assert.rejects(hub("source", "add", "slack-x", "--every", "5m", "--", "x"), /slack-\* are taken/);
+    const settings = await (await fetch(`${server.url}/settings`)).text();
+    assert.ok(settings.includes('<span class="set-label">Slack beta</span>'));
+    assert.match(settings, /-a slack-beta -w/);
+    assert.match(await hub("slack", "remove", "beta"), /removed/);
+    assert.match(await hub("config", "slackWorkspaces"), /\[\]/);
+    assert.doesNotMatch(await hub("config", "fetch"), /slack-beta/);
+    await assert.rejects(hub("slack", "remove", "beta"), /no Slack workspace beta \(none added\)/);
+  });
+
   test("a wait on a Slack user closes on their reply; someone else's reply shows and keeps it open", async () => {
     await hub("config", "fetch", '{"github":false,"slack":true}');
     answers.security = (args) =>
@@ -1865,7 +1880,10 @@ describe("script sources", () => {
   });
 
   test("names of built-ins are taken, an interval and a program are required, and the API cannot add one", async () => {
-    assert.match(await fails("source", "add", "github", "--every", "5m", "--", "x"), /github, linear, slack are taken/);
+    assert.match(
+      await fails("source", "add", "github", "--every", "5m", "--", "x"),
+      /github, linear, slack and slack-\* are taken/,
+    );
     assert.match(await fails("source", "add", "cf", "--", "x"), /usage: hub source add/);
     assert.match(await fails("source", "add", "cf", "--every", "soon", "--", "x"), /--every takes a duration/);
     assert.match(await fails("source", "add", "cf", "--every", "5m"), /give the program after --/);
