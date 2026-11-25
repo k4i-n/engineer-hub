@@ -1522,11 +1522,6 @@ a.chip-btn:hover {
   opacity: 0.35;
   cursor: default;
 }
-.g-count {
-  font-size: 11px;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
 .ngroup .need {
   grid-template-columns: 24px minmax(0, 1fr) 76px 30px 100px;
   grid-template-areas:
@@ -2519,11 +2514,7 @@ kbd {
   float: right;
   margin-left: 8px;
 }
-.ngroup:not([open]) > summary > .tabs,
-.ngroup:not([open]) > summary > .ack-all,
-.ngroup[open] > summary > .g-count,
-.is-folded > :not(.sec-head),
-.is-folded > .sec-head > :not(h2, .count) {
+.is-folded > :not(.sec-head) {
   display: none;
 }
 .is-folded > .sec-head {
