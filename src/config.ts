@@ -56,7 +56,7 @@ export type Config = {
 
 export type Layout = { top: string[]; left: string[]; right: string[] };
 
-export type SlackChannel = { id: string; name: string };
+export type SlackChannel = { id: string; name: string; team?: string };
 
 export const SLACK_CHANNEL_KEYS = [
   "slackAlertChannels",
@@ -68,6 +68,7 @@ export type SlackChannelKey = (typeof SLACK_CHANNEL_KEYS)[number];
 
 const CHANNEL_ID = /^[CG][A-Z0-9]{2,}$/;
 const CHANNEL_NAME = /^[a-z0-9][a-z0-9._-]{0,79}$/;
+const TEAM_ID = /^[TE][A-Z0-9]{2,}$/;
 export const WORKSPACE = /^[a-z][a-z0-9-]{0,33}$/;
 
 export function isChannelKey(key: string): key is SlackChannelKey {
@@ -86,16 +87,17 @@ function channelOf(value: unknown): SlackChannel | null {
       ? CHANNEL_ID.test(text)
         ? { id: text, name: "" }
         : { id: "", name: text }
-      : (value as { id?: unknown; name?: unknown } | null);
+      : (value as { id?: unknown; name?: unknown; team?: unknown } | null);
   if (given === null || typeof given !== "object") return null;
-  const { id: rawId = "", name = "" } = given;
-  if (typeof rawId !== "string" || typeof name !== "string") return null;
+  const { id: rawId = "", name = "", team = "" } = given;
+  if (typeof rawId !== "string" || typeof name !== "string" || typeof team !== "string") return null;
   const id = rawId.trim();
   const bare = name.trim().replace(/^#/, "");
   if (id !== "" && !CHANNEL_ID.test(id)) return null;
   if (bare !== "" && !CHANNEL_NAME.test(bare)) return null;
   if (id === "" && bare === "") return null;
-  return { id, name: bare };
+  if (team !== "" && !TEAM_ID.test(team)) return null;
+  return team === "" ? { id, name: bare } : { id, name: bare, team };
 }
 
 export function channelList(key: string, value: unknown): SlackChannel[] {
