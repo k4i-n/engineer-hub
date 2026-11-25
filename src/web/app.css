@@ -573,6 +573,29 @@ a.need-title:hover {
 .need:not(.open) > .n-more {
   display: none;
 }
+@media (min-width: 601px) {
+  .need.one-line {
+    grid-template-columns: 24px 82px minmax(0, 1fr) auto 76px 30px 100px;
+    grid-template-areas:
+      "caret verb main ask ticket age rail"
+      ". . more more more more more";
+  }
+  .ngroup .need.one-line {
+    grid-template-columns: 24px minmax(0, 1fr) auto 76px 30px 100px;
+    grid-template-areas:
+      "caret main ask ticket age rail"
+      ". more more more more more";
+  }
+  .one-line > .n-ask {
+    margin: -2px 0;
+  }
+  .one-line .ask {
+    margin-top: 0;
+  }
+  .one-line .ask > span {
+    max-width: 28ch;
+  }
+}
 .need[data-fold-key] > :is(.verb, .need-main, .need-ticket, .need-age) {
   cursor: pointer;
 }
@@ -610,6 +633,12 @@ a.need-title:hover {
 .dim-label {
   font-weight: 600;
   color: var(--text);
+}
+.need-line > .avatar,
+.need-line > .chip,
+.need-line > .dim-label {
+  flex: none;
+  font-size: 12px;
 }
 .is-dim > :not(.rail) {
   opacity: 0.55;

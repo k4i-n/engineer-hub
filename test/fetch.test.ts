@@ -187,7 +187,7 @@ describe("github", () => {
     const page = await (await fetch(`${server.url}/?part=1`)).text();
     assert.match(
       page,
-      /acme\/web#7 · ana · open · \+120 −30 · 1 file · into release\/1\.2 · 3 comments · bo approved · waiting on cy, web-team</,
+      /title="acme\/web#7 · ana · open · \+120 −30 · 1 file · into release\/1\.2 · 3 comments · bo approved · waiting on cy, web-team"/,
     );
     assert.match(
       page,
