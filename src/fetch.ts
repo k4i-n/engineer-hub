@@ -4,6 +4,7 @@ import { one, type SourceRow } from "./db.ts";
 import * as items from "./items.ts";
 import { type KeySpec, lastLine, type System, storeCommands } from "./keys.ts";
 import { scriptFetcher, scripts } from "./scripts.ts";
+import { type SlackTeam, saveTeam } from "./slackteam.ts";
 import * as sources from "./sources.ts";
 import { afterDuration, HubError } from "./util.ts";
 import * as waits from "./waits.ts";
@@ -16,6 +17,7 @@ export type Fetched = {
   tracker?: TrackerFields[];
   reviews?: Review[];
   channels?: SlackChannel[];
+  team?: SlackTeam;
 };
 export type Check = { ok: boolean; how: string; fix: string[] };
 export type Fetcher = {
@@ -45,6 +47,7 @@ export function write(ctx: Ctx, name: string, fetched: Fetched): string {
     }
   }
   if (fetched.channels !== undefined) saveChannels(ctx, fetched.channels);
+  if (fetched.team !== undefined) saveTeam(ctx.db, fetched.team);
   const updated = (fetched.tracker ?? []).filter((t) => setTracker(ctx, t)).length;
   if (updated > 0) parts.push(`tickets: ${updated} updated`);
   const proposed = (fetched.reviews ?? []).map((r) => proposeReview(ctx, r));

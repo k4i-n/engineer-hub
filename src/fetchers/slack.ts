@@ -444,7 +444,12 @@ function reactionState(reactions: Reaction[], me: string): { state: string; done
 
 async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise<Fetched> {
   const way = await keyWay(sys, SLACK_KEY);
-  const auth = await slackGet<Answer & { user_id: string; user?: string; url: string }>(sys, way, "auth.test", {});
+  const auth = await slackGet<Answer & { user_id: string; user?: string; url: string; team_id: string }>(
+    sys,
+    way,
+    "auth.test",
+    {},
+  );
   const me = auth.user_id;
   const host = new URL(auth.url).host;
   const ours = (url: string) => url.startsWith(`https://${host}/`);
@@ -676,6 +681,7 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
     answered,
     warning: notes.length === 0 ? null : notes.join("; "),
     channels: SLACK_CHANNEL_KEYS.flatMap((key) => lists[key]),
+    team: { host, id: auth.team_id },
   };
 }
 

@@ -11,6 +11,7 @@ import { linear } from "../src/fetchers/linear.ts";
 import { slack, threadOf } from "../src/fetchers/slack.ts";
 import type { Ran, System } from "../src/keys.ts";
 import { type Server, serve } from "../src/serve.ts";
+import { teamOf } from "../src/slackteam.ts";
 
 let dir = "";
 let dbFile = "";
@@ -917,7 +918,7 @@ describe("slack", () => {
     );
   });
 
-  test("a sync checks only the waits of its own workspace", async () => {
+  test("a sync checks only the waits of its own workspace and keeps the workspace's team id", async () => {
     await hub("config", "fetch", '{"github":false,"slack":true}');
     answers.security = (args) =>
       args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
@@ -937,6 +938,9 @@ describe("slack", () => {
     assert.doesNotMatch(await hub("fetch", "slack"), /channel_not_found/);
     assert.deepEqual(asked, []);
     assert.match(await hub("waits"), /ken/);
+    const db = new DatabaseSync(dbFile);
+    assert.equal(teamOf(db, "acme.slack.com"), "T0ACME");
+    db.close();
   });
 
   test("a wait on a Slack user closes on their reply; someone else's reply shows and keeps it open", async () => {

@@ -34,6 +34,7 @@ import { esc, renderLine, renderMarkdown } from "./markdown.ts";
 import { pins } from "./pins.ts";
 import * as plan from "./plan.ts";
 import { sections } from "./scripts.ts";
+import { teamOf } from "./slackteam.ts";
 import { progress } from "./steps.ts";
 import { githubRef, isDate, nowIso, nowTs, sinceDate, startOfDayIso, today } from "./util.ts";
 
@@ -143,10 +144,10 @@ export function appHref(ctx: Ctx, url: string): { href: string; app: boolean } {
   if (ctx.config.openLinearIn === "app" && url.startsWith("https://linear.app/")) {
     return { href: `linear://${url.slice("https://linear.app/".length)}`, app: true };
   }
-  const slack = /^https:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/?$/.exec(url);
-  if (ctx.config.openSlackIn === "app" && ctx.config.slackTeamId !== "" && slack) {
-    return { href: `slack://channel?team=${ctx.config.slackTeamId}&id=${slack[1]}`, app: true };
-  }
+  const slack =
+    ctx.config.openSlackIn === "app" ? /^https:\/\/([^/]+\.slack\.com)\/archives\/([A-Z0-9]+)\/?$/.exec(url) : null;
+  const team = slack === null ? null : teamOf(ctx.db, slack[1] ?? "");
+  if (slack !== null && team !== null) return { href: `slack://channel?team=${team}&id=${slack[2]}`, app: true };
   return { href: url, app: false };
 }
 
@@ -1990,11 +1991,6 @@ ${section(
         ["browser", "Browser"],
         ["app", "Slack app"],
       ]),
-    ) +
-    row(
-      "Slack team ID",
-      `<input class="text" data-config-input="slackTeamId" value="${esc(c.slackTeamId)}" placeholder="T01ABCDEF" spellcheck="false">`,
-      c.openSlackIn !== "app",
     ) +
     row(
       "Linear",

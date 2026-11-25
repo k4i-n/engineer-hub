@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, test } from "node:test";
 import { ROUTES } from "../src/api.ts";
 import { type Io, run } from "../src/cli.ts";
 import { type Server, serve } from "../src/serve.ts";
+import { saveTeam } from "../src/slackteam.ts";
 
 const ROOT = join(import.meta.dirname, "fixtures", "root");
 
@@ -905,7 +906,6 @@ describe("serve", () => {
       new RegExp(`<div class="set-row off" inert><span class="set-label">${label}</span>`).test(html);
     const settings = async () => (await fetch(`${server.url}/settings?part=1`)).text();
     let html = await settings();
-    assert.ok(offRow(html, "Slack team ID"));
     assert.ok(offRow(html, "Alert channels"));
     assert.ok(!offRow(html, "Review requests"));
     assert.ok(!offRow(html, "Keep"));
@@ -913,7 +913,6 @@ describe("serve", () => {
     assert.equal((await setConfigKey("autoBackup", "false")).status, 200);
     assert.equal((await setConfigKey("fetch", '{"github":false}')).status, 200);
     html = await settings();
-    assert.ok(!offRow(html, "Slack team ID"));
     assert.ok(offRow(html, "Keep"));
     assert.ok(offRow(html, "Review requests"));
   });
@@ -993,7 +992,9 @@ describe("serve", () => {
 
   test("in app mode a Slack message keeps its permalink, a channel and Linear open in the app, and Open matches", async () => {
     await hub(["config", "openSlackIn", '"app"']);
-    await hub(["config", "slackTeamId", '"T0TEST1"']);
+    const db = new DatabaseSync(dbFile);
+    saveTeam(db, { host: "acme.slack.com", id: "T0TEST1" });
+    db.close();
     await hub(["config", "openLinearIn", '"app"']);
     const message = "https://acme.slack.com/archives/C01ABC/p1763440000123456";
     await hub(
@@ -1006,6 +1007,7 @@ describe("serve", () => {
         .join("\n"),
     );
     await hub(["link", "ENG-7", "https://acme.slack.com/archives/C01ABC"]);
+    await hub(["link", "ENG-7", "https://other.slack.com/archives/C09XYZ"]);
     const html = await (await fetch(`${server.url}/?part=1`)).text();
     assert.match(html, new RegExp(`<a class="need-title" href="${message}" target="_blank"`));
     assert.match(html, new RegExp(`data-href="${message}"[\\s\\S]*?data-open="${message}"`));
@@ -1015,6 +1017,7 @@ describe("serve", () => {
     );
     const page = await (await fetch(`${server.url}/t/ENG-7?part=1`)).text();
     assert.match(page, /href="slack:\/\/channel\?team=T0TEST1&amp;id=C01ABC"/);
+    assert.match(page, /href="https:\/\/other\.slack\.com\/archives\/C09XYZ" target="_blank"/);
   });
 
   test("the page script declares no global that hides a browser function", () => {
