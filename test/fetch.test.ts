@@ -807,6 +807,7 @@ describe("linear", () => {
 
 describe("slack", () => {
   const ME = "U0ME";
+  const WORKSPACE = { url: "https://acme.slack.com/", team_id: "T0ACME" };
   const now = Math.floor(Date.now() / 1000);
   const ts = (agoS: number, micro = "000100") => `${now - agoS}.${micro}`;
   const permalink = (t: string) => `https://acme.slack.com/archives/C01/p${t.replace(".", "")}`;
@@ -837,7 +838,8 @@ describe("slack", () => {
     const queries: string[] = [];
     httpAnswer = (url) => {
       const u = new URL(url);
-      if (u.pathname === "/api/auth.test") return { status: 200, body: JSON.stringify({ ok: true, user_id: ME }) };
+      if (u.pathname === "/api/auth.test")
+        return { status: 200, body: JSON.stringify({ ok: true, user_id: ME, ...WORKSPACE }) };
       if (u.pathname === "/api/search.messages") {
         const q = u.searchParams.get("query") ?? "";
         queries.push(q);
@@ -915,6 +917,28 @@ describe("slack", () => {
     );
   });
 
+  test("a sync checks only the waits of its own workspace", async () => {
+    await hub("config", "fetch", '{"github":false,"slack":true}');
+    answers.security = (args) =>
+      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+    await hub("wait", "ENG-42", "ken", "https://other.slack.com/archives/C09/p1763350000123456");
+    const asked: string[] = [];
+    const ok = (body: unknown) => ({ status: 200, body: JSON.stringify({ ok: true, ...(body as object) }) });
+    httpAnswer = (url) => {
+      const u = new URL(url);
+      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, ...WORKSPACE });
+      if (u.pathname === "/api/search.messages") return ok({ messages: { matches: [] } });
+      if (u.pathname === "/api/conversations.replies") {
+        asked.push(u.searchParams.get("channel") ?? "");
+        return { status: 200, body: JSON.stringify({ ok: false, error: "channel_not_found" }) };
+      }
+      return { status: 404, body: "" };
+    };
+    assert.doesNotMatch(await hub("fetch", "slack"), /channel_not_found/);
+    assert.deepEqual(asked, []);
+    assert.match(await hub("waits"), /ken/);
+  });
+
   test("a wait on a Slack user closes on their reply; someone else's reply shows and keeps it open", async () => {
     await hub("config", "fetch", '{"github":false,"slack":true}');
     answers.security = (args) =>
@@ -929,7 +953,7 @@ describe("slack", () => {
     const people: Record<string, string> = { U4: "Maciej Nowak", U5: "Dmitry" };
     httpAnswer = (url) => {
       const u = new URL(url);
-      if (u.pathname === "/api/auth.test") return ok({ user_id: ME });
+      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, ...WORKSPACE });
       if (u.pathname === "/api/search.messages") return ok({ messages: { matches: [] } });
       if (u.pathname === "/api/users.list")
         return ok({
@@ -978,7 +1002,7 @@ describe("slack", () => {
     const ok = (body: unknown) => ({ status: 200, body: JSON.stringify({ ok: true, ...(body as object) }) });
     httpAnswer = (url) => {
       const u = new URL(url);
-      if (u.pathname === "/api/auth.test") return ok({ user_id: ME });
+      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, ...WORKSPACE });
       if (u.pathname === "/api/search.messages") return ok({ messages: { matches: [] } });
       if (u.pathname === "/api/users.list") return ok({ members: [] });
       if (u.pathname === "/api/users.info") return ok({ user: { id: "U3", profile: { display_name: "Ken" } } });
@@ -1013,7 +1037,7 @@ describe("slack", () => {
     httpAnswer = (url) => {
       const u = new URL(url);
       const p = u.searchParams;
-      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, user: "khai" });
+      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, user: "khai", ...WORKSPACE });
       if (u.pathname === "/api/search.messages") {
         if ((p.get("query") ?? "").startsWith("from:")) {
           const sentTs = ts(130);
@@ -1115,7 +1139,7 @@ describe("slack", () => {
     httpAnswer = (url) => {
       const u = new URL(url);
       const p = u.searchParams;
-      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, user: "khai" });
+      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, user: "khai", ...WORKSPACE });
       if (u.pathname === "/api/search.messages") {
         const q = p.get("query") ?? "";
         queries.push(q);
@@ -1208,7 +1232,7 @@ describe("slack", () => {
     httpAnswer = (url) => {
       const u = new URL(url);
       const p = u.searchParams;
-      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, user: "khai" });
+      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, user: "khai", ...WORKSPACE });
       if (u.pathname === "/api/conversations.list") {
         return ok({ channels: Object.entries(names).map(([id, name]) => ({ id, name })) });
       }
@@ -1307,7 +1331,7 @@ describe("slack", () => {
     const ok = (body: unknown) => ({ status: 200, body: JSON.stringify({ ok: true, ...(body as object) }) });
     httpAnswer = (url) => {
       const u = new URL(url);
-      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, user: "khai" });
+      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, user: "khai", ...WORKSPACE });
       if (u.pathname === "/api/reactions.get") return ok({ message: { reactions: [] } });
       if (u.pathname !== "/api/search.messages") return { status: 404, body: "" };
       const q = u.searchParams.get("query") ?? "";
@@ -1338,7 +1362,7 @@ describe("slack", () => {
     const ok = (body: unknown) => ({ status: 200, body: JSON.stringify({ ok: true, ...(body as object) }) });
     httpAnswer = (url) => {
       const u = new URL(url);
-      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, user: "khai" });
+      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, user: "khai", ...WORKSPACE });
       if (u.pathname === "/api/reactions.get") return ok({ message: { reactions: [] } });
       if (u.pathname !== "/api/search.messages") return { status: 404, body: "" };
       if (!(u.searchParams.get("query") ?? "").startsWith("in:#tech_platform"))
@@ -1407,7 +1431,8 @@ describe("slack", () => {
     ];
     httpAnswer = (url) => {
       const u = new URL(url);
-      if (u.pathname === "/api/auth.test") return { status: 200, body: JSON.stringify({ ok: true, user_id: ME }) };
+      if (u.pathname === "/api/auth.test")
+        return { status: 200, body: JSON.stringify({ ok: true, user_id: ME, ...WORKSPACE }) };
       if (u.pathname === "/api/search.messages") {
         const matches = (u.searchParams.get("query") ?? "").startsWith("from:") ? sent : mentions;
         return { status: 200, body: JSON.stringify({ ok: true, messages: { matches } }) };
@@ -1475,7 +1500,7 @@ describe("slack", () => {
     httpAnswer = (url) => {
       const u = new URL(url);
       const p = u.searchParams;
-      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, user: "khai" });
+      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, user: "khai", ...WORKSPACE });
       if (u.pathname === "/api/search.messages") {
         const q = p.get("query") ?? "";
         queries.push(q);
@@ -1545,7 +1570,7 @@ describe("slack", () => {
     httpAnswer = (url) => {
       const u = new URL(url);
       const p = u.searchParams;
-      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, user: "khai" });
+      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, user: "khai", ...WORKSPACE });
       if (u.pathname === "/api/usergroups.list") {
         assert.equal(p.get("include_users"), "true");
         return ok({
@@ -1606,7 +1631,8 @@ describe("slack", () => {
     });
     httpAnswer = (url) => {
       const u = new URL(url);
-      if (u.pathname === "/api/auth.test") return { status: 200, body: JSON.stringify({ ok: true, user_id: ME }) };
+      if (u.pathname === "/api/auth.test")
+        return { status: 200, body: JSON.stringify({ ok: true, user_id: ME, ...WORKSPACE }) };
       if (u.pathname === "/api/search.messages") {
         const mine = (u.searchParams.get("query") ?? "").startsWith("from:");
         const matches = mine
@@ -1662,7 +1688,7 @@ describe("slack", () => {
     httpAnswer = (url) => {
       const u = new URL(url);
       const p = u.searchParams;
-      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, user: "khai" });
+      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, user: "khai", ...WORKSPACE });
       if (u.pathname === "/api/search.messages")
         return ok({ messages: { matches: (p.get("query") ?? "").startsWith("to:") ? toMe : [] } });
       if (u.pathname === "/api/users.info") return lookup(p.get("user") ?? "");
