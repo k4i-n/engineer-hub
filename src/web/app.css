@@ -2522,8 +2522,7 @@ kbd {
 .ngroup:not([open]) > summary > .tabs,
 .ngroup:not([open]) > summary > .ack-all,
 .ngroup[open] > summary > .g-count,
-.is-folded > :not(.sec-head),
-.is-folded > .sec-head > :not(h2, .count) {
+.is-folded > :not(.sec-head) {
   display: none;
 }
 .is-folded > .sec-head {
