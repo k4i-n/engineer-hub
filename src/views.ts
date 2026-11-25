@@ -749,7 +749,7 @@ function needsCard(ctx: Ctx, g: Group, rows: Need[], pinned: Set<string>): strin
       );
     })
     .join("");
-  return `<section class="ncard tone-${g.tone}"><details class="ngroup" data-key="group-${g.key}" data-group="${g.key}" open><summary><span class="g-label">${esc(g.label)}</span><span class="g-count">${tabs[0]?.count ?? 0}</span>${tabBar(`needs-${g.key}`, tabs)}${ackAll(g, rows)}</summary><ul class="rows needs-list">${list}</ul></details></section>`;
+  return `<section class="ncard tone-${g.tone}"><details class="ngroup" data-key="group-${g.key}" data-group="${g.key}" open><summary><span class="g-label">${esc(g.label)}</span>${tabBar(`needs-${g.key}`, tabs)}${ackAll(g, rows)}</summary><ul class="rows needs-list">${list}</ul></details></section>`;
 }
 
 function needsYou(n: Need): boolean {
