@@ -37,6 +37,16 @@ sealcall add slack --host slack.com --header 'Authorization: Bearer {key}' \
   --allow 'GET /api/usergroups.list' --allow 'GET /api/reactions.get'   # or sealcall
 ```
 
+For another workspace, add it by a short name and store its token under `slack-<name>`; it becomes its own source with its own on/off switch, sync position and status in Settings → Sources:
+
+```sh
+hub slack add beta                                                  # source slack-beta, on
+security add-generic-password -s engineer-hub -a slack-beta -w      # that workspace's xoxp- token
+hub slack remove beta                                               # the key stays where you stored it
+```
+
+Items from every workspace are `source: slack`; each sync rechecks only the items and waits whose permalink is on its own workspace. A channel typed into a list below is looked up in each workspace in turn and kept with the first one that has it, so each workspace searches only its own channels.
+
 To watch alert channels, list them in Settings → Sources → Alert channels, or:
 
 ```sh

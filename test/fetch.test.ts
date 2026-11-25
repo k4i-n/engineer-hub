@@ -809,6 +809,14 @@ describe("linear", () => {
 describe("slack", () => {
   const ME = "U0ME";
   const WORKSPACE = { url: "https://acme.slack.com/", team_id: "T0ACME" };
+  const BETA = { url: "https://beta.slack.com/", team_id: "T0BETA" };
+  const twoKeys = (args: string[]) =>
+    args.includes("slack-beta")
+      ? { code: 0, stdout: "xoxp-2\n", stderr: "" }
+      : args.includes("slack")
+        ? { code: 0, stdout: "xoxp-1\n", stderr: "" }
+        : { code: 44, stdout: "", stderr: "" };
+  const fromBeta = () => JSON.parse(calls.at(-1)?.[3] ?? "{}").Authorization === "Bearer xoxp-2";
   const now = Math.floor(Date.now() / 1000);
   const ts = (agoS: number, micro = "000100") => `${now - agoS}.${micro}`;
   const permalink = (t: string) => `https://acme.slack.com/archives/C01/p${t.replace(".", "")}`;
@@ -941,6 +949,97 @@ describe("slack", () => {
     const db = new DatabaseSync(dbFile);
     assert.equal(teamOf(db, "acme.slack.com"), "T0ACME");
     db.close();
+  });
+
+  test("hub slack add makes a workspace its own source with its own key, and remove takes it away", async () => {
+    assert.match(await hub("slack", "add", "beta"), /source slack-beta is on and reads the key slack-beta/);
+    assert.match(await hub("config", "slackWorkspaces"), /\["beta"\]/);
+    assert.match(await hub("config", "fetch"), /"slack-beta":true/);
+    await assert.rejects(hub("slack", "add", "Beta!"), /lowercase letters, digits and -/);
+    await assert.rejects(hub("source", "add", "slack-x", "--every", "5m", "--", "x"), /slack-\* are taken/);
+    const settings = await (await fetch(`${server.url}/settings`)).text();
+    assert.ok(settings.includes('<span class="set-label">Slack beta</span>'));
+    assert.match(settings, /-a slack-beta -w/);
+    assert.match(await hub("slack", "remove", "beta"), /removed/);
+    assert.match(await hub("config", "slackWorkspaces"), /\[\]/);
+    assert.doesNotMatch(await hub("config", "fetch"), /slack-beta/);
+    await assert.rejects(hub("slack", "remove", "beta"), /no Slack workspace beta \(none added\)/);
+  });
+
+  test("a workspace syncs with its own key, its own channels and its own waits", async () => {
+    await hub("slack", "add", "beta");
+    await hub("config", "fetch", '{"github":false,"slack":true,"slack-beta":true}');
+    answers.security = twoKeys;
+    const db = new DatabaseSync(dbFile);
+    db.prepare("INSERT OR REPLACE INTO config(key, value, updated_at) VALUES (?, ?, ?)").run(
+      "slackAlertChannels",
+      JSON.stringify([
+        { id: "C07", name: "alerts", team: "T0ACME" },
+        { id: "C70", name: "alerts", team: "T0BETA" },
+      ]),
+      new Date().toISOString(),
+    );
+    db.close();
+    await hub("wait", "ENG-42", "ken", permalink(ts(3600)));
+    await hub("wait", "ENG-42", "ana", `https://beta.slack.com/archives/C70/p${ts(1800).replace(".", "")}`);
+    const queries: string[] = [];
+    const asked: string[] = [];
+    const ok = (body: unknown) => ({ status: 200, body: JSON.stringify({ ok: true, ...(body as object) }) });
+    httpAnswer = (url) => {
+      const u = new URL(url);
+      if (!fromBeta()) return { status: 200, body: JSON.stringify({ ok: false, error: "invalid_auth" }) };
+      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, user: "khai", ...BETA });
+      if (u.pathname === "/api/conversations.info") return ok({ channel: { id: "C70", name: "alerts" } });
+      if (u.pathname === "/api/search.messages") {
+        const q = u.searchParams.get("query") ?? "";
+        queries.push(q);
+        const alert = {
+          ts: ts(60),
+          text: "disk",
+          permalink: `https://beta.slack.com/archives/C70/p${ts(60).replace(".", "")}`,
+          user: "U2",
+          username: "ana",
+          channel: { id: "C70", name: "alerts" },
+        };
+        return ok({ messages: { matches: q.startsWith("in:#alerts") ? [alert] : [] } });
+      }
+      if (u.pathname === "/api/conversations.replies") {
+        asked.push(u.searchParams.get("channel") ?? "");
+        return ok({ messages: [] });
+      }
+      if (u.pathname === "/api/reactions.get") return ok({ message: { reactions: [] } });
+      return { status: 404, body: "" };
+    };
+    assert.match(await hub("fetch", "slack-beta"), /^slack-beta: items: 1 new/);
+    assert.equal(queries.filter((q) => q.startsWith("in:#alerts")).length, 1);
+    assert.deepEqual(asked, ["C70"]);
+    assert.match(await hub("items", "--source", "slack"), /slack\/alert \| needs you \| #alerts · ana: disk/);
+    const sources = await hub("sources");
+    assert.match(sources, /slack-beta \| last sync .* \| cursor \d{10}\.\d{6}/);
+    assert.doesNotMatch(sources, /^slack \|/m);
+    const after = new DatabaseSync(dbFile);
+    assert.equal(teamOf(after, "beta.slack.com"), "T0BETA");
+    after.close();
+  });
+
+  test("a channel typed in Settings is stored with the workspace that has it", async () => {
+    await hub("slack", "add", "beta");
+    answers.security = twoKeys;
+    const ok = (body: unknown) => ({ status: 200, body: JSON.stringify({ ok: true, ...(body as object) }) });
+    httpAnswer = (url) => {
+      const u = new URL(url);
+      const beta = fromBeta();
+      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, ...(beta ? BETA : WORKSPACE) });
+      if (u.pathname === "/api/conversations.list")
+        return ok({ channels: beta ? [{ id: "C70", name: "ops" }] : [{ id: "C07", name: "alerts" }] });
+      return { status: 404, body: "" };
+    };
+    await hub("config", "slackAlertChannels", '["#alerts", "#ops"]');
+    assert.match(
+      await hub("config", "slackAlertChannels"),
+      /\[\{"id":"C07","name":"alerts","team":"T0ACME"\},\{"id":"C70","name":"ops","team":"T0BETA"\}\]/,
+    );
+    await assert.rejects(hub("config", "slackAlertChannels", '["#nope"]'), /no Slack channel #nope/);
   });
 
   test("a wait on a Slack user closes on their reply; someone else's reply shows and keeps it open", async () => {
@@ -1265,16 +1364,16 @@ describe("slack", () => {
     assert.match(await hub("config", "slackIgnoreChannels"), /\[\{"id":"","name":"random"\}\]/);
     await hub("config", "slackAlertChannels", '["#alerts-prod"]');
     await hub("config", "slackIgnoreChannels", '["random"]');
-    assert.match(await hub("config", "slackAlertChannels"), /\[\{"id":"C07","name":"alerts-prod"\}\]/);
-    assert.match(await hub("config", "slackIgnoreChannels"), /\[\{"id":"C09","name":"random"\}\]/);
+    assert.match(await hub("config", "slackAlertChannels"), /\[\{"id":"C07","name":"alerts-prod","team":"T0ACME"\}\]/);
+    assert.match(await hub("config", "slackIgnoreChannels"), /\[\{"id":"C09","name":"random","team":"T0ACME"\}\]/);
     await assert.rejects(hub("config", "slackIgnoreChannels", '["random","nope"]'), /no Slack channel #nope/);
     await assert.rejects(hub("config", "slackAlertChannels", '["Alerts Prod"]'), /not a Slack channel name or id/);
 
     names.C07 = "alerts-new";
     names.C09 = "watercooler";
     assert.match(await hub("fetch", "slack"), /items: 2 new/);
-    assert.match(await hub("config", "slackAlertChannels"), /\[\{"id":"C07","name":"alerts-new"\}\]/);
-    assert.match(await hub("config", "slackIgnoreChannels"), /\[\{"id":"C09","name":"watercooler"\}\]/);
+    assert.match(await hub("config", "slackAlertChannels"), /\[\{"id":"C07","name":"alerts-new","team":"T0ACME"\}\]/);
+    assert.match(await hub("config", "slackIgnoreChannels"), /\[\{"id":"C09","name":"watercooler","team":"T0ACME"\}\]/);
     assert.ok(queries.some((q) => q.startsWith("in:#alerts-new after:")));
     const list = await hub("items", "--source", "slack");
     assert.match(list, /slack\/alert \| needs you \| #alerts-new · ana: disk/);
@@ -1292,6 +1391,7 @@ describe("slack", () => {
     httpAnswer = (url) => {
       const u = new URL(url);
       const ok = (body: unknown) => ({ status: 200, body: JSON.stringify({ ok: true, ...(body as object) }) });
+      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, ...WORKSPACE });
       if (u.pathname === "/api/conversations.list") {
         return ok({ channels: Object.entries(names).map(([id, name]) => ({ id, name })) });
       }
@@ -1306,7 +1406,7 @@ describe("slack", () => {
     await hub("config", "slackAlertChannels", '[" C10 ", "#alerts-prod ", "C42"]');
     assert.match(
       await hub("config", "slackAlertChannels"),
-      /\[\{"id":"C10","name":"eng"\},\{"id":"C07","name":"alerts-prod"\},\{"id":"C99","name":"c42"\}\]/,
+      /\[\{"id":"C10","name":"eng","team":"T0ACME"\},\{"id":"C07","name":"alerts-prod","team":"T0ACME"\},\{"id":"C99","name":"c42","team":"T0ACME"\}\]/,
     );
     const settings = await (await fetch(`${server.url}/settings`)).text();
     assert.ok(settings.includes('value="#eng, #alerts-prod, #c42"'));
@@ -1865,7 +1965,10 @@ describe("script sources", () => {
   });
 
   test("names of built-ins are taken, an interval and a program are required, and the API cannot add one", async () => {
-    assert.match(await fails("source", "add", "github", "--every", "5m", "--", "x"), /github, linear, slack are taken/);
+    assert.match(
+      await fails("source", "add", "github", "--every", "5m", "--", "x"),
+      /github, linear, slack and slack-\* are taken/,
+    );
     assert.match(await fails("source", "add", "cf", "--", "x"), /usage: hub source add/);
     assert.match(await fails("source", "add", "cf", "--every", "soon", "--", "x"), /--every takes a duration/);
     assert.match(await fails("source", "add", "cf", "--every", "5m"), /give the program after --/);

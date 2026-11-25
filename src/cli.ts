@@ -16,6 +16,7 @@ import { serve } from "./serve.ts";
 import * as service from "./service.ts";
 import { tokenPath } from "./token.ts";
 import { HubError } from "./util.ts";
+import { addWorkspace, removeWorkspace } from "./workspaces.ts";
 
 export type Io = {
   stdout: (text: string) => void;
@@ -48,6 +49,7 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         source <name> [--cursor <c>] [--error <text>] | fetch [source]
         source add <name> --every 5m -- <program> [args] | source remove <name>
         source set <name> [--on | --off] [--every 5m] [--section <title>]
+        slack add <workspace> | slack remove <workspace>
         moved --as <session id> [--start] | moved --hook (reads a Claude Code hook's JSON on stdin)
         record-gate --hook (Stop hook: blocks a session that ran a recordActions command and wrote nothing to hub after)
         record --hook (PostToolUse hook: links the PR a recordActions command printed to the one ticket on the current branch)
@@ -368,6 +370,9 @@ const COMMANDS: Record<string, Handler> = {
       error: v.error,
     }),
   sources: () => c("sources"),
+  slack: () => {
+    throw new HubError("usage: hub slack add <workspace> | hub slack remove <workspace>");
+  },
   backup: () => c("backup"),
   backups: () => c("backups"),
   restore: (a) => c("restore", { name: arg(a, 0, "restore <backup name>") }),
@@ -556,6 +561,10 @@ function localWrite(command: string, args: string[], values: Values, io: Io): Re
     const section = values.section ?? null;
     if (on === null && every === null && section === null) throw new HubError(usage);
     return local(values, io, (ctx) => setScript(ctx, second, { on, every, section }));
+  }
+  if (command === "slack" && (first === "add" || first === "remove")) {
+    if (second === undefined || third !== undefined) throw new HubError(`usage: hub slack ${first} <workspace>`);
+    return local(values, io, (ctx) => (first === "add" ? addWorkspace(ctx, second) : removeWorkspace(ctx, second)));
   }
   if (command === "source" && first === "remove") {
     if (second === undefined || third !== undefined) throw new HubError("usage: hub source remove <name>");

@@ -1,5 +1,5 @@
 import type { Ctx } from "../commands.ts";
-import { SLACK_CHANNEL_KEYS, type SlackChannel, type SlackChannelKey } from "../config.ts";
+import { type Config, SLACK_CHANNEL_KEYS, type SlackChannel, type SlackChannelKey } from "../config.ts";
 import { all, type ItemRow, type WaitRow } from "../db.ts";
 import type { Fetched, Fetcher } from "../fetch.ts";
 import { findWay, HttpError, type KeySpec, keyedCall, type System, type Way } from "../keys.ts";
@@ -282,31 +282,71 @@ function lookupFailure(dir: Directory): string {
   return parts.join("; ") || "Slack returned no name";
 }
 
-async function resolveWith(dir: Directory, list: SlackChannel[]): Promise<Resolved> {
+async function resolveWith(dir: Directory, list: SlackChannel[], team: string): Promise<Resolved> {
   const channels: SlackChannel[] = [];
   const unknown: string[] = [];
   const unresolved: string[] = [];
   for (const c of list) {
     if (c.id !== "") {
-      const name = (await dir.channel(c.id)).name ?? c.name;
+      const found = (await dir.channel(c.id)).name;
+      const name = found ?? c.name;
       const byName = name === "" ? (await dir.idsByName())?.get(c.id.toLowerCase()) : undefined;
       if (name === "" && byName === undefined) unresolved.push(c.id);
-      channels.push(byName === undefined ? { id: c.id, name } : { id: byName, name: c.id.toLowerCase() });
+      if (byName !== undefined) channels.push({ id: byName, name: c.id.toLowerCase(), team });
+      else channels.push(found === undefined ? { ...c, name } : { id: c.id, name, team });
       continue;
     }
     const named = await dir.idsByName();
     const id = named?.get(c.name);
     if (named === null) unresolved.push(`#${c.name}`);
     else if (id === undefined) unknown.push(c.name);
-    channels.push(id === undefined ? c : { id, name: c.name });
+    channels.push(id === undefined ? c : { id, name: c.name, team });
   }
   return { channels, unknown, unresolved, why: unresolved.length === 0 ? "" : lookupFailure(dir) };
 }
 
-export async function resolveChannels(sys: System, list: SlackChannel[]): Promise<Resolved> {
-  const way = await findWay(sys, SLACK_KEY.source);
-  if (way.kind === "missing") return { channels: list, unknown: [], unresolved: [], why: "" };
-  return resolveWith(new Directory(sys, way, []), list);
+const label = (c: SlackChannel) => (c.id !== "" ? c.id : `#${c.name}`);
+
+export async function resolveChannels(sys: System, list: SlackChannel[], sources: string[]): Promise<Resolved> {
+  const channels = [...list];
+  const failed = new Set<string>();
+  const whys = new Set<string>();
+  let pending = channels.map((_, i) => i);
+  let looked = false;
+  for (const source of sources) {
+    if (pending.length === 0) break;
+    const way = await findWay(sys, source);
+    if (way.kind === "missing") continue;
+    looked = true;
+    let team: string;
+    try {
+      team = (await slackGet<Answer & { team_id: string }>(sys, way, "auth.test", {})).team_id;
+    } catch (error) {
+      whys.add(`${source}: ${error instanceof Error ? error.message : String(error)}`);
+      for (const i of pending) failed.add(label(channels[i] as SlackChannel));
+      continue;
+    }
+    const r = await resolveWith(
+      new Directory(sys, way, []),
+      pending.map((i) => channels[i] as SlackChannel),
+      team,
+    );
+    for (const u of r.unresolved) failed.add(u);
+    if (r.why !== "") whys.add(r.why);
+    pending.forEach((i, j) => {
+      channels[i] = r.channels[j] as SlackChannel;
+    });
+    pending = pending.filter((i) => channels[i]?.team !== team);
+  }
+  if (!looked) return { channels: list, unknown: [], unresolved: [], why: "" };
+  const left = pending.map((i) => channels[i] as SlackChannel);
+  const unresolved = left.map(label).filter((l) => failed.has(l));
+  return {
+    channels,
+    unknown: left.filter((c) => c.id === "" && !failed.has(label(c))).map((c) => c.name),
+    unresolved,
+    why: unresolved.length === 0 ? "" : [...whys].join("; "),
+  };
 }
 
 function inChannels(list: SlackChannel[]): (m: Match) => boolean {
@@ -442,8 +482,8 @@ function reactionState(reactions: Reaction[], me: string): { state: string; done
   return { state: `reacted ${mine.map((r) => `:${r.name}:`).join(" ")}`, done };
 }
 
-async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise<Fetched> {
-  const way = await keyWay(sys, SLACK_KEY);
+async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null, spec: KeySpec): Promise<Fetched> {
+  const way = await keyWay(sys, spec);
   const auth = await slackGet<Answer & { user_id: string; user?: string; url: string; team_id: string }>(
     sys,
     way,
@@ -456,8 +496,9 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
   const dir = new Directory(sys, way, []);
   const lists = {} as Record<SlackChannelKey, SlackChannel[]>;
   const unknown: string[] = [];
+  const inTeam = (c: SlackChannel) => c.team === undefined || c.team === auth.team_id;
   for (const key of SLACK_CHANNEL_KEYS) {
-    const r = await resolveWith(dir, ctx.config[key]);
+    const r = await resolveWith(dir, ctx.config[key].filter(inTeam), auth.team_id);
     lists[key] = r.channels;
     unknown.push(...r.unknown.map((name) => `#${name} (${key})`));
   }
@@ -474,10 +515,11 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
   const dms = (await search(sys, way, `to:<@${me}> after:${after}`)).filter(
     (m) => newer(m) && m.user !== me && m.channel !== undefined && inDm(m.channel),
   );
+  const alone = ctx.config.slackWorkspaces.length === 0;
   const inList = async (list: SlackChannel[]): Promise<Match[]> => {
     const found: Match[] = [];
     for (const c of list) {
-      if (c.name === "") continue;
+      if (c.name === "" || (c.team === undefined && !alone)) continue;
       const got = await search(sys, way, `in:#${c.name} after:${after}`);
       found.push(...got.filter((m) => newer(m) && m.user !== me && kept(m)));
     }
@@ -680,14 +722,27 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
     cursor: next,
     answered,
     warning: notes.length === 0 ? null : notes.join("; "),
-    channels: SLACK_CHANNEL_KEYS.flatMap((key) => lists[key]),
+    channels: SLACK_CHANNEL_KEYS.flatMap((key) => lists[key]).filter((c) => c.team === auth.team_id),
     team: { host, id: auth.team_id },
   };
 }
 
-export const slack: Fetcher = {
-  name: "slack",
-  key: SLACK_KEY,
-  check: (sys) => keyCheck(sys, SLACK_KEY),
-  fetch: fetchSlack,
-};
+export function slackSources(config: Config): string[] {
+  return ["slack", ...config.slackWorkspaces.map((w) => `slack-${w}`)];
+}
+
+function slackFetcher(name: string): Fetcher {
+  const spec = { ...SLACK_KEY, source: name };
+  return {
+    name,
+    key: spec,
+    check: (sys) => keyCheck(sys, spec),
+    fetch: (sys, ctx, cursor) => fetchSlack(sys, ctx, cursor, spec),
+  };
+}
+
+export const slack = slackFetcher("slack");
+
+export function workspaceFetchers(ctx: Ctx): Fetcher[] {
+  return slackSources(ctx.config).slice(1).map(slackFetcher);
+}

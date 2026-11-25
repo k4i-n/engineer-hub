@@ -69,12 +69,12 @@ function saveChannels(ctx: Ctx, found: SlackChannel[]): void {
 
 export class Runner {
   readonly status = new Map<string, Status>();
-  private readonly builtIns: Fetcher[];
+  private readonly builtIns: (c: Ctx) => Fetcher[];
   private readonly sys: System;
   private readonly ctx: () => Ctx;
   private readonly changed: () => void;
 
-  constructor(builtIns: Fetcher[], sys: System, ctx: () => Ctx, changed: () => void = () => {}) {
+  constructor(builtIns: (c: Ctx) => Fetcher[], sys: System, ctx: () => Ctx, changed: () => void = () => {}) {
     this.builtIns = builtIns;
     this.sys = sys;
     this.ctx = ctx;
@@ -82,7 +82,7 @@ export class Runner {
   }
 
   fetchers(c: Ctx): Fetcher[] {
-    return [...this.builtIns, ...scripts(c).map(scriptFetcher)];
+    return [...this.builtIns(c), ...scripts(c).map(scriptFetcher)];
   }
 
   state(name: string): Status {

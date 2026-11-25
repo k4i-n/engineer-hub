@@ -10,8 +10,10 @@ const SCRIPT_TIMEOUT_MS = 2 * 60_000;
 const RESERVED = ["add", "remove", "set", "github", "linear", "slack"];
 
 export function addScript(ctx: Ctx, name: string, every: string, argv: string[]): Result {
-  if (!SOURCE_NAME.test(name) || RESERVED.includes(name)) {
-    throw new HubError(`a script source needs its own lowercase name, not ${name} (${RESERVED.join(", ")} are taken)`);
+  if (!SOURCE_NAME.test(name) || RESERVED.includes(name) || name.startsWith("slack-")) {
+    throw new HubError(
+      `a script source needs its own lowercase name, not ${name} (${RESERVED.join(", ")} and slack-* are taken)`,
+    );
   }
   afterDuration(new Date(0), every, "--every");
   if (argv.length === 0)
