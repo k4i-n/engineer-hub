@@ -11,6 +11,7 @@ import {
   type SlackChannel,
   type SlackChannelKey,
   sectionId,
+  slackSources,
 } from "./config.ts";
 import {
   all,
@@ -34,7 +35,7 @@ import { esc, renderLine, renderMarkdown } from "./markdown.ts";
 import { pins } from "./pins.ts";
 import * as plan from "./plan.ts";
 import { sections } from "./scripts.ts";
-import { teamOf } from "./slackteam.ts";
+import { teamOf, workspaceOf, workspacesByTeam } from "./slackteam.ts";
 import { progress } from "./steps.ts";
 import { githubRef, isDate, nowIso, nowTs, sinceDate, startOfDayIso, today } from "./util.ts";
 
@@ -385,6 +386,10 @@ function avatar(url: string | null): string {
   return `<img class="avatar" src="${esc(url)}" alt="" width="16" height="16" loading="lazy" referrerpolicy="no-referrer">`;
 }
 
+function workspace(ctx: Ctx, url: string | null): string | null {
+  return ctx.config.slackWorkspaces.length === 0 ? null : workspaceOf(url);
+}
+
 function sourceLine(parts: (string | null)[]): string {
   return parts
     .filter((p): p is string => p !== null && p !== "")
@@ -616,7 +621,15 @@ function itemNeed(ctx: Ctx, i: ItemRow): Need {
     verb: v.verb,
     tone: v.tone,
     title: linker(ctx)(url, withoutTicket(itemTitle(i), i.ticket_id), "need-title"),
-    sub: avatar(i.avatar) + sourceLine([githubRef(url) ?? i.source, i.author, i.state, i.detail]),
+    sub:
+      avatar(i.avatar) +
+      sourceLine([
+        githubRef(url) ?? i.source,
+        i.source === "slack" ? workspace(ctx, url) : null,
+        i.author,
+        i.state,
+        i.detail,
+      ]),
     ...moreText(i),
     ...draftMore(ctx, drafts, true),
     ask: itemAsk(ctx, i) + draftChips(ctx, drafts, url),
@@ -642,7 +655,7 @@ function waitNeed(ctx: Ctx, w: WaitRow): Need {
     verb: "Ping",
     tone: "orange",
     title: linker(ctx)(w.url, w.who, "need-title"),
-    sub: pinged ? `next ${esc(when(ctx, w.ping_after ?? now))}` : "no reply yet",
+    sub: sourceLine([workspace(ctx, w.url), pinged ? `next ${when(ctx, w.ping_after ?? now)}` : "no reply yet"]),
     ask: "",
     ticket: w.ticket_id,
     href: w.url,
@@ -1707,13 +1720,14 @@ function toggle(key: string, on: boolean): string {
   return `<button type="button" role="switch" aria-checked="${on}" class="switch${on ? " on" : ""}" data-config="${esc(key)}" data-value="${esc(JSON.stringify(!on))}"><span class="knob"></span></button>`;
 }
 
-function channelInput(key: SlackChannelKey, list: SlackChannel[]): string {
-  const value = list.map((c) => (c.name === "" ? c.id : `#${c.name}`)).join(", ");
+function channelInput(key: SlackChannelKey, list: SlackChannel[], teams: Map<string, string> | null): string {
+  const shared = (c: SlackChannel) => list.filter((o) => o.name === c.name).length > 1;
+  const value = list.map((c) => (c.name === "" || shared(c) ? c.id : `#${c.name}`)).join(", ");
   const chips = list
-    .map(
-      (c) =>
-        `<span class="chip tone-grey">${esc(c.name === "" ? "?" : `#${c.name}`)} · ${esc(c.id === "" ? "?" : c.id)}</span>`,
-    )
+    .map((c) => {
+      const where = teams === null || c.team === undefined ? null : (teams.get(c.team) ?? null);
+      return `<span class="chip tone-grey">${sourceLine([c.name === "" ? "?" : `#${c.name}`, c.id === "" ? "?" : c.id, where])}</span>`;
+    })
     .join("");
   return `<input class="text" data-config-input="${key}" data-list value="${esc(value)}" spellcheck="false"><div class="set-chips">${chips}</div>`;
 }
@@ -1789,7 +1803,10 @@ function sourceRows(ctx: Ctx, list: Fetching[]): string {
 }
 
 function addSourceRow(): string {
-  return row("Add", codeBlock("hub source add <name> --every 5m -- <program>"));
+  return row(
+    "Add",
+    codeBlock("hub source add <name> --every 5m -- <program>") + codeBlock("hub slack add <workspace>"),
+  );
 }
 
 function lastBackup(ctx: Ctx, newest: Backup | undefined): string {
@@ -1879,6 +1896,8 @@ export function settingsBody(
   away: AwayView = NO_AWAY,
 ): string {
   const c = ctx.config;
+  const slackOn = slackSources(c).some((name) => c.fetch[name] === true);
+  const teams = c.slackWorkspaces.length === 0 ? null : workspacesByTeam(ctx.db);
   const shortcuts: [string, string][] = [
     ["j / k", "next / previous row"],
     ["Enter", "open"],
@@ -1915,10 +1934,10 @@ ${section(
       `<input class="text" data-config-input="githubPrQuery" value="${esc(c.githubPrQuery)}" spellcheck="false">`,
       c.fetch.github !== true,
     ) +
-    row("Alert channels", channelInput("slackAlertChannels", c.slackAlertChannels), c.fetch.slack !== true) +
-    row("Ignore channels", channelInput("slackIgnoreChannels", c.slackIgnoreChannels), c.fetch.slack !== true) +
-    row("Group channels", channelInput("slackGroupChannels", c.slackGroupChannels), c.fetch.slack !== true) +
-    row("Watch channels", channelInput("slackWatchChannels", c.slackWatchChannels), c.fetch.slack !== true) +
+    row("Alert channels", channelInput("slackAlertChannels", c.slackAlertChannels, teams), !slackOn) +
+    row("Ignore channels", channelInput("slackIgnoreChannels", c.slackIgnoreChannels, teams), !slackOn) +
+    row("Group channels", channelInput("slackGroupChannels", c.slackGroupChannels, teams), !slackOn) +
+    row("Watch channels", channelInput("slackWatchChannels", c.slackWatchChannels, teams), !slackOn) +
     row(
       "Every",
       segmented("fetchEvery", c.fetchEvery, [

@@ -71,6 +71,10 @@ const CHANNEL_NAME = /^[a-z0-9][a-z0-9._-]{0,79}$/;
 const TEAM_ID = /^[TE][A-Z0-9]{2,}$/;
 export const WORKSPACE = /^[a-z][a-z0-9-]{0,33}$/;
 
+export function slackSources(config: Config): string[] {
+  return ["slack", ...config.slackWorkspaces.map((w) => `slack-${w}`)];
+}
+
 export function isChannelKey(key: string): key is SlackChannelKey {
   return (SLACK_CHANNEL_KEYS as readonly string[]).includes(key);
 }

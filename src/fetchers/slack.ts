@@ -1,5 +1,5 @@
 import type { Ctx } from "../commands.ts";
-import { type Config, SLACK_CHANNEL_KEYS, type SlackChannel, type SlackChannelKey } from "../config.ts";
+import { SLACK_CHANNEL_KEYS, type SlackChannel, type SlackChannelKey, slackSources } from "../config.ts";
 import { all, type ItemRow, type WaitRow } from "../db.ts";
 import type { Fetched, Fetcher } from "../fetch.ts";
 import { findWay, HttpError, type KeySpec, keyedCall, type System, type Way } from "../keys.ts";
@@ -725,10 +725,6 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null, spec: Ke
     channels: SLACK_CHANNEL_KEYS.flatMap((key) => lists[key]).filter((c) => c.team === auth.team_id),
     team: { host, id: auth.team_id },
   };
-}
-
-export function slackSources(config: Config): string[] {
-  return ["slack", ...config.slackWorkspaces.map((w) => `slack-${w}`)];
 }
 
 function slackFetcher(name: string): Fetcher {

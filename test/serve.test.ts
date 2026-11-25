@@ -990,6 +990,48 @@ describe("serve", () => {
     ]);
   });
 
+  test("with a second Slack workspace, Slack rows, waits and channel chips name their workspace", async () => {
+    await hub(
+      ["item", "put", "--stdin"],
+      [
+        { url: "https://acme.slack.com/archives/C01/p1763440000123456", author: "ana" },
+        { url: "https://beta.slack.com/archives/C70/p1763440000654321", author: "yui" },
+      ]
+        .map((i) => JSON.stringify({ source: "slack", kind: "message", title: "ping", needs_me: true, ...i }))
+        .join("\n"),
+    );
+    await hub(["wait", "ENG-7", "ken", "https://beta.slack.com/archives/C70/p1763440000999999"]);
+    const home = async () => (await fetch(`${server.url}/?part=1`)).text();
+    const settings = async () => (await fetch(`${server.url}/settings?part=1`)).text();
+    let html = await home();
+    assert.match(html, /slack · ana/);
+    assert.doesNotMatch(html, /slack · acme/);
+    const ticket = async () => (await fetch(`${server.url}/t/ENG-7?part=1`)).text();
+    assert.doesNotMatch(await ticket(), /beta · (next|no reply yet)/);
+
+    await hub(["slack", "add", "beta"]);
+    const db = new DatabaseSync(dbFile);
+    saveTeam(db, { host: "beta.slack.com", id: "T0BETA" });
+    db.prepare("INSERT OR REPLACE INTO config(key, value, updated_at) VALUES (?, ?, ?)").run(
+      "slackAlertChannels",
+      JSON.stringify([
+        { id: "C07", name: "ops" },
+        { id: "C70", name: "ops", team: "T0BETA" },
+      ]),
+      new Date().toISOString(),
+    );
+    db.close();
+    html = await home();
+    assert.match(html, /slack · acme · ana/);
+    assert.match(html, /slack · beta · yui/);
+    assert.match(await ticket(), /beta · (next|no reply yet)/);
+    const page = await settings();
+    assert.ok(page.includes('<span class="chip tone-grey">#ops · C70 · beta</span>'));
+    assert.ok(page.includes('data-config-input="slackAlertChannels" data-list value="C07, C70"'));
+    assert.ok(!/<div class="set-row off" inert><span class="set-label">Alert channels/.test(page));
+    assert.ok(page.includes("hub slack add &lt;workspace&gt;"));
+  });
+
   test("in app mode a Slack message keeps its permalink, a channel and Linear open in the app, and Open matches", async () => {
     await hub(["config", "openSlackIn", '"app"']);
     const db = new DatabaseSync(dbFile);

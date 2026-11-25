@@ -9,11 +9,11 @@ import { type Args, checkFields, findRoute, openapi, queryArgs, runRoute } from 
 import { Away, awayState, webhookCommand } from "./away.ts";
 import { type Backup, backup, backupDir, checkRestorable, listBackups, replaceDb } from "./backup.ts";
 import type { Ctx, Result } from "./commands.ts";
-import { loadConfig, type SlackChannel } from "./config.ts";
+import { loadConfig, type SlackChannel, slackSources } from "./config.ts";
 import { one, openDb, SCHEMA_VERSION, type SourceRow } from "./db.ts";
 import { type Fetcher, isOn, Runner } from "./fetch.ts";
 import { FETCHERS } from "./fetchers/index.ts";
-import { resolveChannels, slackSources, workspaceFetchers } from "./fetchers/slack.ts";
+import { resolveChannels, workspaceFetchers } from "./fetchers/slack.ts";
 import { type System, system } from "./keys.ts";
 import { handleRpc } from "./mcp.ts";
 import { loadToken, tokenPath } from "./token.ts";
