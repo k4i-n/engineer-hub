@@ -19,7 +19,6 @@ export type Config = {
   resumeHeading: string;
   syncCommand: string[];
   openSlackIn: string;
-  slackTeamId: string;
   openLinearIn: string;
   notifyNew: boolean;
   notifySound: boolean;
@@ -171,7 +170,6 @@ export const DEFAULTS: Config = {
     "mcp__plugin_engineer-hub_hub,Bash(gh search:*),Bash(gh pr view:*)",
   ],
   openSlackIn: "browser",
-  slackTeamId: "",
   openLinearIn: "browser",
   notifyNew: false,
   notifySound: false,
@@ -277,9 +275,6 @@ function shapeError(key: string, expected: unknown, value: unknown): string | un
 function semanticError(key: Key, value: unknown): string | undefined {
   const choices = CHOICES[key];
   if (choices !== undefined && !choices.includes(String(value))) return `${key} must be one of ${choices.join(", ")}`;
-  if (key === "slackTeamId" && !/^(T[A-Z0-9]{4,20})?$/.test(String(value))) {
-    return "slackTeamId is the workspace id, e.g. T01ABCDEF";
-  }
   if (key === "timezone") {
     try {
       new Intl.DateTimeFormat("en", { timeZone: String(value) });

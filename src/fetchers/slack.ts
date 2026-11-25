@@ -444,8 +444,15 @@ function reactionState(reactions: Reaction[], me: string): { state: string; done
 
 async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise<Fetched> {
   const way = await keyWay(sys, SLACK_KEY);
-  const auth = await slackGet<Answer & { user_id: string; user?: string }>(sys, way, "auth.test", {});
+  const auth = await slackGet<Answer & { user_id: string; user?: string; url: string; team_id: string }>(
+    sys,
+    way,
+    "auth.test",
+    {},
+  );
   const me = auth.user_id;
+  const host = new URL(auth.url).host;
+  const ours = (url: string) => url.startsWith(`https://${host}/`);
   const dir = new Directory(sys, way, []);
   const lists = {} as Record<SlackChannelKey, SlackChannel[]>;
   const unknown: string[] = [];
@@ -567,7 +574,8 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
   const open = all<ItemRow>(
     ctx.db,
     `SELECT * FROM item WHERE source = 'slack' AND kind IN ('message', 'alert') AND needs_me = 1 AND closed_at IS NULL
-       AND ignored IS NULL ORDER BY first_seen DESC LIMIT ?`,
+       AND ignored IS NULL AND instr(url, ?) = 1 ORDER BY first_seen DESC LIMIT ?`,
+    `https://${host}/`,
     RECHECK,
   );
   const toCheck = new Map<string, Record<string, unknown>>();
@@ -607,7 +615,7 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
   const waits = all<WaitRow>(ctx.db, "SELECT * FROM wait WHERE closed_at IS NULL");
   for (const w of waits) {
     const thread = threadOf(w.url);
-    if (thread === null) continue;
+    if (thread === null || !ours(w.url)) continue;
     const askedAt = String(Math.max(Date.parse(w.asked_at), Date.parse(w.reopened_at ?? w.asked_at)) / 1000);
     const r = await slackGet<Answer & { messages: Match[] }>(sys, way, "conversations.replies", {
       channel: thread.channel,
@@ -673,6 +681,7 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null): Promise
     answered,
     warning: notes.length === 0 ? null : notes.join("; "),
     channels: SLACK_CHANNEL_KEYS.flatMap((key) => lists[key]),
+    team: { host, id: auth.team_id },
   };
 }
 

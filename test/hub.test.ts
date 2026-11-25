@@ -955,7 +955,6 @@ describe("config", () => {
     await ok("config", "openLinearIn", '"app"');
     assert.match((await hub("config", "theme", '"pink"')).err, /theme must be one of system, light, dark/);
     assert.match((await hub("config", "notifyNew", '"yes"')).err, /notifyNew takes a JSON boolean/);
-    assert.match((await hub("config", "slackTeamId", '"acme"')).err, /workspace id/);
     assert.match(
       (await hub("config", "recordActions", '["deploy("]')).err,
       /recordActions has deploy\(, which is not a valid regular expression/,
