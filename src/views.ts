@@ -11,6 +11,7 @@ import {
   type SlackChannel,
   type SlackChannelKey,
   sectionId,
+  slackSources,
 } from "./config.ts";
 import {
   all,
@@ -1879,6 +1880,7 @@ export function settingsBody(
   away: AwayView = NO_AWAY,
 ): string {
   const c = ctx.config;
+  const slackOn = slackSources(c).some((name) => c.fetch[name] === true);
   const shortcuts: [string, string][] = [
     ["j / k", "next / previous row"],
     ["Enter", "open"],
@@ -1915,10 +1917,10 @@ ${section(
       `<input class="text" data-config-input="githubPrQuery" value="${esc(c.githubPrQuery)}" spellcheck="false">`,
       c.fetch.github !== true,
     ) +
-    row("Alert channels", channelInput("slackAlertChannels", c.slackAlertChannels), c.fetch.slack !== true) +
-    row("Ignore channels", channelInput("slackIgnoreChannels", c.slackIgnoreChannels), c.fetch.slack !== true) +
-    row("Group channels", channelInput("slackGroupChannels", c.slackGroupChannels), c.fetch.slack !== true) +
-    row("Watch channels", channelInput("slackWatchChannels", c.slackWatchChannels), c.fetch.slack !== true) +
+    row("Alert channels", channelInput("slackAlertChannels", c.slackAlertChannels), !slackOn) +
+    row("Ignore channels", channelInput("slackIgnoreChannels", c.slackIgnoreChannels), !slackOn) +
+    row("Group channels", channelInput("slackGroupChannels", c.slackGroupChannels), !slackOn) +
+    row("Watch channels", channelInput("slackWatchChannels", c.slackWatchChannels), !slackOn) +
     row(
       "Every",
       segmented("fetchEvery", c.fetchEvery, [
