@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import { one } from "./db.ts";
+import { all, one } from "./db.ts";
 
 export type SlackTeam = { host: string; id: string };
 
@@ -10,6 +10,15 @@ export function saveTeam(db: DatabaseSync, team: SlackTeam): void {
     key(team.host),
     team.id,
   );
+}
+
+export function workspaceOf(url: string | null): string | null {
+  return /^https:\/\/([a-z0-9-]+)\.(?:[a-z0-9-]+\.)*slack\.com\//.exec(url ?? "")?.[1] ?? null;
+}
+
+export function workspacesByTeam(db: DatabaseSync): Map<string, string> {
+  const rows = all<{ key: string; value: string }>(db, "SELECT key, value FROM meta WHERE key LIKE 'slack-team:%'");
+  return new Map(rows.map((r) => [r.value, r.key.slice("slack-team:".length).split(".")[0] ?? ""]));
 }
 
 export function teamOf(db: DatabaseSync, host: string): string | null {
