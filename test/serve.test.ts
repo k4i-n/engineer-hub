@@ -563,7 +563,7 @@ describe("serve", () => {
     const drafted = await home();
     assert.match(
       drafted.reply,
-      /<li class="need tone-teal" data-key="send-ENG-7-tell qa"[^>]*>[\s\S]*?<span class="need-title">tell qa<\/span>[\s\S]*?<span class="need-sub">#qa<\/span>[\s\S]*?data-copy="fix is on staging"/,
+      /<li class="need tone-teal one-line" data-key="send-ENG-7-tell qa"[^>]*>[\s\S]*?<span class="need-main" title="#qa"><span class="need-line"><span class="need-title">tell qa<\/span>[\s\S]*?data-copy="fix is on staging"/,
     );
     assert.equal(drafted.needs, before.needs + 1);
     assert.equal(tabCounts(drafted.html, "needs-reply").open, (tabCounts(before.html, "needs-reply").open ?? 0) + 1);
@@ -606,7 +606,10 @@ describe("serve", () => {
     assert.equal((await call("POST", `/items/${id}/snooze`, { for: "1h" })).status, 200);
     const snoozed = await (await fetch(`${server.url}/?part=1`)).text();
     const reply = /data-group="reply"[\s\S]*?<\/section>/.exec(snoozed)?.[0] ?? "";
-    assert.match(reply, new RegExp(`data-key="send-${pr}-review"[\\s\\S]*?<span class="need-sub">acme/web#140</span>`));
+    assert.match(
+      reply,
+      new RegExp(`data-key="send-${pr}-review"[\\s\\S]*?<span class="need-main" title="acme/web#140">`),
+    );
     assert.equal([...snoozed.matchAll(/class="chip-btn primary" data-act="sent"[^>]*data-label="review"/g)].length, 1);
     assert.equal(needs(snoozed), needs(home));
     assert.equal((await call("POST", `/items/${id}/reopen`, {})).status, 200);
@@ -680,7 +683,7 @@ describe("serve", () => {
     });
     assert.equal(answered.status, 200);
     const queuedRow = await home();
-    assert.match(queuedRow.row, /class="need tone-[a-z]+ is-dim"/);
+    assert.match(queuedRow.row, /class="need tone-[a-z]+ one-line is-dim"/);
     assert.match(queuedRow.row, /<span class="dim-label">Yes · queued<\/span>/);
     assert.equal(queuedRow.needs, before.needs - 1);
 
@@ -739,6 +742,8 @@ describe("serve", () => {
     const send = new RegExp(`data-key="send-${pr}-review"[\\s\\S]*?</li>`).exec(home)?.[0] ?? "";
     assert.match(send, /<span class="pill tone-orange">request changes<\/span>/);
     assert.match(send, comment);
+    assert.doesNotMatch(send, /one-line/);
+    assert.match(send, /<span class="need-sub">acme\/web#142<\/span>/);
 
     await hub(
       ["item", "put", "--stdin"],
@@ -750,6 +755,7 @@ describe("serve", () => {
     assert.match(row, /<div class="n-body n-draft md"><p>Close\.<\/p><\/div>/);
     assert.match(row, /<span class="pill tone-orange">request changes<\/span>/);
     assert.match(row, comment);
+    assert.doesNotMatch(row, /one-line/);
   });
 
   test("a ticket page marks its drafts sent like the dashboard", async () => {
@@ -1083,7 +1089,7 @@ describe("serve", () => {
     }
   });
 
-  test("an item's avatar shows before its source line, and the page may load it", async () => {
+  test("an item's avatar shows before its title on a one-line row, and the page may load it", async () => {
     const pic = "https://avatars.githubusercontent.com/u/1?s=40&v=4";
     await hub(
       ["item", "put", "--stdin"],
@@ -1102,7 +1108,7 @@ describe("serve", () => {
     const html = await index.text();
     assert.match(
       html,
-      /<span class="need-sub"><img class="avatar" src="https:\/\/avatars\.githubusercontent\.com\/u\/1\?s=40&amp;v=4"/,
+      /<span class="need-line">(?:<span class="verb verb-inline">[^<]*<\/span>)?<img class="avatar" src="https:\/\/avatars\.githubusercontent\.com\/u\/1\?s=40&amp;v=4"[^>]*><a class="need-title"/,
     );
     assert.match(html, /<span class="need-sub">grafana/);
     assert.match(
@@ -1589,15 +1595,15 @@ describe("send later", () => {
     );
     assert.match(reply, /data-act="sent" data-ticket="ENG-7" data-label="due now"/);
     assert.match(reply, /data-act="draft-later" data-ticket="ENG-7" data-label="due now" data-for="tomorrow"/);
-    assert.match(reply, /<li class="need tone-teal" data-key="send-ENG-7-due now"/);
+    assert.match(reply, /<li class="need tone-teal one-line" data-key="send-ENG-7-due now"/);
     assert.match(
       reply,
-      /<li class="need tone-teal is-dim" data-key="send-ENG-7-for later"[\s\S]*?<span class="dim-label">send 12-31 12:00<\/span>/,
+      /<li class="need tone-teal one-line is-dim" data-key="send-ENG-7-for later"[\s\S]*?<span class="dim-label">send 12-31 12:00<\/span>/,
     );
     const later = await call("POST", `/tickets/ENG-7/drafts/${encodeURIComponent("due now")}/later`, { for: "1h" });
     assert.equal(later.status, 200);
     const moved = /data-group="reply"[\s\S]*?<\/section>/.exec(await (await fetch(`${server.url}/?part=1`)).text());
-    assert.match(moved?.[0] ?? "", /<li class="need tone-teal is-dim" data-key="send-ENG-7-due now"/);
+    assert.match(moved?.[0] ?? "", /<li class="need tone-teal one-line is-dim" data-key="send-ENG-7-due now"/);
   });
 
   test("a draft for an item hub has no row is a Send row; an internal draft shows on its ticket page only", async () => {
@@ -1605,7 +1611,10 @@ describe("send later", () => {
     await hub(["draft", "ENG-7", "PR body", "--stdin", "--internal"], "Adds a cap.");
     const html = await (await fetch(`${server.url}/?part=1`)).text();
     const reply = /data-group="reply"[\s\S]*?<\/section>/.exec(html)?.[0] ?? "";
-    assert.match(reply, /<li class="need tone-teal" data-key="send-https:\/\/github.com\/acme\/web\/pull\/150-review"/);
+    assert.match(
+      reply,
+      /<li class="need tone-teal one-line" data-key="send-https:\/\/github.com\/acme\/web\/pull\/150-review"/,
+    );
     assert.doesNotMatch(html, /PR body/);
     const page = await (await fetch(`${server.url}/t/ENG-7?part=1`)).text();
     assert.match(page, /data-key="td-PR body"/);
@@ -1675,7 +1684,10 @@ describe("send later", () => {
     );
     assert.doesNotMatch(linked, /no link/);
     const bare = /<li [^>]*data-key="send-ENG-7-post in ops"[\s\S]*?<\/li>/.exec(reply)?.[0] ?? "";
-    assert.match(bare, /no link/);
+    assert.match(
+      bare,
+      /<span class="need-title">post in ops<\/span><span class="chip tone-grey"[^>]*>no link<\/span><\/span><\/span>/,
+    );
     assert.doesNotMatch(bare, /Copy &amp; open/);
   });
 

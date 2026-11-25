@@ -67,6 +67,7 @@ type Need = {
   title: string;
   fold?: true;
   sub: string;
+  oneLine?: string;
   body?: string;
   drafts?: string;
   ask: string;
@@ -529,18 +530,23 @@ function sendNeed(ctx: Ctx, d: DraftRow): Need {
   const url = draftUrl(ctx, d);
   const noLink =
     url === null ? `<span class="chip tone-grey" title="this draft names no thread or PR">no link</span>` : "";
+  const sub = sourceLine([d.channel, d.ticket_id === null ? itemName(d.item) : null]);
+  const more = draftMore(ctx, [d], false);
+  const oneLine = d.verdict === null && more.drafts === undefined;
+  const title =
+    url === null ? `<span class="need-title">${line(ctx, d.label)}</span>` : linker(ctx)(url, d.label, "need-title");
   return {
     key: `send-${draftOwner(d)}-${d.label}`,
     rank: 2,
     since: d.send_at ?? d.created_at ?? now,
     verb: "Send",
     tone: "teal",
-    title:
-      url === null ? `<span class="need-title">${line(ctx, d.label)}</span>` : linker(ctx)(url, d.label, "need-title"),
-    sub: sourceLine([d.channel, d.ticket_id === null ? itemName(d.item) : null]),
+    title: oneLine ? title + noLink : title,
+    sub,
+    ...(oneLine ? { oneLine: sub } : {}),
     body: d.body,
-    ...draftMore(ctx, [d], false),
-    ask: askChips("", [verdictPill(d), draftButtons(ctx, d, "chip-btn", url), noLink]),
+    ...more,
+    ask: askChips("", [verdictPill(d), draftButtons(ctx, d, "chip-btn", url), oneLine ? "" : noLink]),
     ticket: d.ticket_id,
     href: url,
     dim: later ? `send ${when(ctx, d.send_at ?? now)}` : null,
@@ -572,6 +578,7 @@ function matchNeed(ctx: Ctx, d: DraftRow): Need {
     title: pr === null ? `<span class="need-title">“${text}”</span>` : linker(ctx)(d.match_ref, pr, "need-title"),
     fold: true,
     sub: pr === null ? "" : `“${text}”`,
+    ...(pr === null ? { oneLine: "" } : {}),
     ask: askChips(`Your draft ${line(ctx, d.label)}${esc(where)}?${verdictClash(d)}`, [
       answerChip("Yes", { ...proposal, answer: "yes" }, "y"),
       answerChip("No", { ...proposal, answer: "no" }, "n"),
@@ -614,25 +621,27 @@ function itemNeed(ctx: Ctx, i: ItemRow): Need {
             : null;
   const url = i.url ?? (/^https?:/.test(i.ref) ? i.ref : null);
   const drafts = itemDrafts(ctx, i, dim === null);
+  const source = [
+    githubRef(url) ?? i.source,
+    i.source === "slack" ? workspace(ctx, url) : null,
+    i.author,
+    i.state,
+    i.detail,
+  ];
+  const plain = drafts.every((d) => d.verdict === null && draftComments(ctx, d).length === 0);
+  const oneLine = plain && (i.ask === null ? 0 : 1) + drafts.length === 1;
   return {
     key: `item-${i.id}`,
     rank: v.rank,
     since: i.first_seen,
     verb: v.verb,
     tone: v.tone,
-    title: linker(ctx)(url, withoutTicket(itemTitle(i), i.ticket_id), "need-title"),
-    sub:
-      avatar(i.avatar) +
-      sourceLine([
-        githubRef(url) ?? i.source,
-        i.source === "slack" ? workspace(ctx, url) : null,
-        i.author,
-        i.state,
-        i.detail,
-      ]),
+    title: (oneLine ? avatar(i.avatar) : "") + linker(ctx)(url, withoutTicket(itemTitle(i), i.ticket_id), "need-title"),
+    sub: avatar(i.avatar) + sourceLine(source),
+    ...(oneLine ? { oneLine: sourceLine([...source, ...drafts.map((d) => `draft ${d.label}`)]) } : {}),
     ...moreText(i),
     ...draftMore(ctx, drafts, true),
-    ask: itemAsk(ctx, i) + draftChips(ctx, drafts, url),
+    ask: itemAsk(ctx, i) + draftChips(ctx, drafts, url, !oneLine),
     ticket: i.ticket_id,
     href: url,
     dim,
@@ -669,10 +678,11 @@ function waitNeed(ctx: Ctx, w: WaitRow): Need {
 function needRow(ctx: Ctx, n: Need, pinned: boolean, showVerb: boolean | "inline" = true): string {
   const target = n.href === null ? null : appHref(ctx, n.href).href;
   const href = target === null ? "" : ` data-href="${esc(target)}"`;
-  const dim = n.dim === null ? "" : `<span class="dim-label">${esc(n.dim)}</span>${n.sub === "" ? "" : " · "}`;
+  const oneLine = n.oneLine !== undefined;
+  const dimLabel = n.dim === null ? "" : `<span class="dim-label">${esc(n.dim)}</span>`;
   const finished = n.dim !== null && ["done", "answered", "yes", "no"].includes(n.dim);
   const pin = pinned ? `<span class="pinmark" title="Pinned">${svg("pin")}</span>` : "";
-  const cls = `need tone-${n.tone}${n.dim === null ? "" : " is-dim"}${finished ? " is-done" : ""}${pinned ? " pinned" : ""}`;
+  const cls = `need tone-${n.tone}${oneLine ? " one-line" : ""}${n.dim === null ? "" : " is-dim"}${finished ? " is-done" : ""}${pinned ? " pinned" : ""}`;
   const panel =
     n.panel === undefined ? "" : ` data-tab-panel="${n.panel}"${n.panel.split(" ").includes("open") ? "" : " hidden"}`;
   const folds = n.fold === true || n.body !== undefined || n.drafts !== undefined;
@@ -681,7 +691,12 @@ function needRow(ctx: Ctx, n: Need, pinned: boolean, showVerb: boolean | "inline
     ? `<button type="button" class="n-caret" data-fold-toggle aria-expanded="false" title="Show more · space" aria-label="Show more">${svg("down")}</button>`
     : `<span class="n-caret"></span>`;
   const mark = n.today === true ? `<span class="pill tone-blue plan-mark" title="In today's plan">today</span>` : "";
-  const main = `<span class="need-main"><span class="need-line">${pin}${showVerb === "inline" ? `<span class="verb verb-inline">${esc(n.verb)}</span>` : ""}${n.title}${mark}</span><span class="need-sub">${dim}${n.sub}</span></span>`;
+  const verb = showVerb === "inline" ? `<span class="verb verb-inline">${esc(n.verb)}</span>` : "";
+  const hover = n.oneLine ? ` title="${n.oneLine}"` : "";
+  const sub = oneLine
+    ? ""
+    : `<span class="need-sub">${dimLabel}${n.sub === "" || dimLabel === "" ? "" : " · "}${n.sub}</span>`;
+  const main = `<span class="need-main"${hover}><span class="need-line">${pin}${verb}${n.title}${mark}${oneLine ? dimLabel : ""}</span>${sub}</span>`;
   const ask = n.ask === "" ? "" : `<div class="n-ask">${n.ask}</div>`;
   const body = n.body === undefined ? "" : `<div class="n-body md">${markdown(ctx, n.body)}</div>`;
   const more = folds && body + (n.drafts ?? "") !== "" ? `<div class="n-more">${body}${n.drafts ?? ""}</div>` : "";
@@ -1138,12 +1153,14 @@ function draftMore(ctx: Ctx, drafts: DraftRow[], withBody: boolean): { drafts?: 
   return html === "" ? {} : { drafts: html };
 }
 
-function draftChips(ctx: Ctx, drafts: DraftRow[], open: string | null): string {
+function draftChips(ctx: Ctx, drafts: DraftRow[], open: string | null, labels: boolean): string {
   if (drafts.length === 0) return "";
   return drafts
     .map((d) =>
       askChips("", [
-        `<span class="chip tone-${d.status === "draft" ? "teal" : "grey"}" title="draft">${line(ctx, d.label, 40)}</span>`,
+        labels
+          ? `<span class="chip tone-${d.status === "draft" ? "teal" : "grey"}" title="draft">${line(ctx, d.label, 40)}</span>`
+          : "",
         verdictPill(d),
         draftButtons(ctx, d, "chip-btn", open),
       ]),
