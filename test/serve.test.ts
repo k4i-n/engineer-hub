@@ -506,6 +506,49 @@ describe("serve", () => {
     assert.equal((await first("gate ENG-7"))?.kind, "Gate");
   });
 
+  test("a PR body draft is internal, and the PR it became marks it posted with the PR's url and body", async () => {
+    type Draft = {
+      status: string;
+      internal: number;
+      sent_ref: string | null;
+      sent_text: string | null;
+      match_ref: string | null;
+    };
+    const show = async (label: string) => JSON.parse(await hub(["draft-show", "ENG-7", label, "--json"])) as Draft;
+    const pr = (n: number, title: string) =>
+      JSON.stringify({
+        source: "github",
+        kind: "pr",
+        url: `https://github.com/acme/web/pull/${n}`,
+        title,
+        body: `body of ${n}`,
+        ticket: "ENG-7",
+      });
+    await hub(["draft", "ENG-7", "pr-body", "--stdin"], "Title: Export rate limit\n\nAdds a limit.");
+    assert.equal((await show("pr-body")).internal, 1);
+    const home = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.doesNotMatch(home, /data-key="send-ENG-7-pr-body"/);
+
+    await hub(["item", "put", "--stdin"], pr(31, "Export rate limit"));
+    const sent = await show("pr-body");
+    assert.deepEqual(
+      [sent.status, sent.sent_ref, sent.sent_text],
+      ["posted", "https://github.com/acme/web/pull/31", "body of 31"],
+    );
+
+    await hub(["draft", "ENG-7", "a", "--stdin"], "Title: Retry jitter");
+    await hub(["draft", "ENG-7", "b", "--stdin"], "Title: Retry jitter\n\nother wording");
+    await hub(["item", "put", "--stdin"], pr(32, "Retry jitter"));
+    for (const label of ["a", "b"]) {
+      const d = await show(label);
+      assert.deepEqual([d.status, d.match_ref], ["draft", "https://github.com/acme/web/pull/32"], label);
+    }
+
+    await hub(["draft", "ENG-7", "c", "--stdin"], "Title: Later title");
+    await hub(["posted", "ENG-7", "c", "--ref", "https://github.com/acme/web/pull/31"]);
+    assert.equal((await show("c")).sent_text, "body of 31");
+  });
+
   test("the ticket page shows the tracker state only when it differs from the folder, named by its tracker", async () => {
     const db = new DatabaseSync(dbFile);
     const setTracker = (state: string) =>
