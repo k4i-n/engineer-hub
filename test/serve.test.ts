@@ -2022,7 +2022,10 @@ describe("today plan lines", () => {
     const before = row(await card(), "migration");
     assert.match(before, /data-act="step-done" data-ticket="ENG-42" data-n="1"/);
     assert.match(before, /<span class="pl-time">16:00<\/span>migration/);
-    assert.match(before, /<a class="chip tone-amber" href="\/t\/ENG-42">ENG-42 step 1 · open<\/a>/);
+    assert.match(
+      before,
+      /<a class="chip tone-amber" href="\/t\/ENG-42" title="ENG-42 step 1 · open" aria-label="ENG-42 step 1 · open">ENG-42 step 1<\/a>/,
+    );
     const route = ROUTES.find((r) => r.name === "step_done");
     assert.equal(route?.path, "/tickets/{id}/steps/{n}/done");
     assert.equal((await call("POST", "/tickets/ENG-42/steps/1/done", {})).status, 200);
@@ -2041,7 +2044,10 @@ describe("today plan lines", () => {
     await hub(["plan", "add", "fix and close", "--ref", "step:ENG-7#1 ticket:ENG-7"]);
     const html = await card();
     assert.match(row(html, "lunch"), /data-act="plan-done" data-line="1" data-date="\d{4}-\d{2}-\d{2}"/);
-    assert.match(row(html, "migration go"), /<span class="pbox"><\/span>[\s\S]*href="\/t\/ENG-42">gate ENG-42 · open</);
+    assert.match(
+      row(html, "migration go"),
+      /<span class="pbox"><\/span>[\s\S]*href="\/t\/ENG-42" title="gate ENG-42 · open"[^>]*>gate ENG-42</,
+    );
     assert.doesNotMatch(row(html, "fix and close"), /<button/);
     assert.equal((row(html, "fix and close").match(/class="chip /g) ?? []).length, 2);
     assert.equal((await call("POST", "/plan/1/done", { date: today() })).status, 200);
@@ -2062,6 +2068,37 @@ describe("today plan lines", () => {
     const need = (title: string) => html.split('<li class="need').find((li) => li.includes(`>${title}<`)) ?? "";
     assert.match(need("API 5xx"), /class="pill tone-blue plan-mark"/);
     assert.doesNotMatch(need("DB slow"), /plan-mark/);
+  });
+
+  test("an item line's chip names the sender, opens the item's row in hub and finds it by id", async () => {
+    await hub(
+      ["item", "put", "--stdin"],
+      JSON.stringify({
+        source: "slack",
+        kind: "message",
+        url: "https://acme.slack.com/archives/C1/p1",
+        title: "can you check the deploy",
+        author: "mia",
+        needs_me: true,
+      }),
+    );
+    const items = (await (await call("GET", "/items?needs_me=true")).json()) as { id: number; author: string }[];
+    const id = items.find((i) => i.author === "mia")?.id;
+    await hub(["plan", "add", "answer mia", "--ref", `item:${id}`]);
+    assert.match(
+      row(await card(), "answer mia"),
+      new RegExp(
+        `<a class="chip tone-amber" href="/#item-${id}" title="mia · reply: can you check the deploy \\(item ${id}\\)"[^>]*>mia · reply</a>`,
+      ),
+    );
+    for (const q of [`${id}`, `#${id}`, `item ${id}`, `item:${id}`, `item #${id}`]) {
+      const found = (await (await call("GET", `/find?q=${encodeURIComponent(q)}`)).json()) as {
+        title: string;
+        sub: string;
+      }[];
+      assert.equal(found[0]?.title, "can you check the deploy", q);
+      assert.match(found[0]?.sub ?? "", new RegExp(`^item ${id} · slack · mia`), q);
+    }
   });
 
   test("the card shows From hub on today's plan only", async () => {

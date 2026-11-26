@@ -334,6 +334,13 @@ export type Found = {
 
 const FOUND_KIND: Record<string, string> = { ticket: "Ticket", note: "Note", event: "Log", draft: "Draft" };
 
+const ITEM_ID = /^(?:item\s*[:#]?\s*|#)?(\d+)$/i;
+
+export function listedToday(ctx: Ctx, i: ItemRow): boolean {
+  const dayStart = startOfDayIso(today(ctx.now, ctx.config.timezone), ctx.config.timezone);
+  return i.needs_me === 1 && i.ignored === null && (i.closed_at ?? dayStart) >= dayStart;
+}
+
 export function searchAll(ctx: Ctx, query: string, limit: number): Found[] {
   const q = query.trim();
   if (q === "") return [];
@@ -366,14 +373,16 @@ export function searchAll(ctx: Ctx, query: string, limit: number): Found[] {
           starts,
           q,
         );
+  const itemId = Number(ITEM_ID.exec(q)?.[1] ?? 0);
   const items = all<ItemRow & { head: number }>(
     ctx.db,
-    `SELECT *, CASE WHEN ${opens("title")} THEN 2 ELSE 3 END AS head FROM item
-      WHERE title LIKE ?1 ESCAPE '\\' OR ref LIKE ?1 ESCAPE '\\' OR author LIKE ?1 ESCAPE '\\'
+    `SELECT *, CASE WHEN id = ?4 THEN 0 WHEN ${opens("title")} THEN 2 ELSE 3 END AS head FROM item
+      WHERE id = ?4 OR title LIKE ?1 ESCAPE '\\' OR ref LIKE ?1 ESCAPE '\\' OR author LIKE ?1 ESCAPE '\\'
       ORDER BY head, closed_at IS NOT NULL, changed_at DESC LIMIT ?2`,
     like,
     limit,
     starts,
+    itemId,
   );
   const steps = all<StepRow & { head: number }>(
     ctx.db,
@@ -384,9 +393,7 @@ export function searchAll(ctx: Ctx, query: string, limit: number): Found[] {
     starts,
   );
   const page = (id: string | null) => (id === null ? null : `/t/${encodeURIComponent(id)}`);
-  const dayStart = startOfDayIso(today(ctx.now, ctx.config.timezone), ctx.config.timezone);
-  const listed = (i: ItemRow) => i.needs_me === 1 && i.ignored === null && (i.closed_at ?? dayStart) >= dayStart;
-  const itemHref = (i: ItemRow) => page(i.ticket_id) ?? (listed(i) ? `/#item-${i.id}` : null);
+  const itemHref = (i: ItemRow) => page(i.ticket_id) ?? (listedToday(ctx, i) ? `/#item-${i.id}` : null);
   const found: (Found & { head: number })[] = [
     ...hits
       .filter((h) => h.tbl === "ticket")
@@ -402,7 +409,7 @@ export function searchAll(ctx: Ctx, query: string, limit: number): Found[] {
     ...items.map((i) => ({
       kind: i.closed_at === null ? "Item" : "Closed item",
       title: i.title ?? i.ref,
-      sub: [i.source, i.author, i.state].filter(Boolean).join(" · "),
+      sub: [`item ${i.id}`, i.source, i.author, i.state].filter(Boolean).join(" · "),
       href: itemHref(i),
       out: i.url ?? (/^https?:/.test(i.ref) ? i.ref : null),
       ticket: i.ticket_id,

@@ -1,7 +1,7 @@
 import type { AwayState } from "./away.ts";
 import type { Backup, BackupState } from "./backup.ts";
 import { area, bar, donut, half, legend, percent, ring, type Slice, stack } from "./charts.ts";
-import { asks, byOrder, type Ctx, has, letters, openTickets, recentlyDone } from "./commands.ts";
+import { asks, byOrder, type Ctx, has, letters, listedToday, openTickets, recentlyDone } from "./commands.ts";
 import {
   BLOCKS,
   type Config,
@@ -1246,15 +1246,42 @@ function plannedKeys(ctx: Ctx): Set<string> {
   return keys;
 }
 
+const PLAIN_STATES = new Set([
+  "open",
+  "not sent",
+  "todo",
+  "inprogress",
+  "done",
+  "merged",
+  "closed",
+  "sent",
+  "answered",
+  "yes",
+]);
+
+function itemHref(ctx: Ctx, i: ItemRow): string | null {
+  if (listedToday(ctx, i)) return `/#item-${i.id}`;
+  if (i.ticket_id !== null) return `/t/${encodeURIComponent(i.ticket_id)}`;
+  return i.url ?? (/^https?:/.test(i.ref) ? i.ref : null);
+}
+
 function refChip(ctx: Ctx, r: plan.RefState): string {
   const item = r.ref.kind === "item" ? one<ItemRow>(ctx.db, "SELECT * FROM item WHERE id = ?", r.ref.id) : undefined;
   const open = r.doneAt === null;
-  const state = open && item !== undefined && item.state !== null ? itemVerb(item).verb : r.state;
+  const state = (open && item !== undefined ? itemVerb(item).verb : r.state).toLowerCase();
   const tone: Tone = !open ? "green" : r.state === "gone" ? "grey" : r.state === "sent?" ? "blue" : "amber";
-  const text = `${r.name} · ${state.toLowerCase()}`;
+  const name =
+    item === undefined
+      ? r.name
+      : (githubRef(item.url ?? item.ref) ?? item.author ?? KIND_NAME[item.kind] ?? item.source);
+  const about = item === undefined ? "" : `: ${item.title ?? item.ref} (item ${item.id})`;
+  const text = PLAIN_STATES.has(state) ? name : `${name} · ${state}`;
+  const title = `${name} · ${state}${about}`;
+  const href = item === undefined ? r.href : itemHref(ctx, item);
   const cls = `chip tone-${tone}`;
-  if (r.href?.startsWith("/")) return `<a class="${cls}" href="${esc(r.href)}">${esc(text)}</a>`;
-  return linker(ctx)(r.href, text, cls);
+  if (href?.startsWith("/"))
+    return `<a class="${cls}" href="${esc(href)}" title="${esc(title)}" aria-label="${esc(title)}">${esc(text)}</a>`;
+  return linker(ctx)(href, text, cls, title);
 }
 
 function planBox(s: plan.LineState, date: string, readOnly: boolean): string {
