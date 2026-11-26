@@ -121,6 +121,11 @@ async function fetchLinear(sys: System, ctx: Ctx, cursor: string | null): Promis
   const mentioned = new Set(answer.data.notifications.nodes.map((n) => n.comment?.url));
   for (const c of answer.data.comments.nodes) {
     if (c.issue == null || mentioned.has(c.url)) continue;
+    const slack = SLACK_SYNC.exec(c.body)?.[1];
+    if (slack !== undefined) {
+      out.push({ source: "slack", kind: "thread", url: slack, title: `${c.issue.identifier} ${c.issue.title}` });
+      continue;
+    }
     const who = c.user?.name ?? "someone";
     out.push({
       source: "linear",
@@ -147,6 +152,8 @@ async function fetchLinear(sys: System, ctx: Ctx, cursor: string | null): Promis
     }));
   return { items: out, cursor: started, tracker };
 }
+
+const SLACK_SYNC = /^This comment thread is synced to a corresponding \[thread in Slack\]\((https:\/\/[^)\s]+)\)/;
 
 export const linear: Fetcher = {
   name: "linear",
