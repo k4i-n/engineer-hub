@@ -20,12 +20,12 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 | `hub steps <id>` | the ticket's steps, done ones ticked, with their evidence |
 | `hub brief` | what a sync needs to judge new messages: sources and cursors, open tickets, unsent drafts, drafts sent with wording pending, waits, tracked items (each section capped at 40 lines) |
 | `hub day [date] [--full]` | the rev, the RESUME block and the Today lines of a day plan (today, else the latest), each line with its live state; `--full` gives the whole plan with the lines under `## Today`. Today's plan ends with `## From hub`, generated from the database: my open PRs with their state, open waits with their ping time, drafts set to send later, and open gates |
-| `hub lint` | open tickets missing status, next or owner, over a limit, with a gate or decide that is not a question (no `?`), or with a title that starts with the ticket's id; exit 1 if any |
+| `hub lint` | open tickets missing status, next or owner, over a limit, with a gate that is not a question (no `?`) or that offers a choice (`A or B?`: a gate is a yes/no question; options go in the ticket), or with a title that starts with the ticket's id; exit 1 if any |
 | `hub config [key]` | effective config |
 
 | Write | Does |
 |---|---|
-| `hub set <id> <field> <value>` | field is title, status, repo, worktree, branch, prs, gate, decide, next or owner |
+| `hub set <id> <field> <value>` | field is title, status, repo, worktree, branch, prs, gate, next or owner |
 | `hub merge <id> <into id>` | moves the ticket's timeline, notes, drafts, steps (numbered after the other ticket's), items and waits into the other ticket and deletes it; a clashing note title or draft label gets ` (from <id>)`, and a later write to the old id names the one it went into. Backs up first as `…-before-merge.db`; not an MCP tool |
 | `hub ticket-delete <id>` | deletes the ticket with its timeline, notes, drafts, steps and waits; its items stay, unattached. Backs up first as `…-before-delete.db` (`hub restore` brings it back); not an MCP tool |
 | `hub rename <id> <new id>` | changes the ticket's id (a `NEW-` ticket to its tracker id once filed); its timeline, notes, drafts, steps, items, waits and pins follow, and a later write to the old id fails naming the new one |
@@ -62,7 +62,7 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 
 ## Limits
 
-State fields are one line. Status, repo, PRs, gate, decide and next are capped at 240 characters and owner at 120. `hub set` refuses longer values and names the place for the detail:
+State fields are one line. Status, repo, PRs, gate and next are capped at 240 characters and owner at 120. `hub set` refuses longer values and names the place for the detail:
 
 ```
 next is 300 chars (max 240): put the detail in a note (hub note) or the log (hub log) and keep next to one line
