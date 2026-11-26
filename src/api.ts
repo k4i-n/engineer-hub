@@ -322,7 +322,7 @@ export const ROUTES: Route[] = [
       internal: {
         type: "boolean",
         about:
-          "true for text an agent uses itself (a PR body), not for the human to post: shown on the ticket page only",
+          "true for text an agent uses itself (PR bodies: internal: true), not for the human to post: shown on the ticket page only; a body starting with Title: or a channel naming a PR or branch is internal unless false is given",
       },
     },
     run: (ctx, a) =>
