@@ -2,7 +2,6 @@
 
 Status: -
 Repo: -
-PRs: -
 Gate: -
 Next: read the export handler
 Owner: me | Updated: 2026-11-10

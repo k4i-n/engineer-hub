@@ -5,7 +5,6 @@
 ```
 Status: Schema drafted; migration next. Sessions move between devices and the old token stays valid until refresh. Sessions move between devices and the old token stays valid until refresh. Sessions move between devices and the old token stays valid until refresh. Sessions move between devices and the old token stays valid until refresh. Sessions move between devices and the old token stays valid until refresh. Sessions move between devices and the old token stays valid until refresh. Sessions move between devices and the old token stays valid until refresh. Sessions move between devices and the old token stays valid until refresh. Sessions move between devices and the old token stays valid until refresh. Sessions move between devices and the old token stays valid until refresh. Sessions move between devices and the old token stays valid until refresh. Sessions move between devices and the old token stays valid until refresh. Sessions move between devices and the old token stays valid until re
 Repo: acme/web | Worktree: ~/wt/eng-42 | Branch: feat/session-sync
-PRs: #101
 Gate: waiting on design review
 Order: P2
 Next: write the migration for the sessions table

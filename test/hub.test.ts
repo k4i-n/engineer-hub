@@ -812,7 +812,7 @@ describe("reads", () => {
     assert.equal(await ok("board", "export"), "== todo\n  [-] ENG-7 | - | next: read the export handler");
   });
 
-  test("board and ticket show the state of the ticket's PRs in place of the prs text", async () => {
+  test("board and ticket show the state of the ticket's PRs", async () => {
     await imported();
     stdin = [
       JSON.stringify({
@@ -832,7 +832,7 @@ describe("reads", () => {
     ].join("\n");
     await ok("item", "put", "--stdin");
     assert.match(await ok("board"), / ENG-42 \| .* \| PR #101, #140 approved, #141 checks failing \| GATE: /);
-    assert.match(await ok("ticket", "ENG-42"), /^prs: #101 \| #101, #140 approved, #141 checks failing$/m);
+    assert.match(await ok("ticket", "ENG-42"), /^pulls: #101, #140 approved, #141 checks failing$/m);
     const pulls = (await json<{ pulls: { state: string }[] }>("ticket", "ENG-42")).pulls.map((i) => i.state);
     assert.deepEqual(pulls, [null, "approved", "checks failing"]);
 
@@ -1036,7 +1036,7 @@ describe("db", () => {
     db.close();
     assert.throws(
       () => serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] }),
-      /has schema v1, this hub needs v25: move the file aside and re-import/,
+      /has schema v1, this hub needs v26: move the file aside and re-import/,
     );
     server = await serve({ dbPath: join(dir, "other.db"), port: 0, now: () => now, env: {}, fetchers: [] });
   });
@@ -1048,7 +1048,7 @@ describe("schema upgrade", () => {
     await server.close();
     const db = new DatabaseSync(dbFile);
     db.exec(
-      "ALTER TABLE ticket ADD COLUMN decide TEXT; ALTER TABLE draft DROP COLUMN send_at; DROP TABLE script_source; ALTER TABLE ticket DROP COLUMN position; ALTER TABLE item DROP COLUMN ignored; ALTER TABLE source DROP COLUMN warning; ALTER TABLE item DROP COLUMN detached; ALTER TABLE item DROP COLUMN judged_at; ALTER TABLE item DROP COLUMN away_ping; ALTER TABLE item DROP COLUMN away_why; ALTER TABLE item DROP COLUMN body; ALTER TABLE item DROP COLUMN detail; DROP INDEX draft_item; DROP INDEX draft_item_label; ALTER TABLE draft DROP COLUMN item; ALTER TABLE draft DROP COLUMN closed_item; ALTER TABLE draft DROP COLUMN match_no; ALTER TABLE item DROP COLUMN ask; ALTER TABLE item DROP COLUMN ask_answer; ALTER TABLE item DROP COLUMN ask_at; ALTER TABLE draft DROP COLUMN verdict; ALTER TABLE draft DROP COLUMN match_verdict; DROP TABLE draft_comment; ALTER TABLE draft DROP COLUMN internal; ALTER TABLE item DROP COLUMN avatar; DROP TABLE plan_line; ALTER TABLE wait DROP COLUMN reopened_at; ALTER TABLE wait DROP COLUMN pinged_at; ALTER TABLE item DROP COLUMN snoozed_until; ALTER TABLE draft DROP COLUMN match_text; ALTER TABLE draft DROP COLUMN match_ref; DROP TABLE step; DROP TABLE pin; UPDATE meta SET value = '2' WHERE key = 'schema_version'",
+      "ALTER TABLE ticket ADD COLUMN prs TEXT; ALTER TABLE ticket ADD COLUMN decide TEXT; ALTER TABLE draft DROP COLUMN send_at; DROP TABLE script_source; ALTER TABLE ticket DROP COLUMN position; ALTER TABLE item DROP COLUMN ignored; ALTER TABLE source DROP COLUMN warning; ALTER TABLE item DROP COLUMN detached; ALTER TABLE item DROP COLUMN judged_at; ALTER TABLE item DROP COLUMN away_ping; ALTER TABLE item DROP COLUMN away_why; ALTER TABLE item DROP COLUMN body; ALTER TABLE item DROP COLUMN detail; DROP INDEX draft_item; DROP INDEX draft_item_label; ALTER TABLE draft DROP COLUMN item; ALTER TABLE draft DROP COLUMN closed_item; ALTER TABLE draft DROP COLUMN match_no; ALTER TABLE item DROP COLUMN ask; ALTER TABLE item DROP COLUMN ask_answer; ALTER TABLE item DROP COLUMN ask_at; ALTER TABLE draft DROP COLUMN verdict; ALTER TABLE draft DROP COLUMN match_verdict; DROP TABLE draft_comment; ALTER TABLE draft DROP COLUMN internal; ALTER TABLE item DROP COLUMN avatar; DROP TABLE plan_line; ALTER TABLE wait DROP COLUMN reopened_at; ALTER TABLE wait DROP COLUMN pinged_at; ALTER TABLE item DROP COLUMN snoozed_until; ALTER TABLE draft DROP COLUMN match_text; ALTER TABLE draft DROP COLUMN match_ref; DROP TABLE step; DROP TABLE pin; UPDATE meta SET value = '2' WHERE key = 'schema_version'",
     );
     db.close();
     server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] });
@@ -1094,7 +1094,7 @@ describe("schema upgrade to v11", () => {
   test("ignored repos move into the GitHub searches as -repo: terms and ignoreRepos is gone", async () => {
     await server.close();
     const db = new DatabaseSync(dbFile);
-    db.exec(`ALTER TABLE ticket ADD COLUMN decide TEXT;
+    db.exec(`ALTER TABLE ticket ADD COLUMN prs TEXT; ALTER TABLE ticket ADD COLUMN decide TEXT;
       INSERT INTO config(key, value) VALUES
       ('githubReviewQuery', '"is:pr is:open review-requested:@me"'),
       ('ignoreRepos', '{"review_request":["acme/noisy","acme/old"],"pr":["acme/web"]}');
@@ -1121,7 +1121,7 @@ describe("schema upgrade to v20", () => {
     await server.close();
     const db = new DatabaseSync(dbFile);
     db.exec(
-      "ALTER TABLE ticket ADD COLUMN decide TEXT; ALTER TABLE item DROP COLUMN avatar; DROP TABLE plan_line; ALTER TABLE wait DROP COLUMN reopened_at",
+      "ALTER TABLE ticket ADD COLUMN prs TEXT; ALTER TABLE ticket ADD COLUMN decide TEXT; ALTER TABLE item DROP COLUMN avatar; DROP TABLE plan_line; ALTER TABLE wait DROP COLUMN reopened_at",
     );
     const insert = db.prepare(
       `INSERT INTO item(source, ref, kind, first_seen, changed_at, closed_at, ignored, ask)
@@ -1155,7 +1155,7 @@ describe("schema upgrade to v25", () => {
     await ok("set", "ENG-7", "gate", "-");
     await server.close();
     const db = new DatabaseSync(dbFile);
-    db.exec(`ALTER TABLE ticket ADD COLUMN decide TEXT;
+    db.exec(`ALTER TABLE ticket ADD COLUMN prs TEXT; ALTER TABLE ticket ADD COLUMN decide TEXT;
       UPDATE ticket SET decide = 'Cookie or header?' WHERE id = 'ENG-42';
       UPDATE ticket SET decide = 'Ship today?' WHERE id IN ('ENG-9', 'ENG-7');
       UPDATE meta SET value = '24' WHERE key = 'schema_version'`);
@@ -1174,6 +1174,27 @@ describe("schema upgrade to v25", () => {
       0,
     );
     assert.match(await ok("search", "design"), /ticket ENG-42/);
+  });
+});
+
+describe("schema upgrade to v26", () => {
+  test("the prs text goes to the ticket log and the column is gone", async () => {
+    await imported();
+    await server.close();
+    const db = new DatabaseSync(dbFile);
+    db.exec(`ALTER TABLE ticket ADD COLUMN prs TEXT;
+      UPDATE ticket SET prs = 'core#38115 merged, world#10175 open' WHERE id = 'ENG-42';
+      UPDATE ticket SET prs = '-' WHERE id = 'ENG-7';
+      UPDATE meta SET value = '25' WHERE key = 'schema_version'`);
+    db.close();
+    server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] });
+    assert.match(await ok("events", "ENG-42"), /\[log\] prs \(removed\): core#38115 merged, world#10175 open/);
+    assert.doesNotMatch(await ok("events", "ENG-7"), /prs \(removed\)/);
+    assert.equal(
+      sql<{ n: number }>("SELECT count(*) AS n FROM pragma_table_info('ticket') WHERE name = 'prs'")[0]?.n,
+      0,
+    );
+    assert.doesNotMatch(await ok("ticket", "ENG-42"), /^prs:/m);
   });
 });
 

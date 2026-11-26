@@ -5,7 +5,6 @@ export type StateFields = {
   repo?: string;
   worktree?: string;
   branch?: string;
-  prs?: string;
   gate?: string;
   next?: string;
   owner?: string;
@@ -43,7 +42,6 @@ export type ParsedTicket = {
 const STATE_COLUMNS: Record<string, Exclude<keyof StateFields, "order">> = {
   status: "status",
   repo: "repo",
-  prs: "prs",
   gate: "gate",
   next: "next",
   owner: "owner",
@@ -122,6 +120,7 @@ function setState(state: StateFields, name: string, value: string): void {
     if (updated) state.updated = updated.trim();
     return;
   }
+  if (key === "prs") return;
   if (key === "decide") {
     state.gate ||= value.trim();
     return;

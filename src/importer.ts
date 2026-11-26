@@ -14,7 +14,6 @@ const TICKET_COLUMNS = [
   "repo",
   "worktree",
   "branch",
-  "prs",
   "gate",
   "next",
   "owner",
