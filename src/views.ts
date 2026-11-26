@@ -1567,7 +1567,7 @@ export function ticketBody(ctx: Ctx, id: string, live: Live): string {
     menuItem("trash", "Delete", { act: "ticket-delete", ticket: t.id, confirm: `Delete ${t.id}?`, go: "/" }),
   ]);
   const head = `<div class="page-head">${priorityMark(t.tracker_priority)}${ticketLink(t.id)}<h1>${line(ctx, t.title ?? "")}</h1>${ticketMenu}${pill(DIR_LABEL[t.dir ?? ""] ?? t.dir ?? "", DIR_TONE[t.dir ?? ""] ?? "grey")}${trackerPill(t)}${t.tracker_url === null ? "" : link(t.tracker_url, "tracker ↗", "head-link")}</div>`;
-  const fields = `${field(ctx, "Status", t.status)}${field(ctx, "Next", t.next, "blue")}${asks(t.gate) ? field(ctx, "Approve?", t.gate, "amber") : field(ctx, "Rule", t.gate)}${field(ctx, "Repo", [t.repo, t.branch].filter(Boolean).join(" · "))}${field(ctx, "PRs", t.prs)}${field(ctx, "Owner", t.owner)}`;
+  const fields = `${field(ctx, "Status", t.status)}${field(ctx, "Next", t.next, "blue")}${asks(t.gate) ? field(ctx, "Approve?", t.gate, "amber") : field(ctx, "Rule", t.gate)}${field(ctx, "Repo", [t.repo, t.branch].filter(Boolean).join(" · "))}${field(ctx, "Owner", t.owner)}`;
   const state = fields === "" ? empty() : `<dl class="state">${fields}</dl>`;
   const openSteps = steps.filter((s) => s.done_at === null).length;
   const openItems = items.filter((i) => i.closed_at === null).length;

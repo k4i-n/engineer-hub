@@ -179,7 +179,7 @@ export function ticket(ctx: Ctx, id: string): Result {
     `${t.id} | ${v(t.dir)} | ${v(t.title)}`,
     `status: ${v(t.status)}`,
     `repo: ${v(t.repo)} | worktree: ${v(t.worktree)} | branch: ${v(t.branch)}`,
-    `prs: ${v(t.prs)}${pulls.length > 0 ? ` | ${cut(pulls.map(pullLabel).join(", "), 150)}` : ""}`,
+    `pulls: ${pulls.length > 0 ? cut(pulls.map(pullLabel).join(", "), 150) : "-"}`,
     `gate: ${v(t.gate)}`,
     `next: ${v(t.next)}`,
     `owner: ${v(t.owner)} | updated: ${v(t.updated)} | order: ${t.position ?? "-"}`,
@@ -214,7 +214,6 @@ function boardLine(t: Ticket, pulls: ItemRow[]): string {
   if (t.position !== null) line += ` #${t.position}`;
   line += ` ${t.id} | ${cut(t.status || "-", 90)}`;
   if (pulls.length > 0) line += ` | PR ${cut(pulls.map(pullLabel).join(", "), 90)}`;
-  else if (has(t.prs)) line += ` | PR ${cut(t.prs, 90)}`;
   if (has(t.gate)) line += ` | GATE: ${cut(t.gate, 90)}`;
   return `${line} | next: ${cut(t.next || "-", 90)}`;
 }

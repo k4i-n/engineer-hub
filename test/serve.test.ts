@@ -118,7 +118,7 @@ describe("serve", () => {
     assert.equal(one.needs, rules.needs);
     const page = await (await fetch(`${server.url}/t/ENG-42?part=1`)).text();
     assert.match(page, /<dt>Rule<\/dt><dd class="md"><p>Khai go per deploy<\/p><\/dd>/);
-    assert.doesNotMatch(page, /<dt>Decide<\/dt>|chip tone-amber">decide/);
+    assert.doesNotMatch(page, /<dt>Decide<\/dt>|chip tone-amber">decide|<dt>PRs<\/dt>/);
 
     await hub(["set", "ENG-42", "gate", "Merge #1648?"]);
     const asked = await home();
@@ -351,7 +351,7 @@ describe("serve", () => {
   test("settings show the database and save config through the same checks as the CLI", async () => {
     const html = await (await fetch(`${server.url}/settings`)).text();
     assert.ok(html.includes(dbFile));
-    assert.match(html, /Schema<\/span><div class="set-control">v25/);
+    assert.match(html, /Schema<\/span><div class="set-control">v26/);
     const titles = [...html.matchAll(/<h2><button type="button" class="fold" data-fold="([^"]+)"/g)].map((m) => m[1]);
     assert.deepEqual(titles, ["Sources", "Agent", "Away", "Database", "Behavior", "Dashboard", "Keyboard"]);
     assert.equal(html.match(/<div class="col">/g)?.length, 1);
