@@ -6,7 +6,7 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 
 | Read | Prints |
 |---|---|
-| `hub ticket <id>` | state with the state of each attached PR (`#140 approved`), tracker fields, step progress and the next step, the last 3 events, open drafts, open items and waits, note titles (under 25 lines) |
+| `hub ticket <id>` | state with the state of each attached PR (`#140 approved`), tracker fields, step progress and the steps being done, the last 3 events, open drafts, open items and waits, note titles (under 25 lines) |
 | `hub board [regex]` | open tickets grouped by dir, one line each; `PR` shows the attached PRs with their state (`#140 approved, #141 checks failing`), else the `prs` text |
 | `hub next` | the next action of each ticket in progress, then to do, in your order, then by tracker priority |
 | `hub gates` | tickets waiting on a human decision |
@@ -17,7 +17,7 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 | `hub items [--needs-me] [--source <s>] [--ticket <id>] [--all]` | open items (PRs, threads, review requests, alerts…), the ones that need you first |
 | `hub waits [--due]` | questions asked of someone; `--due` lists the ones to ping now |
 | `hub sources` | each source's last sync, cursor and error |
-| `hub steps <id>` | the ticket's steps, done ones ticked, with their evidence |
+| `hub steps <id>` | the ticket's steps (`[ ]` todo, `[>]` doing, `[x]` done), with their evidence |
 | `hub brief` | what a sync needs to judge new messages: sources and cursors, open tickets, unsent drafts, drafts sent with wording pending, waits, tracked items (each section capped at 40 lines) |
 | `hub day [date] [--full]` | the rev, the RESUME block and the Today lines of a day plan (today, else the latest), each line with its live state; `--full` gives the whole plan with the lines under `## Today`. Today's plan ends with `## From hub`, generated from the database: my open PRs with their state, open waits with their ping time, drafts set to send later, and open gates |
 | `hub lint` | open tickets missing status, next or owner, over a limit, with a gate that is not a question (no `?`) or that offers a choice (`A or B?`: a gate is a yes/no question; options go in the ticket), or with a title that starts with the ticket's id; exit 1 if any |
@@ -37,8 +37,8 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 | `hub unposted <id> <label>` | marks a sent draft not sent again, dropping its sent wording, permalink and answer, and reopens the review request its Sent closed |
 | `hub link <id> <url> [--kind <k>] [--title <t>]` | attaches the URL to the ticket as an item; source and kind come from the URL |
 | `hub match <id> <label> --ref <url> (--file \| --stdin)`, `hub match <id> <label> (yes \| no)` | proposes a sent message as the wording of a draft when the agent is unsure; yes marks the draft posted with it, no drops it |
-| `hub step add <id> <title> [--at <n>]`, `hub step done <id> <n> [--evidence <url>]` | adds a step (at the end, or at place n with the rest moving down), marks one done and logs it |
-| `hub step edit <id> <n> <title>`, `hub step undo <id> <n>`, `hub step rm <id> <n>` | changes a step's title, marks a done step not done (logged), removes a step (the rest move up, so steps stay 1 to n) |
+| `hub step add <id> <title> [--at <n>]`, `hub step start <id> <n>`, `hub step done <id> <n> [--evidence <url>]` | adds a step (at the end, or at place n with the rest moving down), marks one doing when work on it begins (several can be doing; one waiting on review or merge is still doing), marks one done (from todo or doing) and logs each |
+| `hub step edit <id> <n> <title>`, `hub step undo <id> <n>`, `hub step rm <id> <n>` | changes a step's title, marks a done step not done or a doing step not started (logged; both go back to todo), removes a step (the rest move up, so steps stay 1 to n) |
 | `hub note-mv <id> <title> <new title>`, `hub note-rm <id> <title>` | renames or removes a note |
 | `hub draft-mv <id> <label> <new label>`, `hub draft-rm <id> <label>` | renames a draft, or removes one never sent (a sent draft stays as the record) |
 | `hub item put --stdin` | stores items read from a source, one JSON object per line ([format](sources.md#items-from-connectors)) |
