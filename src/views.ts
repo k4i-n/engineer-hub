@@ -154,11 +154,12 @@ export function appHref(ctx: Ctx, url: string): { href: string; app: boolean } {
 }
 
 function linker(ctx: Ctx) {
-  return (url: string | null, text: string, cls = ""): string => {
-    if (url === null || !/^https?:\/\//.test(url)) return `<span class="${cls}">${esc(text)}</span>`;
+  return (url: string | null, text: string, cls = "", title = ""): string => {
+    const label = title ? ` title="${esc(title)}" aria-label="${esc(title)}"` : "";
+    if (url === null || !/^https?:\/\//.test(url)) return `<span class="${cls}"${label}>${esc(text)}</span>`;
     const { href, app } = appHref(ctx, url);
     const target = app ? "" : ` target="_blank" rel="noreferrer"`;
-    return `<a class="${cls}" href="${esc(href)}"${target}>${esc(text)}</a>`;
+    return `<a class="${cls}" href="${esc(href)}"${target}${label}>${esc(text)}</a>`;
   };
 }
 
@@ -977,8 +978,8 @@ function overviewSection(ctx: Ctx, tickets: Ticket[], list: Need[], extra: Group
 
 function prChip(ctx: Ctx, i: ItemRow): string {
   const ref = githubRef(i.url);
-  const label = `${ref ? `#${ref.split("#")[1]}` : "PR"}${i.state ? ` ${i.state}` : ""}`;
-  return linker(ctx)(i.url, label, `chip tone-${prTone(i.state).tone}`);
+  const label = ref ? `#${ref.split("#")[1]}` : "PR";
+  return linker(ctx)(i.url, label, `chip tone-${prTone(i.state).tone}`, i.state ? `${label} ${i.state}` : "");
 }
 
 function prChips(ctx: Ctx, ticketId: string, prs: ItemRow[]): string {

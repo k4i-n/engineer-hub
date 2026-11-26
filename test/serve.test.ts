@@ -447,6 +447,25 @@ describe("serve", () => {
     assert.match(row, /chip-pop">.*pull\/4.*pull\/5/);
   });
 
+  test("a PR chip shows only its number; its state is in the title and aria-label", async () => {
+    await hub(
+      ["item", "put", "--stdin"],
+      JSON.stringify({
+        source: "github",
+        kind: "pr",
+        url: "https://github.com/acme/web/pull/9",
+        title: "pr 9",
+        state: "approved",
+        ticket: "ENG-7",
+      }),
+    );
+    const html = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.match(
+      html,
+      /<a class="chip tone-green" href="https:\/\/github.com\/acme\/web\/pull\/9" target="_blank" rel="noreferrer" title="#9 approved" aria-label="#9 approved">#9<\/a>/,
+    );
+  });
+
   test("the ticket page shows the tracker state only when it differs from the folder, named by its tracker", async () => {
     const db = new DatabaseSync(dbFile);
     const setTracker = (state: string) =>
