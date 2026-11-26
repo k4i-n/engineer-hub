@@ -191,7 +191,7 @@ describe("github", () => {
     );
     assert.match(
       page,
-      /acme\/web#8 · ana · approved · \+120 −30 · 1 file · 3 comments · bo approved · waiting on cy, web-team</,
+      /acme\/web#8 · ana · approved · \+120 −30 · 1 file · 3 comments · bo approved · waiting on cy, web-team<\/span><span class="row-id">#\d+<\/span></,
     );
   });
 
