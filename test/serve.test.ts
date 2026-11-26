@@ -466,6 +466,46 @@ describe("serve", () => {
     );
   });
 
+  test("rows show or copy the id the tools take, and search finds each row by it", async () => {
+    await hub(
+      ["item", "put", "--stdin"],
+      JSON.stringify({
+        source: "slack",
+        kind: "message",
+        url: "https://acme.slack.com/archives/C1/p9",
+        author: "mia",
+        title: "deploy?",
+        needs_me: true,
+      }),
+    );
+    await hub(["wait", "ENG-7", "ana", "https://acme.slack.com/archives/C1/p1", "--ping-after", "30m"]);
+    await hub(["step", "add", "ENG-7", "measure webhook latency"]);
+    await hub(["draft", "ENG-7", "ask ops", "--stdin"], "a body");
+    await hub(["set", "ENG-7", "gate", "Ship it?"]);
+    const items = (await (await call("GET", "/items?needs_me=true")).json()) as { id: number; author: string }[];
+    const id = items.find((i) => i.author === "mia")?.id;
+    const waits = (await (await call("GET", "/waits")).json()) as { id: number; who: string }[];
+    const wait = waits.find((w) => w.who === "ana")?.id;
+    const home = await (await fetch(`${server.url}/?part=1`)).text();
+    const rowOf = (key: string) => new RegExp(`data-key="${key}"[\\s\\S]*?</li>`).exec(home)?.[0] ?? "";
+    assert.match(rowOf(`item-${id}`), new RegExp(`<span class="row-id">#${id}</span>`));
+    assert.match(rowOf(`item-${id}`), new RegExp(`data-copy="item ${id}"`));
+    assert.match(rowOf("gate-ENG-7"), /data-copy="gate ENG-7"/);
+    assert.match(rowOf("send-ENG-7-ask ops"), /data-copy="ENG-7\/ask ops"/);
+    const page = await (await fetch(`${server.url}/t/ENG-7?part=1`)).text();
+    assert.match(page, new RegExp(`<span class="row-id">wait ${wait}</span>`));
+    assert.match(page, /data-copy="ENG-7#1"/);
+    const first = async (q: string) =>
+      ((await (await call("GET", `/find?q=${encodeURIComponent(q)}`)).json()) as { kind: string; title: string }[])[0];
+    const byWait = await first(`wait ${wait}`);
+    assert.equal(byWait?.kind, "Wait");
+    assert.equal(byWait?.title, "ana");
+    assert.equal((await first("ENG-7#1"))?.title, "1. measure webhook latency");
+    assert.equal((await first("step ENG-7#1"))?.kind, "Step");
+    assert.equal((await first("ENG-7/ask ops"))?.kind, "Draft");
+    assert.equal((await first("gate ENG-7"))?.kind, "Gate");
+  });
+
   test("the ticket page shows the tracker state only when it differs from the folder, named by its tracker", async () => {
     const db = new DatabaseSync(dbFile);
     const setTracker = (state: string) =>
@@ -1129,7 +1169,7 @@ describe("serve", () => {
       html,
       /<span class="need-line">(?:<span class="verb verb-inline">[^<]*<\/span>)?<img class="avatar" src="https:\/\/avatars\.githubusercontent\.com\/u\/1\?s=40&amp;v=4"[^>]*><a class="need-title"/,
     );
-    assert.match(html, /<span class="need-sub">grafana/);
+    assert.match(html, /<span class="need-sub"><span class="sub-text">grafana/);
     assert.match(
       index.headers.get("content-security-policy") ?? "",
       /img-src data: https:\/\/avatars\.githubusercontent\.com /,

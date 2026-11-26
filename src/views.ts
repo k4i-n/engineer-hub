@@ -79,6 +79,7 @@ type Need = {
   later: Later | null;
   ignore?: number;
   detach?: { id: number; ticket: string };
+  id?: { shown: string | null; token: string };
   fyi?: boolean;
   today?: boolean;
   section?: string;
@@ -248,6 +249,10 @@ function menuItem(icon: string, label: string, data: Data, key = ""): string {
   return `<button type="button"${dataAttrs(data)}>${svg(icon)}<span>${esc(label)}</span>${key ? `<span class="key">${esc(key)}</span>` : ""}</button>`;
 }
 
+function copyId(token: string): string {
+  return menuItem("copy", `Copy id (${token})`, { copy: token });
+}
+
 function moreMenu(key: string, items: string[]): string {
   return `<details class="menu" data-key="${esc(key)}"><summary class="ic ic-more" title="More" aria-label="More">${svg("more")}</summary><div class="menu-pop">${items.join("")}</div></details>`;
 }
@@ -278,6 +283,7 @@ function rail(n: Need, pinned: boolean, target: string | null): string {
         )),
     ...(target === null ? [] : [menuItem("open", "Open", { open: target }, "↵")]),
     ...(n.href !== null && /^https?:/.test(n.href) ? [menuItem("link", "Copy link", { copy: n.href })] : []),
+    ...(n.id === undefined ? [] : [copyId(n.id.token)]),
     ...(n.ignore === undefined ? [] : [menuItem("ignore", "Ignore this PR", { act: "item-ignore", id: n.ignore })]),
     ...(n.detach === undefined ? [] : [menuItem("ignore", "Detach", { act: "item-detach", ...n.detach })]),
   ];
@@ -457,6 +463,7 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
           answerChip("No", { act: "gate", ticket: t.id, answer: "no" }, "n"),
         ]),
         ticket: t.id,
+        id: { shown: null, token: `gate ${t.id}` },
         href: page,
         dim: null,
         ok: null,
@@ -538,6 +545,7 @@ function sendNeed(ctx: Ctx, d: DraftRow): Need {
     url === null ? `<span class="need-title">${line(ctx, d.label)}</span>` : linker(ctx)(url, d.label, "need-title");
   return {
     key: `send-${draftOwner(d)}-${d.label}`,
+    id: { shown: null, token: `${draftOwner(d)}/${d.label}` },
     rank: 2,
     since: d.send_at ?? d.created_at ?? now,
     verb: "Send",
@@ -572,6 +580,7 @@ function matchNeed(ctx: Ctx, d: DraftRow): Need {
   };
   return {
     key: `match-${draftOwner(d)}-${d.label}`,
+    id: { shown: null, token: `${draftOwner(d)}/${d.label}` },
     rank: 3,
     since: d.posted_at ?? nowIso(ctx.now),
     verb: pr === null ? "Sent?" : "Reviewed?",
@@ -633,6 +642,7 @@ function itemNeed(ctx: Ctx, i: ItemRow): Need {
   const oneLine = plain && (i.ask === null ? 0 : 1) + drafts.length === 1;
   return {
     key: `item-${i.id}`,
+    id: { shown: `#${i.id}`, token: `item ${i.id}` },
     rank: v.rank,
     since: i.first_seen,
     verb: v.verb,
@@ -660,6 +670,7 @@ function waitNeed(ctx: Ctx, w: WaitRow): Need {
   const pinged = !closed && w.ping_after !== null && w.ping_after > now;
   return {
     key: `wait-${w.id}`,
+    id: { shown: `wait ${w.id}`, token: `wait ${w.id}` },
     rank: 6,
     since: w.asked_at,
     verb: "Ping",
@@ -694,9 +705,11 @@ function needRow(ctx: Ctx, n: Need, pinned: boolean, showVerb: boolean | "inline
   const mark = n.today === true ? `<span class="pill tone-blue plan-mark" title="In today's plan">today</span>` : "";
   const verb = showVerb === "inline" ? `<span class="verb verb-inline">${esc(n.verb)}</span>` : "";
   const hover = n.oneLine ? ` title="${n.oneLine}"` : "";
-  const sub = oneLine
-    ? ""
-    : `<span class="need-sub">${dimLabel}${n.sub === "" || dimLabel === "" ? "" : " · "}${n.sub}</span>`;
+  const subText = `${dimLabel}${n.sub === "" || dimLabel === "" ? "" : " · "}${n.sub}`;
+  const subBody = n.id?.shown
+    ? `<span class="sub-text">${subText}</span><span class="row-id">${esc(n.id.shown)}</span>`
+    : subText;
+  const sub = oneLine ? "" : `<span class="need-sub">${subBody}</span>`;
   const main = `<span class="need-main"${hover}><span class="need-line">${pin}${verb}${n.title}${mark}${oneLine ? dimLabel : ""}</span>${sub}</span>`;
   const ask = n.ask === "" ? "" : `<div class="n-ask">${n.ask}</div>`;
   const body = n.body === undefined ? "" : `<div class="n-body md">${markdown(ctx, n.body)}</div>`;
@@ -1593,6 +1606,7 @@ export function ticketBody(ctx: Ctx, id: string, live: Live): string {
               `<li class="${s.done_at === null ? (p.next?.n === s.n ? "next" : "") : "done"}" data-key="s-${s.n}"${s.done_at === null ? "" : ' data-tab-panel="all" hidden'}><span class="check"></span><span class="s-title">${line(ctx, s.title)}</span>${s.evidence ? link(s.evidence, "↗", "e-ref") : ""}${moreMenu(
                 `menu-step-${s.n}`,
                 [
+                  copyId(`${t.id}#${s.n}`),
                   menuItem("edit", "Edit", {
                     act: "step-edit",
                     ticket: t.id,
@@ -1628,6 +1642,7 @@ export function ticketBody(ctx: Ctx, id: string, live: Live): string {
       `<li class="draft" data-key="td-${esc(ticketDraftKey(d))}"${draftPanel(d)}><div class="d-head">${itemLink(ctx, d.item)}<span class="d-label">${line(ctx, d.label)}</span>${verdictPill(d)}${pill(d.status, d.status === "draft" ? "blue" : "green")}${d.channel ? pill(d.channel, "teal") : ""}<span class="d-actions">${draftButtons(ctx, d, "", draftUrl(ctx, d))}${moreMenu(
         `menu-td-${ticketDraftKey(d)}`,
         [
+          copyId(`${draftOwner(d)}/${d.label}`),
           menuItem("edit", "Rename", {
             act: "draft-rename",
             ticket: draftOwner(d),

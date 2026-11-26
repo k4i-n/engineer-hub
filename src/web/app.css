@@ -521,6 +521,20 @@ a.need-title:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.need-sub:has(.row-id) {
+  display: flex;
+  gap: 6px;
+}
+.sub-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.row-id {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  user-select: all;
+}
 .avatar {
   width: 16px;
   height: 16px;

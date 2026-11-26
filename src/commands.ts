@@ -18,6 +18,7 @@ import {
   type StepRow,
   type Ticket,
   transaction,
+  type WaitRow,
 } from "./db.ts";
 import { span } from "./horizon.ts";
 import { splitResume } from "./parse.ts";
@@ -341,9 +342,82 @@ export function listedToday(ctx: Ctx, i: ItemRow): boolean {
   return i.needs_me === 1 && i.ignored === null && (i.closed_at ?? dayStart) >= dayStart;
 }
 
+const WAIT_TOKEN = /^wait\s*[:#]?\s*(\d+)$/i;
+const STEP_TOKEN = /^(?:step\s*:?\s*)?(\S+)#(\d+)$/i;
+const DRAFT_TOKEN = /^(?:draft\s*:?\s*)?(\S+\/[^/\s]+)$/i;
+const GATE_TOKEN = /^gate\s*:?\s*(\S+)$/i;
+
+function byToken(ctx: Ctx, q: string): Found[] {
+  const page = (id: string | null) => (id === null ? null : `/t/${encodeURIComponent(id)}`);
+  const wait = WAIT_TOKEN.exec(q);
+  if (wait !== null) {
+    const w = one<WaitRow>(ctx.db, "SELECT * FROM wait WHERE id = ?", Number(wait[1]));
+    if (w === undefined) return [];
+    const state = w.closed_at === null ? "open" : "answered";
+    return [
+      {
+        kind: "Wait",
+        title: w.who,
+        sub: `wait ${w.id} · ${state}`,
+        href: page(w.ticket_id),
+        out: w.url,
+        ticket: w.ticket_id,
+      },
+    ];
+  }
+  const gate = GATE_TOKEN.exec(q);
+  if (gate !== null) {
+    const t = one<Ticket>(ctx.db, "SELECT * FROM ticket WHERE id = ? COLLATE NOCASE", gate[1] ?? "");
+    if (t === undefined || t.gate === null) return [];
+    return [
+      { kind: "Gate", title: `${t.id} ${t.gate}`, sub: `gate ${t.id}`, href: page(t.id), out: null, ticket: t.id },
+    ];
+  }
+  const step = STEP_TOKEN.exec(q);
+  if (step !== null) {
+    const s = one<StepRow>(
+      ctx.db,
+      "SELECT * FROM step WHERE ticket_id = ? COLLATE NOCASE AND n = ?",
+      step[1] ?? "",
+      Number(step[2]),
+    );
+    if (s === undefined) return [];
+    const kind = s.done_at === null ? "Step" : "Step done";
+    return [
+      {
+        kind,
+        title: `${s.n}. ${s.title}`,
+        sub: `${s.ticket_id}#${s.n}`,
+        href: page(s.ticket_id),
+        out: null,
+        ticket: s.ticket_id,
+      },
+    ];
+  }
+  const draft = DRAFT_TOKEN.exec(q);
+  if (draft === null) return [];
+  const d = one<DraftRow>(
+    ctx.db,
+    "SELECT * FROM draft WHERE coalesce(ticket_id, item) || '/' || label = ?",
+    draft[1] ?? "",
+  );
+  if (d === undefined) return [];
+  return [
+    {
+      kind: "Draft",
+      title: d.label,
+      sub: `${draftOwner(d)}/${d.label} · ${d.status}`,
+      href: page(d.ticket_id),
+      out: null,
+      ticket: d.ticket_id,
+    },
+  ];
+}
+
 export function searchAll(ctx: Ctx, query: string, limit: number): Found[] {
   const q = query.trim();
   if (q === "") return [];
+  const exact = byToken(ctx, q);
   const snip = (fts: string) => `snippet(${fts}, -1, char(57344), char(57345), '…', 12)`;
   const escaped = q.replace(/[\\%_]/g, (ch) => `\\${ch}`);
   const starts = `${escaped}%`;
@@ -436,10 +510,12 @@ export function searchAll(ctx: Ctx, query: string, limit: number): Found[] {
         head: h.head,
       })),
   ];
-  return found
+  const same = (x: Found, y: Found) => x.kind === y.kind && x.title === y.title && x.href === y.href;
+  const rest = found
     .sort((x, y) => x.head - y.head)
-    .slice(0, limit)
-    .map(({ head, ...f }) => f);
+    .map(({ head, ...f }) => f)
+    .filter((f) => !exact.some((e) => same(e, f)));
+  return [...exact, ...rest].slice(0, limit);
 }
 
 export function events(ctx: Ctx, id: string, limit: number, full: boolean): Result {
