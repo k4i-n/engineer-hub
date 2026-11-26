@@ -181,7 +181,6 @@ export function ticket(ctx: Ctx, id: string): Result {
     `repo: ${v(t.repo)} | worktree: ${v(t.worktree)} | branch: ${v(t.branch)}`,
     `prs: ${v(t.prs)}${pulls.length > 0 ? ` | ${cut(pulls.map(pullLabel).join(", "), 150)}` : ""}`,
     `gate: ${v(t.gate)}`,
-    `decide: ${v(t.decide)}`,
     `next: ${v(t.next)}`,
     `owner: ${v(t.owner)} | updated: ${v(t.updated)} | order: ${t.position ?? "-"}`,
     `tracker: ${v(t.tracker_state)} | ${v(t.tracker_priority)} | ${v(t.tracker_url)}`,
@@ -217,7 +216,6 @@ function boardLine(t: Ticket, pulls: ItemRow[]): string {
   if (pulls.length > 0) line += ` | PR ${cut(pulls.map(pullLabel).join(", "), 90)}`;
   else if (has(t.prs)) line += ` | PR ${cut(t.prs, 90)}`;
   if (has(t.gate)) line += ` | GATE: ${cut(t.gate, 90)}`;
-  if (has(t.decide)) line += ` | DECIDE: ${cut(t.decide, 90)}`;
   return `${line} | next: ${cut(t.next || "-", 90)}`;
 }
 
@@ -265,12 +263,12 @@ export function next(ctx: Ctx): Result {
 
 export function gates(ctx: Ctx): Result {
   const tickets = openTickets(ctx)
-    .filter((t) => has(t.gate) || has(t.decide))
+    .filter((t) => has(t.gate))
     .sort((a, b) => a.id.localeCompare(b.id));
-  const lines = tickets.map((t) => `${t.id} | GATE: ${t.gate || "-"} | DECIDE: ${t.decide || "-"}`);
+  const lines = tickets.map((t) => `${t.id} | GATE: ${t.gate}`);
   return {
     text: lines.join("\n") || "no gates",
-    json: tickets.map((t) => ({ id: t.id, gate: t.gate, decide: t.decide })),
+    json: tickets.map((t) => ({ id: t.id, gate: t.gate })),
   };
 }
 
@@ -629,6 +627,8 @@ export function day(ctx: Ctx, date: string | undefined, full: boolean): Result {
   };
 }
 
+const CHOICE = /\sor\s|(?:^|\s)\(?A[).:]\s[\s\S]*\sB[).:]\s/i;
+
 export function lint(ctx: Ctx): Result {
   const findings: string[] = [];
   for (const t of openTickets(ctx).sort((a, b) => a.id.localeCompare(b.id))) {
@@ -638,10 +638,11 @@ export function lint(ctx: Ctx): Result {
     if (startsWithId(t)) {
       findings.push(`${t.id}: title starts with the ticket id; set the real title`);
     }
-    for (const field of ["gate", "decide"] as const) {
-      if (has(t[field]) && !asks(t[field])) {
-        findings.push(`${t.id}: ${field} is not a question (no ?), so it shows as a rule and asks nothing`);
-      }
+    if (has(t.gate) && !asks(t.gate)) {
+      findings.push(`${t.id}: gate is not a question (no ?), so it shows as a rule and asks nothing`);
+    }
+    if (asks(t.gate) && CHOICE.test(t.gate ?? "")) {
+      findings.push(`${t.id}: gate must be a yes/no question; put options in the ticket and ask one`);
     }
     for (const field of LIMITED_FIELDS) {
       const value = t[field];
@@ -1187,14 +1188,7 @@ function pointIdAt(ctx: Ctx, id: string, to: string): void {
 
 function dropPins(ctx: Ctx, id: string): void {
   const match = `match-${id}-`;
-  exec(
-    ctx,
-    "DELETE FROM pin WHERE key IN (?, ?) OR substr(key, 1, ?) = ?",
-    `gate-${id}`,
-    `decide-${id}`,
-    match.length,
-    match,
-  );
+  exec(ctx, "DELETE FROM pin WHERE key = ? OR substr(key, 1, ?) = ?", `gate-${id}`, match.length, match);
 }
 
 function event(ctx: Ctx, id: string, text: string): void {
@@ -1213,9 +1207,7 @@ export function rename(ctx: Ctx, id: string, to: string): Result {
   checkNewId(ctx, to);
   exec(ctx, "UPDATE ticket SET id = ?, updated_at = ? WHERE id = ?", to, nowIso(ctx.now), id);
   for (const table of TICKET_ROWS) exec(ctx, `UPDATE ${table} SET ticket_id = ? WHERE ticket_id = ?`, to, id);
-  for (const kind of ["gate", "decide"]) {
-    exec(ctx, "UPDATE pin SET key = ? WHERE key = ?", `${kind}-${to}`, `${kind}-${id}`);
-  }
+  exec(ctx, "UPDATE pin SET key = ? WHERE key = ?", `gate-${to}`, `gate-${id}`);
   const match = `match-${id}-`;
   exec(
     ctx,

@@ -2,9 +2,9 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { DEFAULTS } from "./config.ts";
-import { HubError } from "./util.ts";
+import { HubError, nowIso, nowTs } from "./util.ts";
 
-export const SCHEMA_VERSION = "24";
+export const SCHEMA_VERSION = "25";
 
 export type Ticket = {
   id: string;
@@ -17,7 +17,6 @@ export type Ticket = {
   branch: string | null;
   prs: string | null;
   gate: string | null;
-  decide: string | null;
   next: string | null;
   owner: string | null;
   updated: string | null;
@@ -144,7 +143,7 @@ export type PlanLineRow = {
   updated_at: string;
 };
 
-export const LIMITED_FIELDS = ["status", "repo", "prs", "gate", "decide", "next", "owner"] as const;
+export const LIMITED_FIELDS = ["status", "repo", "prs", "gate", "next", "owner"] as const;
 export const SETTABLE_FIELDS = [
   "title",
   "status",
@@ -153,7 +152,6 @@ export const SETTABLE_FIELDS = [
   "branch",
   "prs",
   "gate",
-  "decide",
   "next",
   "owner",
 ] as const;
@@ -198,11 +196,13 @@ const UNMIGRATED_COLUMNS = [
   ["draft", "match_ref"],
 ] as const;
 
+const TICKET_FTS = ["id", "title", "status", "next", "gate"];
+
 const SCHEMA = `
 CREATE TABLE ticket(
   id TEXT PRIMARY KEY,
   title TEXT, dir TEXT, path TEXT,
-  status TEXT, repo TEXT, worktree TEXT, branch TEXT, prs TEXT, gate TEXT, decide TEXT, next TEXT, owner TEXT, updated TEXT,
+  status TEXT, repo TEXT, worktree TEXT, branch TEXT, prs TEXT, gate TEXT, next TEXT, owner TEXT, updated TEXT,
   tracker_state TEXT, tracker_priority TEXT, tracker_assignee TEXT, tracker_url TEXT, tracker_updated TEXT, tracker_json TEXT,
   team TEXT, position INTEGER, created_at TEXT, updated_at TEXT);
 CREATE TABLE event(id INTEGER PRIMARY KEY, ticket_id TEXT, ts TEXT, kind TEXT, text TEXT, source TEXT, ref TEXT, created_at TEXT);
@@ -232,7 +232,7 @@ CREATE TABLE script_source(name TEXT PRIMARY KEY, argv TEXT NOT NULL, every TEXT
   enabled INTEGER NOT NULL DEFAULT 1, section TEXT);
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE config(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT);
-${ftsTable("ticket", "ticket_fts", "rowid", ["id", "title", "status", "next", "gate", "decide"])}
+${ftsTable("ticket", "ticket_fts", "rowid", TICKET_FTS)}
 ${ftsTable("note", "note_fts", "id", ["ticket_id", "title", "body"])}
 ${ftsTable("event", "event_fts", "id", ["ticket_id", "text"])}
 ${ftsTable("draft", "draft_fts", "id", ["ticket_id", "label", "body", "sent_text"])}
@@ -288,7 +288,25 @@ WHERE kind = 'review_request' AND ask IS NULL AND closed_at IS NULL AND ignored 
   "21": { to: "22", sql: PLAN_LINE },
   "22": { to: "23", sql: "ALTER TABLE wait ADD COLUMN reopened_at TEXT;" },
   "23": { to: "24", sql: addUnmigrated },
+  "24": { to: "25", sql: dropDecide },
 };
+
+function dropDecide(db: DatabaseSync): string {
+  const zone = one<{ value: string }>(db, "SELECT value FROM config WHERE key = 'timezone'")?.value;
+  const now = new Date();
+  const ts = nowTs(now, zone === undefined ? DEFAULTS.timezone : (JSON.parse(zone) as string));
+  const set = "trim(coalesce(decide, '')) <> ''";
+  const noGate = "trim(coalesce(gate, '')) IN ('', '-')";
+  db.prepare(
+    `INSERT INTO event(ticket_id, ts, kind, text, source, created_at)
+     SELECT id, ?, 'log', 'decide (removed): ' || decide, 'import', ? FROM ticket WHERE ${set} AND NOT ${noGate}`,
+  ).run(ts, nowIso(now));
+  return `UPDATE ticket SET gate = decide WHERE ${set} AND ${noGate};
+DROP TRIGGER ticket_fts_ai; DROP TRIGGER ticket_fts_ad; DROP TRIGGER ticket_fts_au; DROP TABLE ticket_fts;
+ALTER TABLE ticket DROP COLUMN decide;
+${ftsTable("ticket", "ticket_fts", "rowid", TICKET_FTS)}
+INSERT INTO ticket_fts(ticket_fts) VALUES ('rebuild');`;
+}
 
 function addUnmigrated(db: DatabaseSync): string {
   const has = (table: string, column: string) =>

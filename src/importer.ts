@@ -16,7 +16,6 @@ const TICKET_COLUMNS = [
   "branch",
   "prs",
   "gate",
-  "decide",
   "next",
   "owner",
   "updated",

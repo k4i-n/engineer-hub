@@ -4,7 +4,6 @@ Status: -
 Repo: -
 PRs: -
 Gate: -
-Decide: -
 Next: read the export handler
 Owner: me | Updated: 2026-11-10
 Linear: https://tracker.example.com/acme/issue/ENG-7

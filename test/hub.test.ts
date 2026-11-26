@@ -801,7 +801,7 @@ describe("reads", () => {
   test("board prints the exact line for the rich ticket", async () => {
     await imported();
     const status = sql<{ status: string }>("SELECT status FROM ticket WHERE id = 'ENG-42'")[0]?.status ?? "";
-    const expected = `  [High] [TRACKER: In Review] #2 ENG-42 | ${status.slice(0, 87)}... | PR #101 | GATE: waiting on design review | DECIDE: keep refresh tokens in cookie or header | next: write the migration for the sessions table`;
+    const expected = `  [High] [TRACKER: In Review] #2 ENG-42 | ${status.slice(0, 87)}... | PR #101 | GATE: waiting on design review | next: write the migration for the sessions table`;
     const lines = (await ok("board")).split("\n");
     assert.deepEqual(
       lines.filter((l) => l.startsWith("==")),
@@ -888,10 +888,7 @@ describe("reads", () => {
 
   test("gates and changed", async () => {
     await imported();
-    assert.equal(
-      await ok("gates"),
-      "ENG-42 | GATE: waiting on design review | DECIDE: keep refresh tokens in cookie or header",
-    );
+    assert.equal(await ok("gates"), "ENG-42 | GATE: waiting on design review");
     now = new Date("2026-11-16T01:00:00Z");
     await ok("log", "ENG-7", "started");
     assert.equal(await ok("changed", "--since", "today"), "ENG-7: 1 event(s)\n  2026-11-16 10:00 [log] started");
@@ -957,10 +954,7 @@ describe("gates", () => {
     await ok("set", "ENG-7", "gate", "merge PR #120?");
     assert.equal(await ok("gate", "ENG-7", "yes"), "ENG-7 gate answered yes");
     assert.match(await ok("events", "ENG-7", "-n", "1"), /\[decision\] Yes: merge PR #120\?$/);
-    assert.equal(
-      await ok("gates"),
-      "ENG-42 | GATE: waiting on design review | DECIDE: keep refresh tokens in cookie or header",
-    );
+    assert.equal(await ok("gates"), "ENG-42 | GATE: waiting on design review");
     assert.match((await hub("gate", "ENG-7", "yes")).err, /has no gate/);
   });
 });
@@ -1042,7 +1036,7 @@ describe("db", () => {
     db.close();
     assert.throws(
       () => serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] }),
-      /has schema v1, this hub needs v24: move the file aside and re-import/,
+      /has schema v1, this hub needs v25: move the file aside and re-import/,
     );
     server = await serve({ dbPath: join(dir, "other.db"), port: 0, now: () => now, env: {}, fetchers: [] });
   });
@@ -1054,7 +1048,7 @@ describe("schema upgrade", () => {
     await server.close();
     const db = new DatabaseSync(dbFile);
     db.exec(
-      "ALTER TABLE draft DROP COLUMN send_at; DROP TABLE script_source; ALTER TABLE ticket DROP COLUMN position; ALTER TABLE item DROP COLUMN ignored; ALTER TABLE source DROP COLUMN warning; ALTER TABLE item DROP COLUMN detached; ALTER TABLE item DROP COLUMN judged_at; ALTER TABLE item DROP COLUMN away_ping; ALTER TABLE item DROP COLUMN away_why; ALTER TABLE item DROP COLUMN body; ALTER TABLE item DROP COLUMN detail; DROP INDEX draft_item; DROP INDEX draft_item_label; ALTER TABLE draft DROP COLUMN item; ALTER TABLE draft DROP COLUMN closed_item; ALTER TABLE draft DROP COLUMN match_no; ALTER TABLE item DROP COLUMN ask; ALTER TABLE item DROP COLUMN ask_answer; ALTER TABLE item DROP COLUMN ask_at; ALTER TABLE draft DROP COLUMN verdict; ALTER TABLE draft DROP COLUMN match_verdict; DROP TABLE draft_comment; ALTER TABLE draft DROP COLUMN internal; ALTER TABLE item DROP COLUMN avatar; DROP TABLE plan_line; ALTER TABLE wait DROP COLUMN reopened_at; ALTER TABLE wait DROP COLUMN pinged_at; ALTER TABLE item DROP COLUMN snoozed_until; ALTER TABLE draft DROP COLUMN match_text; ALTER TABLE draft DROP COLUMN match_ref; DROP TABLE step; DROP TABLE pin; UPDATE meta SET value = '2' WHERE key = 'schema_version'",
+      "ALTER TABLE ticket ADD COLUMN decide TEXT; ALTER TABLE draft DROP COLUMN send_at; DROP TABLE script_source; ALTER TABLE ticket DROP COLUMN position; ALTER TABLE item DROP COLUMN ignored; ALTER TABLE source DROP COLUMN warning; ALTER TABLE item DROP COLUMN detached; ALTER TABLE item DROP COLUMN judged_at; ALTER TABLE item DROP COLUMN away_ping; ALTER TABLE item DROP COLUMN away_why; ALTER TABLE item DROP COLUMN body; ALTER TABLE item DROP COLUMN detail; DROP INDEX draft_item; DROP INDEX draft_item_label; ALTER TABLE draft DROP COLUMN item; ALTER TABLE draft DROP COLUMN closed_item; ALTER TABLE draft DROP COLUMN match_no; ALTER TABLE item DROP COLUMN ask; ALTER TABLE item DROP COLUMN ask_answer; ALTER TABLE item DROP COLUMN ask_at; ALTER TABLE draft DROP COLUMN verdict; ALTER TABLE draft DROP COLUMN match_verdict; DROP TABLE draft_comment; ALTER TABLE draft DROP COLUMN internal; ALTER TABLE item DROP COLUMN avatar; DROP TABLE plan_line; ALTER TABLE wait DROP COLUMN reopened_at; ALTER TABLE wait DROP COLUMN pinged_at; ALTER TABLE item DROP COLUMN snoozed_until; ALTER TABLE draft DROP COLUMN match_text; ALTER TABLE draft DROP COLUMN match_ref; DROP TABLE step; DROP TABLE pin; UPDATE meta SET value = '2' WHERE key = 'schema_version'",
     );
     db.close();
     server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] });
@@ -1100,7 +1094,8 @@ describe("schema upgrade to v11", () => {
   test("ignored repos move into the GitHub searches as -repo: terms and ignoreRepos is gone", async () => {
     await server.close();
     const db = new DatabaseSync(dbFile);
-    db.exec(`INSERT INTO config(key, value) VALUES
+    db.exec(`ALTER TABLE ticket ADD COLUMN decide TEXT;
+      INSERT INTO config(key, value) VALUES
       ('githubReviewQuery', '"is:pr is:open review-requested:@me"'),
       ('ignoreRepos', '{"review_request":["acme/noisy","acme/old"],"pr":["acme/web"]}');
       ALTER TABLE item DROP COLUMN judged_at; ALTER TABLE item DROP COLUMN away_ping; ALTER TABLE item DROP COLUMN away_why;
@@ -1125,7 +1120,9 @@ describe("schema upgrade to v20", () => {
   test("open review requests with no question get reviewAsk; closed, ignored and asked ones keep theirs", async () => {
     await server.close();
     const db = new DatabaseSync(dbFile);
-    db.exec("ALTER TABLE item DROP COLUMN avatar; DROP TABLE plan_line; ALTER TABLE wait DROP COLUMN reopened_at");
+    db.exec(
+      "ALTER TABLE ticket ADD COLUMN decide TEXT; ALTER TABLE item DROP COLUMN avatar; DROP TABLE plan_line; ALTER TABLE wait DROP COLUMN reopened_at",
+    );
     const insert = db.prepare(
       `INSERT INTO item(source, ref, kind, first_seen, changed_at, closed_at, ignored, ask)
        VALUES ('github', ?, ?, '2026-11-20T00:00:00Z', '2026-11-20T00:00:00Z', ?, ?, ?)`,
@@ -1148,6 +1145,35 @@ describe("schema upgrade to v20", () => {
       asked: "Approve as is?",
       pr: null,
     });
+  });
+});
+
+describe("schema upgrade to v25", () => {
+  test("decide moves into an empty gate, else into the ticket log, and the column is gone", async () => {
+    await imported();
+    await ok("ticket-new", "ENG-9", "only decide");
+    await ok("set", "ENG-7", "gate", "-");
+    await server.close();
+    const db = new DatabaseSync(dbFile);
+    db.exec(`ALTER TABLE ticket ADD COLUMN decide TEXT;
+      UPDATE ticket SET decide = 'Cookie or header?' WHERE id = 'ENG-42';
+      UPDATE ticket SET decide = 'Ship today?' WHERE id IN ('ENG-9', 'ENG-7');
+      UPDATE meta SET value = '24' WHERE key = 'schema_version'`);
+    db.close();
+    server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] });
+    const gates = sql<{ id: string; gate: string | null }>("SELECT id, gate FROM ticket ORDER BY id");
+    assert.deepEqual(gates, [
+      { id: "ENG-42", gate: "waiting on design review" },
+      { id: "ENG-7", gate: "Ship today?" },
+      { id: "ENG-9", gate: "Ship today?" },
+    ]);
+    assert.match(await ok("events", "ENG-42"), /\[log\] decide \(removed\): Cookie or header\?/);
+    assert.doesNotMatch(await ok("events", "ENG-9"), /decide \(removed\)/);
+    assert.equal(
+      sql<{ n: number }>("SELECT count(*) AS n FROM pragma_table_info('ticket') WHERE name = 'decide'")[0]?.n,
+      0,
+    );
+    assert.match(await ok("search", "design"), /ticket ENG-42/);
   });
 });
 
