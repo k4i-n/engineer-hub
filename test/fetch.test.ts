@@ -767,6 +767,32 @@ describe("linear", () => {
     assert.match(page, /Reply[\s\S]*Ana commented: rebased/);
   });
 
+  test("Linear's note that a comment thread is synced to Slack needs no one; its Slack thread joins the ticket", async () => {
+    await hub("config", "fetch", '{"github":false,"linear":true}');
+    answers.security = () => ({ code: 0, stdout: "lin_api_x\n", stderr: "" });
+    const issue = { identifier: "ENG-42", title: "Sync sessions", url: "https://linear.app/acme/issue/ENG-42" };
+    const thread = "https://acme.slack.com/archives/C1/p1700000000000100";
+    const comments = [
+      {
+        url: "https://linear.app/acme/issue/ENG-42#comment-9",
+        body: `This comment thread is synced to a corresponding [thread in Slack](${thread}). All replies are displayed in both locations.`,
+        user: { name: "dmitry" },
+        issue,
+      },
+      { url: "https://linear.app/acme/issue/ENG-42#comment-10", body: "looks good", user: { name: "Yui" }, issue },
+    ];
+    httpAnswer = () => ({
+      status: 200,
+      body: JSON.stringify({ data: { ...LINEAR.data, comments: { nodes: comments } } }),
+    });
+    await hub("fetch");
+    const needs = await hub("items", "--needs-me");
+    assert.doesNotMatch(needs, /synced to a corresponding/);
+    assert.match(needs, /ENG-42 Yui commented: looks good/);
+    assert.match(await hub("items", "--ticket", "ENG-42"), /slack\/thread \| .*ENG-42 Sync sessions/);
+    assert.match(await hub("items", "--ticket", "ENG-42", "--json"), new RegExp(thread.replaceAll("/", "\\/")));
+  });
+
   test("an issue that is a ticket fills the ticket's tracker fields, once per change", async () => {
     await hub("config", "fetch", '{"github":false,"linear":true}');
     answers.security = () => ({ code: 0, stdout: "lin_api_x\n", stderr: "" });
