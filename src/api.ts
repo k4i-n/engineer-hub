@@ -481,7 +481,7 @@ export const ROUTES: Route[] = [
     name: "gates",
     method: "GET",
     path: "/gates",
-    about: "Tickets waiting on an approve? or decide.",
+    about: "Tickets waiting on an approve? (gate).",
     run: (ctx) => commands.gates(ctx),
   },
   {

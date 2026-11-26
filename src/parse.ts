@@ -7,7 +7,6 @@ export type StateFields = {
   branch?: string;
   prs?: string;
   gate?: string;
-  decide?: string;
   next?: string;
   owner?: string;
   updated?: string;
@@ -48,7 +47,6 @@ const STATE_COLUMNS: Record<string, Exclude<keyof StateFields, "order">> = {
   gate: "gate",
   next: "next",
   owner: "owner",
-  decide: "decide",
 };
 
 const LOG_ENTRY = /^- (\d{4}-\d{2}-\d{2})(?:[ :]+(\d{2}:[0-9x]{2})(?:-\d{2}:[0-9x]{2})?)?:?\s*(.*)$/;
@@ -122,6 +120,10 @@ function setState(state: StateFields, name: string, value: string): void {
     const [owner = "", updated] = value.split(" | Updated: ");
     state.owner = owner.trim();
     if (updated) state.updated = updated.trim();
+    return;
+  }
+  if (key === "decide") {
+    state.gate ||= value.trim();
     return;
   }
   if (key === "order") {

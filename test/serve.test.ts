@@ -98,34 +98,36 @@ afterEach(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-async function askBoth(): Promise<void> {
+async function askGate(): Promise<void> {
   await hub(["set", "ENG-42", "gate", "Merge #101?"]);
-  await hub(["set", "ENG-42", "decide", "Keep refresh tokens in a cookie or a header?"]);
 }
 
 describe("serve", () => {
-  test("only a gate or decide that is a question asks and counts; a rule shows on the ticket and lint lists it", async () => {
+  test("only a gate that is a question asks and counts; a rule shows on the ticket and lint lists it", async () => {
     const home = async () => {
       const html = await (await fetch(`${server.url}/?part=1`)).text();
       return { html, needs: Number(/data-needs-count="(\d+)"/.exec(html)?.[1]) };
     };
     const rules = await home();
-    assert.doesNotMatch(rules.html, /data-key="(gate|decide)-ENG-42"/);
+    assert.doesNotMatch(rules.html, /data-key="gate-ENG-42"/);
     assert.match(await (await call("GET", "/lint")).text(), /ENG-42: gate is not a question/);
 
     await hub(["set", "ENG-42", "gate", "Khai go per deploy"]);
-    await hub(["set", "ENG-42", "decide", "Merge #1648?"]);
     const one = await home();
     assert.doesNotMatch(one.html, /data-key="gate-ENG-42"/);
-    assert.match(one.html, /data-key="decide-ENG-42"/);
-    assert.equal(one.needs, rules.needs + 1);
+    assert.equal(one.needs, rules.needs);
     const page = await (await fetch(`${server.url}/t/ENG-42?part=1`)).text();
-    assert.match(page, /<dt>Rule<\/dt><dd class="md"><p>Khai go per deploy<\/p><\/dd><dt>Decide<\/dt>/);
+    assert.match(page, /<dt>Rule<\/dt><dd class="md"><p>Khai go per deploy<\/p><\/dd>/);
+    assert.doesNotMatch(page, /<dt>Decide<\/dt>|chip tone-amber">decide/);
 
     await hub(["set", "ENG-42", "gate", "Merge #1648?"]);
     const asked = await home();
     assert.match(asked.html, /data-key="gate-ENG-42"[\s\S]*?data-act="gate" data-ticket="ENG-42" data-answer="yes"/);
-    assert.equal(asked.needs, rules.needs + 2);
+    assert.equal(asked.needs, rules.needs + 1);
+    assert.doesNotMatch(await (await call("GET", "/lint")).text(), /ENG-42: gate/);
+
+    await hub(["set", "ENG-42", "gate", "Cookie or header?"]);
+    assert.match(await (await call("GET", "/lint")).text(), /ENG-42: gate must be a yes\/no question/);
   });
 
   test("index and ticket pages render from the DB; a part request returns the body only", async () => {
@@ -158,7 +160,7 @@ describe("serve", () => {
   });
 
   test("needs you ranks by kind, keeps done rows in place dimmed with undo, and answers gates", async () => {
-    await askBoth();
+    await askGate();
     const lines = [
       {
         source: "github",
@@ -170,13 +172,12 @@ describe("serve", () => {
       { source: "grafana", kind: "alert", ref: "alert-1", title: "API 5xx", needs_me: true },
     ];
     await hub(["item", "put", "--stdin"], lines.map((l) => JSON.stringify(l)).join("\n"));
-    const verbs = (html: string) =>
-      [...html.matchAll(/data-key="(item-\d+|wait-\d+|gate-[^"]+|decide-[^"]+)"/g)].map((m) => m[1]);
+    const verbs = (html: string) => [...html.matchAll(/data-key="(item-\d+|wait-\d+|gate-[^"]+)"/g)].map((m) => m[1]);
     const groups = (html: string) => [...html.matchAll(/data-group="([a-z]+)"/g)].map((m) => m[1]);
     const before = await (await fetch(`${server.url}/?part=1`)).text();
     assert.deepEqual(groups(before).slice(0, 2), ["fix", "review"]);
     assert.doesNotMatch(before, /class="stat /);
-    assert.match(before, /data-needs-count="5"/);
+    assert.match(before, /data-needs-count="4"/);
     const id = /data-act="item-done" data-id="(\d+)"/.exec(before)?.[1] ?? "";
     await call("POST", `/items/${id}/close`, {});
     const after = await (await fetch(`${server.url}/?part=1`)).text();
@@ -185,7 +186,7 @@ describe("serve", () => {
       after,
       /is-dim[^>]*data-key="item-\d+"[\s\S]*?<span class="dim-label">done<\/span>[\s\S]*?<span class="rail"><button[^>]*data-act="item-reopen"[^>]*data-hotkey="u"/,
     );
-    assert.match(after, /data-needs-count="4"/);
+    assert.match(after, /data-needs-count="3"/);
     assert.equal((await call("POST", "/tickets/ENG-42/gate", { answer: "yes" })).status, 200);
     assert.match(await (await fetch(`${server.url}/?part=1`)).text(), /<span class="dim-label">yes<\/span>/);
   });
@@ -350,7 +351,7 @@ describe("serve", () => {
   test("settings show the database and save config through the same checks as the CLI", async () => {
     const html = await (await fetch(`${server.url}/settings`)).text();
     assert.ok(html.includes(dbFile));
-    assert.match(html, /Schema<\/span><div class="set-control">v24/);
+    assert.match(html, /Schema<\/span><div class="set-control">v25/);
     const titles = [...html.matchAll(/<h2><button type="button" class="fold" data-fold="([^"]+)"/g)].map((m) => m[1]);
     assert.deepEqual(titles, ["Sources", "Agent", "Away", "Database", "Behavior", "Dashboard", "Keyboard"]);
     assert.equal(html.match(/<div class="col">/g)?.length, 1);
@@ -588,7 +589,6 @@ describe("serve", () => {
   });
 
   test("a folding row has a chevron button and its body after the header cells; a plain row keeps an empty slot", async () => {
-    await hub(["set", "ENG-7", "decide", "pick one"]);
     await hub(["draft", "ENG-7", "ask ops", "--stdin"], "a long body");
     const html = await (await fetch(`${server.url}/?part=1`)).text();
     const row = /<li[^>]*data-key="send-ENG-7-ask ops"[\s\S]*?<\/li>/.exec(html)?.[0] ?? "";
@@ -867,13 +867,13 @@ describe("serve", () => {
   });
 
   test("ticket ids carry their full id as a title and text fields render markdown", async () => {
-    await hub(["set", "ENG-7", "decide", "use `retry_after` or **backoff**?"]);
+    await hub(["set", "ENG-7", "gate", "use `retry_after` or **backoff**?"]);
     const html = await (await fetch(`${server.url}/?part=1`)).text();
     assert.match(html, /<a class="tid" href="\/t\/ENG-7" title="ENG-7">ENG-7<\/a>/);
     assert.match(html, /<span class="need-title">use <code>retry_after<\/code> or <strong>backoff<\/strong>\?<\/span>/);
     assert.match(
       html,
-      /data-fold-key="nfold-decide-ENG-7">\s*<button type="button" class="n-caret" data-fold-toggle aria-expanded="false"[^>]*><svg[^>]*>[\s\S]*?<\/svg><\/button>\s*<span class="need-main"><span class="need-line"><span class="need-title">use <code>retry_after[\s\S]*?<\/span><\/span><span class="need-sub">[^<]*<\/span><\/span>/,
+      /data-fold-key="nfold-gate-ENG-7">\s*<button type="button" class="n-caret" data-fold-toggle aria-expanded="false"[^>]*><svg[^>]*>[\s\S]*?<\/svg><\/button>\s*<span class="need-main"><span class="need-line"><span class="need-title">use <code>retry_after[\s\S]*?<\/span><\/span><span class="need-sub">[^<]*<\/span><\/span>/,
     );
     const page = await (await fetch(`${server.url}/t/ENG-7?part=1`)).text();
     assert.match(
@@ -954,14 +954,14 @@ describe("serve", () => {
   });
 
   test("the overview sits in the top row and counts needs, steps, tickets and steps done per day", async () => {
-    await askBoth();
+    await askGate();
     await hub(["step", "add", "ENG-42", "write the migration"]);
     await hub(["step", "add", "ENG-42", "ship it"]);
     await hub(["step", "done", "ENG-42", "1"]);
     const html = await (await fetch(`${server.url}/?part=1`)).text();
     const top = /data-col="top">([\s\S]*?)<\/div>\s*<div class="col" data-col="left">/.exec(html)?.[1] ?? "";
     assert.match(top, /data-block="overview"/);
-    assert.match(top, /<span class="tile-title">Needs you<\/span>[\s\S]*?<div class="hero">3<\/div>/);
+    assert.match(top, /<span class="tile-title">Needs you<\/span>[\s\S]*?<div class="hero">2<\/div>/);
     assert.match(top, /<b>50%<\/b><small>1 of 2 steps<\/small>/);
     assert.match(top, /<title>In progress 1<\/title>/);
     assert.match(top, /<span class="tile-title">Steps done<\/span><\/div><div class="hero">1<\/div>/);

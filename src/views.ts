@@ -471,25 +471,6 @@ function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
         later: null,
       });
     }
-    if (asks(t.decide)) {
-      list.push({
-        key: `decide-${t.id}`,
-        rank: 8,
-        since: t.updated_at ?? now,
-        verb: "Decide",
-        tone: "amber",
-        title: `<span class="need-title">${line(ctx, t.decide ?? "")}</span>`,
-        fold: true,
-        sub: line(ctx, t.title ?? "", 80),
-        ask: askChips("", [`<a class="chip-btn" href="${esc(page)}">Open ticket</a>`]),
-        ticket: t.id,
-        href: page,
-        dim: null,
-        ok: null,
-        undo: null,
-        later: null,
-      });
-    }
   }
   for (const e of answered) {
     list.push({
@@ -739,7 +720,7 @@ const GROUPS: Group[] = [
   },
   { key: "triage", label: "Triage", tone: "blue", verbs: ["Triage"] },
   { key: "waiting", label: "Waiting on", tone: "orange", verbs: ["Ping"] },
-  { key: "decide", label: "Decide", tone: "amber", verbs: ["Approve?", "Decide"] },
+  { key: "decide", label: "Decide", tone: "amber", verbs: ["Approve?"] },
 ];
 const PINNED_GROUP: Group = { key: "pinned", label: "Pinned", tone: "violet", verbs: [] };
 const OTHER_GROUP: Group = { key: "other", label: "Other", tone: "grey", verbs: [] };
@@ -1035,7 +1016,6 @@ function ticketRow(ctx: Ctx, t: Ticket, done = false, needing: Need[] = []): str
     threads > 0 ? `<span class="chip tone-teal">Slack ${threads}</span>` : "",
     waiting > 0 ? `<span class="chip tone-orange">waiting ${waiting}</span>` : "",
     asks(t.gate) ? `<span class="chip tone-amber">approve?</span>` : "",
-    asks(t.decide) ? `<span class="chip tone-amber">decide</span>` : "",
   ].join("");
   const next = done
     ? `done ${doneDay(ctx, t.updated_at ?? nowIso(ctx.now))}`
@@ -1587,7 +1567,7 @@ export function ticketBody(ctx: Ctx, id: string, live: Live): string {
     menuItem("trash", "Delete", { act: "ticket-delete", ticket: t.id, confirm: `Delete ${t.id}?`, go: "/" }),
   ]);
   const head = `<div class="page-head">${priorityMark(t.tracker_priority)}${ticketLink(t.id)}<h1>${line(ctx, t.title ?? "")}</h1>${ticketMenu}${pill(DIR_LABEL[t.dir ?? ""] ?? t.dir ?? "", DIR_TONE[t.dir ?? ""] ?? "grey")}${trackerPill(t)}${t.tracker_url === null ? "" : link(t.tracker_url, "tracker ↗", "head-link")}</div>`;
-  const fields = `${field(ctx, "Status", t.status)}${field(ctx, "Next", t.next, "blue")}${asks(t.gate) ? field(ctx, "Approve?", t.gate, "amber") : field(ctx, "Rule", t.gate)}${asks(t.decide) ? field(ctx, "Decide", t.decide, "amber") : field(ctx, "Rule", t.decide)}${field(ctx, "Repo", [t.repo, t.branch].filter(Boolean).join(" · "))}${field(ctx, "PRs", t.prs)}${field(ctx, "Owner", t.owner)}`;
+  const fields = `${field(ctx, "Status", t.status)}${field(ctx, "Next", t.next, "blue")}${asks(t.gate) ? field(ctx, "Approve?", t.gate, "amber") : field(ctx, "Rule", t.gate)}${field(ctx, "Repo", [t.repo, t.branch].filter(Boolean).join(" · "))}${field(ctx, "PRs", t.prs)}${field(ctx, "Owner", t.owner)}`;
   const state = fields === "" ? empty() : `<dl class="state">${fields}</dl>`;
   const openSteps = steps.filter((s) => s.done_at === null).length;
   const openItems = items.filter((i) => i.closed_at === null).length;

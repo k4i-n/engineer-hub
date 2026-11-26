@@ -3,7 +3,7 @@ import type { Ctx, Result } from "./commands.ts";
 import { all } from "./db.ts";
 import { HubError, nowIso } from "./util.ts";
 
-const PIN_KEY = /^(item|wait|match|gate|decide)-.{1,300}$/;
+const PIN_KEY = /^(item|wait|match|gate)-.{1,300}$/;
 
 export function setPin(ctx: Ctx, key: string, on: boolean): Result {
   if (!PIN_KEY.test(key)) throw new HubError(`not a row key: ${key}`);
