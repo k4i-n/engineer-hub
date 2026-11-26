@@ -1027,13 +1027,33 @@ document.addEventListener("keydown", (e) => {
   e.preventDefault();
 });
 
-const events = new EventSource("/events");
-events.addEventListener("change", refresh);
-events.addEventListener("open", () => {
-  document.body.classList.remove("offline");
+function onEvent(type) {
+  if (type === "error") {
+    document.body.classList.add("offline");
+    return;
+  }
+  if (type === "open") document.body.classList.remove("offline");
   refresh();
-});
-events.addEventListener("error", () => document.body.classList.add("offline"));
+}
+
+// Chrome allows 6 connections per host; one stream per browser, held by whichever tab has the lock, relayed to the rest.
+const relay = "BroadcastChannel" in window ? new BroadcastChannel("hub-events") : null;
+function listen() {
+  const events = new EventSource("/events");
+  for (const type of ["change", "open", "error"]) {
+    events.addEventListener(type, () => {
+      onEvent(type);
+      relay?.postMessage(type);
+    });
+  }
+}
+relay?.addEventListener("message", (e) => onEvent(e.data));
+if (relay && navigator.locks) {
+  navigator.locks.request("hub-events", () => {
+    listen();
+    return new Promise(() => {});
+  });
+} else listen();
 function lookBack() {
   flash();
   armNews();
