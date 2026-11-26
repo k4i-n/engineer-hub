@@ -1546,7 +1546,7 @@ function stepRow(ctx: Ctx, ticket: string, s: StepRow): string {
   const hidden = s.done_at === null ? "" : ' data-tab-panel="all" hidden';
   const doing = isDoing(s) ? pill("doing", "blue") : "";
   const evidence = s.evidence ? linker(ctx)(s.evidence, "↗", "e-ref") : "";
-  return `<li class="${cls}" data-key="s-${s.n}"${hidden}><span class="check"></span><span class="s-title">${line(ctx, s.title)}</span>${doing}${evidence}${stepMenu(ticket, s)}</li>`;
+  return `<li class="${cls}" data-key="s-${s.n}"${hidden}><span class="check" data-n="${s.n}"></span><span class="s-title">${line(ctx, s.title)}</span>${doing}${evidence}${stepMenu(ticket, s)}</li>`;
 }
 
 export function ticketBody(ctx: Ctx, id: string, live: Live): string {
