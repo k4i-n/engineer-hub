@@ -1356,12 +1356,12 @@ button.busy::after {
 .steps li.done .s-title {
   color: var(--muted);
 }
-.steps li.next .check {
+.steps li.doing .check {
   border-color: var(--accent);
   color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
-.steps li.next .s-title {
+.steps li.doing .s-title {
   font-weight: 600;
 }
 details {

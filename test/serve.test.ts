@@ -351,7 +351,7 @@ describe("serve", () => {
   test("settings show the database and save config through the same checks as the CLI", async () => {
     const html = await (await fetch(`${server.url}/settings`)).text();
     assert.ok(html.includes(dbFile));
-    assert.match(html, /Schema<\/span><div class="set-control">v26/);
+    assert.match(html, /Schema<\/span><div class="set-control">v27/);
     const titles = [...html.matchAll(/<h2><button type="button" class="fold" data-fold="([^"]+)"/g)].map((m) => m[1]);
     assert.deepEqual(titles, ["Sources", "Agent", "Away", "Database", "Behavior", "Dashboard", "Keyboard"]);
     assert.equal(html.match(/<div class="col">/g)?.length, 1);
@@ -548,6 +548,24 @@ describe("serve", () => {
     await hub(["draft", "ENG-7", "c", "--stdin"], "Title: Later title");
     await hub(["posted", "ENG-7", "c", "--ref", "https://github.com/acme/web/pull/31"]);
     assert.equal((await show("c")).sent_text, "body of 31");
+  });
+
+  test("doing steps show on the board row and are marked on the ticket page; no step is called next", async () => {
+    for (const title of ["schema", "world-v2 prod PRs", "world prod PRs"]) await hub(["step", "add", "ENG-7", title]);
+    const row = async () =>
+      /data-key="t-ENG-7"[\s\S]*?<\/li>/.exec(await (await fetch(`${server.url}/?part=1`)).text())?.[0] ?? "";
+    assert.doesNotMatch(await row(), /<span class="t-next">1\. schema/);
+    assert.equal((await call("POST", "/tickets/ENG-7/steps/2/start", {})).status, 200);
+    await hub(["step", "start", "ENG-7", "3"]);
+    assert.match(await row(), /<span class="t-next">2, 3: world-v2 prod PRs<\/span>/);
+    const page = await (await fetch(`${server.url}/t/ENG-7?part=1`)).text();
+    assert.match(page, /<li class="" data-key="s-1">[\s\S]*?data-act="step-start"/);
+    assert.match(
+      page,
+      /<li class="doing" data-key="s-2">[\s\S]*?<span class="pill tone-blue">doing<\/span>[\s\S]*?data-act="step-unstart"/,
+    );
+    assert.match(page, /<li class="doing" data-key="s-3">/);
+    assert.doesNotMatch(page, /class="next"/);
   });
 
   test("the ticket page shows the tracker state only when it differs from the folder, named by its tracker", async () => {

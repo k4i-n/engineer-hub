@@ -36,7 +36,7 @@ import { pins } from "./pins.ts";
 import * as plan from "./plan.ts";
 import { sections } from "./scripts.ts";
 import { teamOf, workspaceOf, workspacesByTeam } from "./slackteam.ts";
-import { progress } from "./steps.ts";
+import { isDoing, progress } from "./steps.ts";
 import { githubRef, isDate, nowIso, nowTs, sinceDate, startOfDayIso, today } from "./util.ts";
 
 export const BRAND = "EngineerHub";
@@ -1019,8 +1019,8 @@ function ticketRow(ctx: Ctx, t: Ticket, done = false, needing: Need[] = []): str
   ].join("");
   const next = done
     ? `done ${doneDay(ctx, t.updated_at ?? nowIso(ctx.now))}`
-    : p.next
-      ? `${p.next.n}. ${p.next.title}`
+    : p.doing.length > 0
+      ? `${p.doing.map((s) => s.n).join(", ")}: ${p.doing[0]?.title ?? ""}`
       : (t.next ?? "");
   const drag = done ? "" : ` draggable="true" data-id="${esc(t.id)}" data-dir="${esc(t.dir ?? "")}"`;
   return `<li class="ticket${done ? " is-closed" : ""}" data-key="t-${esc(t.id)}" data-href="/t/${encodeURIComponent(t.id)}"${drag}>
@@ -1525,6 +1525,30 @@ function issueItem(ctx: Ctx, t: Ticket, n: NoteRow): string[] {
   return [menuItem("issue", "Open as GitHub issue (body copied, too long for a link)", { copy: n.body, open: base })];
 }
 
+function stepMenu(ticket: string, s: StepRow): string {
+  const step = { ticket, n: s.n };
+  const state =
+    s.done_at !== null
+      ? menuItem("undo", "Not done", { act: "step-undo", ...step })
+      : isDoing(s)
+        ? menuItem("undo", "Not started", { act: "step-unstart", ...step })
+        : menuItem("right", "Start", { act: "step-start", ...step });
+  return moreMenu(`menu-step-${s.n}`, [
+    copyId(`${ticket}#${s.n}`),
+    menuItem("edit", "Edit", { act: "step-edit", ...step, ask: "Step", "ask-value": s.title }),
+    state,
+    menuItem("trash", "Remove", { act: "step-remove", ...step, confirm: `Remove step ${s.n}?` }),
+  ]);
+}
+
+function stepRow(ctx: Ctx, ticket: string, s: StepRow): string {
+  const cls = s.done_at !== null ? "done" : isDoing(s) ? "doing" : "";
+  const hidden = s.done_at === null ? "" : ' data-tab-panel="all" hidden';
+  const doing = isDoing(s) ? pill("doing", "blue") : "";
+  const evidence = s.evidence ? linker(ctx)(s.evidence, "↗", "e-ref") : "";
+  return `<li class="${cls}" data-key="s-${s.n}"${hidden}><span class="check"></span><span class="s-title">${line(ctx, s.title)}</span>${doing}${evidence}${stepMenu(ticket, s)}</li>`;
+}
+
 export function ticketBody(ctx: Ctx, id: string, live: Live): string {
   const link = linker(ctx);
   const t = getTicket(ctx.db, id);
@@ -1581,31 +1605,7 @@ export function ticketBody(ctx: Ctx, id: string, live: Live): string {
     steps.length === 0
       ? empty()
       : `${progressView(ctx.config.progressStyle, p.done, p.total, true)}<ol class="steps">${steps
-          .map(
-            (s) =>
-              `<li class="${s.done_at === null ? (p.next?.n === s.n ? "next" : "") : "done"}" data-key="s-${s.n}"${s.done_at === null ? "" : ' data-tab-panel="all" hidden'}><span class="check"></span><span class="s-title">${line(ctx, s.title)}</span>${s.evidence ? link(s.evidence, "↗", "e-ref") : ""}${moreMenu(
-                `menu-step-${s.n}`,
-                [
-                  copyId(`${t.id}#${s.n}`),
-                  menuItem("edit", "Edit", {
-                    act: "step-edit",
-                    ticket: t.id,
-                    n: s.n,
-                    ask: "Step",
-                    "ask-value": s.title,
-                  }),
-                  ...(s.done_at === null
-                    ? []
-                    : [menuItem("undo", "Not done", { act: "step-undo", ticket: t.id, n: s.n })]),
-                  menuItem("trash", "Remove", {
-                    act: "step-remove",
-                    ticket: t.id,
-                    n: s.n,
-                    confirm: `Remove step ${s.n}?`,
-                  }),
-                ],
-              )}</li>`,
-          )
+          .map((s) => stepRow(ctx, t.id, s))
           .join("")}${openRows(openSteps)}</ol>`;
   const pinned = pins(ctx.db);
   const itemRows = items.map((i) => {
