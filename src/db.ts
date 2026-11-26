@@ -4,7 +4,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { DEFAULTS } from "./config.ts";
 import { HubError, nowIso, nowTs } from "./util.ts";
 
-export const SCHEMA_VERSION = "26";
+export const SCHEMA_VERSION = "27";
 
 export type Ticket = {
   id: string;
@@ -125,6 +125,7 @@ export type StepRow = {
   title: string;
   done_at: string | null;
   evidence: string | null;
+  started_at: string | null;
 };
 export type DayRow = { date: string; resume: string | null; body: string; updated_at: string | null };
 export type PlanLineRow = {
@@ -174,7 +175,7 @@ const PLAN_LINE = `CREATE TABLE plan_line(id INTEGER PRIMARY KEY, date TEXT NOT 
 CREATE INDEX plan_line_date ON plan_line(date, pos);`;
 
 const STEP = `CREATE TABLE IF NOT EXISTS step(id INTEGER PRIMARY KEY, ticket_id TEXT NOT NULL, n INTEGER NOT NULL,
-  title TEXT NOT NULL, done_at TEXT, evidence TEXT, created_at TEXT NOT NULL, UNIQUE(ticket_id, n));`;
+  title TEXT NOT NULL, done_at TEXT, evidence TEXT, created_at TEXT NOT NULL, started_at TEXT, UNIQUE(ticket_id, n));`;
 
 const PIN = "CREATE TABLE IF NOT EXISTS pin(key TEXT PRIMARY KEY, pinned_at TEXT NOT NULL);";
 
@@ -279,7 +280,15 @@ WHERE kind = 'review_request' AND ask IS NULL AND closed_at IS NULL AND ignored 
   "23": { to: "24", sql: addUnmigrated },
   "24": { to: "25", sql: dropDecide },
   "25": { to: "26", sql: dropPrs },
+  "26": {
+    to: "27",
+    sql: (db) => (hasColumn(db, "step", "started_at") ? "" : "ALTER TABLE step ADD COLUMN started_at TEXT;"),
+  },
 };
+
+function hasColumn(db: DatabaseSync, table: string, column: string): boolean {
+  return db.prepare("SELECT 1 FROM pragma_table_info(?) WHERE name = ?").get(table, column) !== undefined;
+}
 
 function logRemoved(db: DatabaseSync, column: string, where: string): void {
   const zone = one<{ value: string }>(db, "SELECT value FROM config WHERE key = 'timezone'")?.value;
@@ -308,9 +317,7 @@ INSERT INTO ticket_fts(ticket_fts) VALUES ('rebuild');`;
 }
 
 function addUnmigrated(db: DatabaseSync): string {
-  const has = (table: string, column: string) =>
-    db.prepare("SELECT 1 FROM pragma_table_info(?) WHERE name = ?").get(table, column) !== undefined;
-  const columns = UNMIGRATED_COLUMNS.filter(([table, column]) => !has(table, column)).map(
+  const columns = UNMIGRATED_COLUMNS.filter(([table, column]) => !hasColumn(db, table, column)).map(
     ([table, column]) => `ALTER TABLE ${table} ADD COLUMN ${column} TEXT;`,
   );
   return [...columns, STEP, PIN].join("\n");

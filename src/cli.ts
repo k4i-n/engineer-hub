@@ -53,7 +53,7 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         moved --as <session id> [--start] | moved --hook (reads a Claude Code hook's JSON on stdin)
         record-gate --hook (Stop hook: blocks a session that ran a recordActions command and wrote nothing to hub after)
         record --hook (PostToolUse hook: links the PR a recordActions command printed to the one ticket on the current branch)
-        step add <id> <title> [--at <n>] | step done <id> <n> [--evidence <url>]
+        step add <id> <title> [--at <n>] | step start <id> <n> | step done <id> <n> [--evidence <url>]
         step edit <id> <n> <title> | step undo <id> <n> | step rm <id> <n>
         day set <date> (--file <path> | --stdin) [--rev <rev>] | ticket-new <id> <title> [--dir todo]
         plan add <text> [--ref "<kind>:<id> ..."] [--time HH:MM] [--at <n>] [--date <d>]
@@ -385,12 +385,13 @@ const COMMANDS: Record<string, Handler> = {
   steps: (a) => c("steps", { id: arg(a, 0, "steps <id>") }),
   step: (a, v) => {
     const usage =
-      "step add <id> <title> [--at <n>] | step done <id> <n> [--evidence <url>] | step edit <id> <n> <title> | step undo <id> <n> | step rm <id> <n>";
+      "step add <id> <title> [--at <n>] | step start <id> <n> | step done <id> <n> [--evidence <url>] | step edit <id> <n> <title> | step undo <id> <n> | step rm <id> <n>";
     const sub = arg(a, 0, usage);
     if (sub === "add") {
       const title = a.slice(2).join(" ") || arg(a, 2, usage);
       return c("step_add", { id: arg(a, 1, usage), title, ...(v.at === undefined ? {} : { at: Number(v.at) }) });
     }
+    if (sub === "start") return c("step_start", { id: arg(a, 1, usage), n: arg(a, 2, usage) });
     if (sub === "done") return c("step_done", { id: arg(a, 1, usage), n: arg(a, 2, usage), evidence: v.evidence });
     if (sub === "edit") {
       return c("step_edit", {

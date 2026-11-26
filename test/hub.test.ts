@@ -537,7 +537,7 @@ describe("edit notes, drafts and steps", () => {
       "1 [x] read the code | https://example.com/1\n2 [ ] write the migration\n3 [ ] ship behind a flag\n4 [ ] plan",
     );
     await ok("step", "undo", "ENG-42", "1");
-    assert.match((await hub("step", "undo", "ENG-42", "1")).err, /step 1 on ENG-42 is not done/);
+    assert.match((await hub("step", "undo", "ENG-42", "1")).err, /step 1 on ENG-42 is not started/);
     assert.match(await ok("events", "ENG-42", "-n", "1"), /step 1 not done: read the code$/);
     await ok("step", "rm", "ENG-42", "2");
     assert.equal(await ok("steps", "ENG-42"), "1 [ ] read the code\n2 [ ] ship behind a flag\n3 [ ] plan");
@@ -777,23 +777,69 @@ describe("sync", () => {
 });
 
 describe("steps", () => {
-  test("steps are numbered in order, done ones log an event, the ticket shows progress and the next step", async () => {
+  test("steps are numbered in order, done ones log an event, the ticket shows progress and the steps being done", async () => {
     await imported();
     await ok("step", "add", "ENG-7", "read the export handler");
     await ok("step", "add", "ENG-7", "add", "the", "limiter");
     await ok("step", "add", "ENG-7", "open the PR");
     const pr = "https://github.com/acme/web/pull/140";
-    assert.equal(await ok("step", "done", "ENG-7", "1"), "ENG-7 step 1 done (1/3), next: 2 add the limiter");
+    assert.equal(await ok("step", "done", "ENG-7", "1"), "ENG-7 step 1 done (1/3)");
+    assert.match(await ok("ticket", "ENG-7"), /^steps: 1\/3$/m);
     await ok("step", "done", "ENG-7", "3", "--evidence", pr);
     assert.equal(
       await ok("steps", "ENG-7"),
       `1 [x] read the export handler\n2 [ ] add the limiter\n3 [x] open the PR | ${pr}`,
     );
-    assert.match(await ok("ticket", "ENG-7"), /^steps: 2\/3 \| next step: 2 add the limiter$/m);
     assert.match(await ok("events", "ENG-7", "-n", "1"), /\[step\] step 3 done: open the PR$/);
     assert.match((await hub("step", "done", "ENG-7", "3")).err, /already done/);
     assert.match((await hub("step", "done", "ENG-7", "9")).err, /no step 9 on ENG-7/);
     assert.match((await hub("step", "add", "ENG-7", "x".repeat(241))).err, /max 240/);
+  });
+});
+
+describe("doing steps", () => {
+  test("start marks a step doing, several at once; undo takes it back to todo; done works from todo or doing", async () => {
+    await imported();
+    for (const title of ["schema", "world-v2 prod PRs", "world prod PRs", "cleanup"])
+      await ok("step", "add", "ENG-7", title);
+    assert.equal(await ok("step", "start", "ENG-7", "2"), "ENG-7 step 2 started");
+    await ok("step", "start", "ENG-7", "3");
+    assert.match((await hub("step", "start", "ENG-7", "2")).err, /already started/);
+    assert.match(await ok("ticket", "ENG-7"), /^steps: 0\/4 \| doing: 2 world-v2 prod PRs; 3 world prod PRs$/m);
+    assert.equal(
+      await ok("steps", "ENG-7"),
+      "1 [ ] schema\n2 [>] world-v2 prod PRs\n3 [>] world prod PRs\n4 [ ] cleanup",
+    );
+    assert.equal(await ok("step", "done", "ENG-7", "2"), "ENG-7 step 2 done (1/4), still doing: 3");
+    assert.match((await hub("step", "start", "ENG-7", "2")).err, /already done/);
+    assert.equal(await ok("step", "undo", "ENG-7", "3"), "ENG-7 step 3 not started");
+    await ok("step", "done", "ENG-7", "1");
+    const started = sql<{ n: number; started_at: string | null }>(
+      "SELECT n, started_at FROM step WHERE ticket_id = 'ENG-7' ORDER BY n",
+    );
+    assert.deepEqual(
+      started.map((r) => r.started_at !== null),
+      [true, true, false, false],
+    );
+    assert.equal(await ok("step", "undo", "ENG-7", "1"), "ENG-7 step 1 not done");
+    assert.equal(await ok("steps", "ENG-7").then((t) => t.split("\n")[0]), "1 [ ] schema");
+    assert.match(await ok("events", "ENG-7", "-n", "6"), /\[step\] step 2 started: world-v2 prod PRs/);
+  });
+});
+
+describe("schema upgrade to v27", () => {
+  test("steps gain started_at and read as todo or done", async () => {
+    await imported();
+    await ok("step", "add", "ENG-7", "one");
+    await ok("step", "add", "ENG-7", "two");
+    await ok("step", "done", "ENG-7", "1");
+    await server.close();
+    const db = new DatabaseSync(dbFile);
+    db.exec("ALTER TABLE step DROP COLUMN started_at; UPDATE meta SET value = '26' WHERE key = 'schema_version'");
+    db.close();
+    server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] });
+    assert.equal(await ok("steps", "ENG-7"), "1 [x] one\n2 [ ] two");
+    assert.equal(sql<{ n: number }>("SELECT count(*) AS n FROM step WHERE started_at IS NOT NULL")[0]?.n, 0);
   });
 });
 
@@ -1036,7 +1082,7 @@ describe("db", () => {
     db.close();
     assert.throws(
       () => serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] }),
-      /has schema v1, this hub needs v26: move the file aside and re-import/,
+      /has schema v1, this hub needs v27: move the file aside and re-import/,
     );
     server = await serve({ dbPath: join(dir, "other.db"), port: 0, now: () => now, env: {}, fetchers: [] });
   });

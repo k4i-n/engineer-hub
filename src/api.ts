@@ -449,10 +449,18 @@ export const ROUTES: Route[] = [
     run: (ctx, a) => steps.edit(ctx, str(a, "id"), str(a, "n"), str(a, "title")),
   },
   {
+    name: "step_start",
+    method: "POST",
+    path: "/tickets/{id}/steps/{n}/start",
+    about:
+      "Mark step n as being worked on, when work on it begins; a step waiting on review or merge is still doing. Several steps can be doing at once.",
+    run: (ctx, a) => steps.start(ctx, str(a, "id"), str(a, "n")),
+  },
+  {
     name: "step_undo",
     method: "POST",
     path: "/tickets/{id}/steps/{n}/undo",
-    about: "Mark step n not done again.",
+    about: "Mark step n not done (a done step) or not started (a doing step) again.",
     run: (ctx, a) => steps.undo(ctx, str(a, "id"), str(a, "n")),
   },
   {
