@@ -781,6 +781,20 @@ describe("linear", () => {
     assert.doesNotMatch(await hub("fetch"), /tickets:/);
   });
 
+  test("the tracker's title replaces a title taken from the file name, never one set by hand", async () => {
+    await hub("config", "fetch", '{"github":false,"linear":true}');
+    answers.security = () => ({ code: 0, stdout: "lin_api_x\n", stderr: "" });
+    httpAnswer = () => ({ status: 200, body: JSON.stringify(LINEAR) });
+    const title = async () =>
+      (JSON.parse(await hub("ticket", "ENG-42", "--json")) as { ticket: { title: string } }).ticket.title;
+    await hub("set", "ENG-42", "title", "ENG-42-session-sync");
+    await hub("fetch");
+    assert.equal(await title(), "Sync sessions");
+    await hub("set", "ENG-42", "title", "session sync");
+    await hub("fetch");
+    assert.equal(await title(), "session sync");
+  });
+
   test("with no key the source says how to store one, either way", async () => {
     assert.match(await hub("fetch", "linear"), /^linear: no linear key$/);
     const settings = await (await fetch(`${server.url}/settings?part=1`)).text();

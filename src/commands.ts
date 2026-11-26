@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { type Config, DEFAULTS, loadConfig, setConfig } from "./config.ts";
 import {
@@ -21,7 +22,7 @@ import {
   type WaitRow,
 } from "./db.ts";
 import { span } from "./horizon.ts";
-import { splitResume } from "./parse.ts";
+import { fileTitle, splitResume } from "./parse.ts";
 import * as plan from "./plan.ts";
 import { progress } from "./steps.ts";
 import { cut, HubError, nowIso, nowTs, sendTime, sinceDate, startOfDayIso, today } from "./util.ts";
@@ -632,6 +633,9 @@ export function lint(ctx: Ctx): Result {
   for (const t of openTickets(ctx).sort((a, b) => a.id.localeCompare(b.id))) {
     for (const field of ["status", "next", "owner"] as const) {
       if (!t[field]?.trim()) findings.push(`${t.id}: missing ${field}`);
+    }
+    if (startsWithId(t)) {
+      findings.push(`${t.id}: title starts with the ticket id; set the real title`);
     }
     for (const field of ["gate", "decide"] as const) {
       if (has(t[field]) && !asks(t[field])) {
@@ -1269,6 +1273,7 @@ export function mergeTicket(ctx: Ctx, id: string, into: string): Result {
 
 export type TrackerFields = {
   id: string;
+  title: string | null;
   state: string | null;
   priority: string | null;
   assignee: string | null;
@@ -1284,7 +1289,22 @@ export function setTracker(ctx: Ctx, t: TrackerFields): boolean {
          IS NOT (?1, ?2, ?3, ?4, ?5)`,
     )
     .run(t.state, t.priority, t.assignee, t.url, t.updated, t.id);
-  return result.changes > 0;
+  const retitled = retitle(ctx, t);
+  return result.changes > 0 || retitled;
+}
+
+function startsWithId(t: Ticket): boolean {
+  return (t.title ?? "").toLowerCase().startsWith(t.id.toLowerCase());
+}
+
+function retitle(ctx: Ctx, t: TrackerFields): boolean {
+  const ticket = one<Ticket>(ctx.db, "SELECT * FROM ticket WHERE id = ?", t.id);
+  if (!t.title || ticket === undefined || ticket.title === t.title) return false;
+  const stem = basename(ticket.path ?? "").replace(/\.md$/, "");
+  const fromFile = ticket.path !== null && ticket.title === fileTitle(stem, t.id);
+  if (!fromFile && !startsWithId(ticket)) return false;
+  ctx.db.prepare("UPDATE ticket SET title = ?, updated_at = ? WHERE id = ?").run(t.title, nowIso(ctx.now), t.id);
+  return true;
 }
 
 export function move(ctx: Ctx, id: string, dir: string): Result {
