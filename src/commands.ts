@@ -22,6 +22,7 @@ import {
   type WaitRow,
 } from "./db.ts";
 import { span } from "./horizon.ts";
+import { prBodyTitle } from "./items.ts";
 import { fileTitle, splitResume } from "./parse.ts";
 import * as plan from "./plan.ts";
 import { progress } from "./steps.ts";
@@ -885,6 +886,12 @@ export function draftComments(db: DatabaseSync, draftId: number): CommentRow[] {
   return all<CommentRow>(db, "SELECT * FROM draft_comment WHERE draft_id = ? ORDER BY pos", draftId);
 }
 
+const PR_CHANNEL = /\b(pr|pull request|branch)\b/i;
+
+function prBody(body: string, channel: string | null): number {
+  return prBodyTitle(body) !== null || PR_CHANNEL.test(channel ?? "") ? 1 : 0;
+}
+
 export function draft(
   ctx: Ctx,
   id: string,
@@ -904,7 +911,7 @@ export function draft(
   if (extra.verdict != null && extra.verdict !== "") oneOf("verdict", extra.verdict, VERDICTS);
   const verdict = extra.verdict == null ? (existing?.verdict ?? null) : extra.verdict || null;
   const comments = extra.comments == null ? null : parseComments(extra.comments);
-  const internal = extra.internal == null ? (existing?.internal ?? 0) : Number(extra.internal);
+  const internal = extra.internal == null ? (existing?.internal ?? prBody(body, channel)) : Number(extra.internal);
   const at = nowIso(ctx.now);
   const send = sendAt === null ? null : sendTime(ctx.now, sendAt, ctx.config.timezone, ctx.config.laterHour, "send_at");
   transaction(ctx.db, () => {
@@ -1048,12 +1055,20 @@ function openReviewRequest(ctx: Ctx, item: string | null): ItemRow | undefined {
   );
 }
 
+function prText(ctx: Ctx, ref: string | null): string | null {
+  if (ref === null) return null;
+  const pr = one<ItemRow>(ctx.db, "SELECT * FROM item WHERE kind = 'pr' AND (ref = ?1 OR url = ?1)", ref);
+  return pr?.body ?? null;
+}
+
 export function posted(ctx: Ctx, id: string, label: string, options: PostedOptions): Result {
   const existing = getDraft(ctx, id, label);
   const answer = options.answer ?? existing.answer;
   const status = answer === null ? "posted" : "answered";
   const at = options.at ?? existing.posted_at ?? nowTs(ctx.now, ctx.config.timezone);
   const request = openReviewRequest(ctx, existing.item);
+  const fromPr = existing.sent_text === null && prBody(existing.body, existing.channel) === 1;
+  const sentText = options.sentText ?? (fromPr ? prText(ctx, options.sentRef ?? existing.item) : null);
   transaction(ctx.db, () => {
     ctx.db
       .prepare(
@@ -1066,7 +1081,7 @@ export function posted(ctx: Ctx, id: string, label: string, options: PostedOptio
         at,
         options.channel,
         answer,
-        options.sentText,
+        sentText,
         options.sentRef,
         request?.id ?? null,
         nowIso(ctx.now),
@@ -1077,7 +1092,7 @@ export function posted(ctx: Ctx, id: string, label: string, options: PostedOptio
     if (options.sentRef !== null) judged(ctx, options.sentRef);
     touch(ctx, existing.ticket_id);
   });
-  const pending = options.sentText === null && existing.sent_text === null ? ", wording pending" : "";
+  const pending = sentText === null && existing.sent_text === null ? ", wording pending" : "";
   return {
     text: `${id} draft "${label}" ${status}${pending}`,
     json: { ticket_id: existing.ticket_id, item: existing.item, label, status, posted_at: at },

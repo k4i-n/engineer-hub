@@ -1,7 +1,7 @@
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import type { Ctx, Result } from "./commands.ts";
 import { type Config, MAX_ASK } from "./config.ts";
-import { all, getTicket, type ItemRow, one, transaction } from "./db.ts";
+import { all, type DraftRow, getTicket, type ItemRow, one, transaction } from "./db.ts";
 import { SOURCE_NAME } from "./sources.ts";
 import { cut, HubError, laterTime, linkKind, linkSource, nowIso, nowTs } from "./util.ts";
 
@@ -159,7 +159,43 @@ export function applyExcludedRepos(ctx: Ctx): void {
   });
 }
 
+const PR_TITLE = /^Title:\s*(.+)$/i;
+
+export function prBodyTitle(body: string): string | null {
+  return PR_TITLE.exec(body.split("\n", 1)[0]?.trim() ?? "")?.[1]?.trim() ?? null;
+}
+
+function postPrDraft(ctx: Ctx, ref: string): void {
+  const item = itemByRef(ctx.db, ref);
+  if (item === undefined || item.kind !== "pr" || item.ticket_id === null || item.title === null) return;
+  const title = item.title.trim();
+  const url = item.url ?? item.ref;
+  const drafts = all<DraftRow>(
+    ctx.db,
+    "SELECT * FROM draft WHERE ticket_id = ? AND status = 'draft' AND match_ref IS NULL",
+    item.ticket_id,
+  ).filter((d) => prBodyTitle(d.body) === title);
+  const at = nowIso(ctx.now);
+  const [only] = drafts;
+  if (only !== undefined && drafts.length === 1) {
+    ctx.db
+      .prepare(
+        "UPDATE draft SET status = 'posted', posted_at = ?, sent_text = ?, sent_ref = ?, updated_at = ? WHERE id = ?",
+      )
+      .run(nowTs(ctx.now, ctx.config.timezone), item.body, url, at, only.id);
+    return;
+  }
+  const ask = ctx.db.prepare("UPDATE draft SET match_text = ?, match_ref = ?, updated_at = ? WHERE id = ?");
+  for (const d of drafts) ask.run(item.body ?? title, url, at, d.id);
+}
+
 export function upsertItem(ctx: Ctx, input: ItemInput, withEvents: boolean): Upsert {
+  const result = writeItem(ctx, input, withEvents);
+  if (result !== "unchanged") postPrDraft(ctx, input.ref);
+  return result;
+}
+
+function writeItem(ctx: Ctx, input: ItemInput, withEvents: boolean): Upsert {
   const { db } = ctx;
   const at = nowIso(ctx.now);
   const existing = itemByRef(db, input.ref);
@@ -416,6 +452,7 @@ export function attach(ctx: Ctx, key: string, ticketId: string): Result {
       .prepare("UPDATE item SET ticket_id = ?, detached = 0, changed_at = ? WHERE id = ?")
       .run(ticketId, nowIso(ctx.now), item.id);
     event(ctx, ticketId, `Attached ${describe(item)}`, item.url ?? item.ref);
+    postPrDraft(ctx, item.ref);
   });
   return { text: `#${item.id} attached to ${ticketId}`, json: { id: item.id, ticket_id: ticketId } };
 }
