@@ -3,7 +3,7 @@ import { basename, join, relative, sep } from "node:path";
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import type { Config } from "./config.ts";
 import { LIMITED_FIELDS, one, type Ticket, transaction } from "./db.ts";
-import { type ParsedDraft, type ParsedNote, parseTicket, splitResume, type Tracker } from "./parse.ts";
+import { fileTitle, type ParsedDraft, type ParsedNote, parseTicket, splitResume, type Tracker } from "./parse.ts";
 import { HubError, linkKind, linkSource, nowIso, today } from "./util.ts";
 
 const TICKET_COLUMNS = [
@@ -42,6 +42,7 @@ export type ImportReport = {
   folded: { id: string; paths: string[] }[];
   noTicket: string[];
   noState: string[];
+  fileTitles: { id: string; title: string }[];
 };
 
 export type ImportPlan = {
@@ -142,7 +143,10 @@ function collectTickets(db: DatabaseSync, root: string, config: Config, now: Dat
   const files = taskFiles(root, config);
   const parsed = files
     .filter((file) => file.ticket)
-    .map((file) => ({ file, ticket: parseTicket(readFileSync(join(root, file.path), "utf8"), file.stem, config) }));
+    .map((file) => {
+      const text = readFileSync(join(root, file.path), "utf8");
+      return { file, ticket: parseTicket(text, fileTitle(file.stem, file.id ?? ""), config) };
+    });
 
   const owners = new Map<string, string>();
   for (const { file, ticket } of parsed) {
@@ -176,6 +180,7 @@ function collectTickets(db: DatabaseSync, root: string, config: Config, now: Dat
       }
     }
     if (!ticket.hasState) plan.report.noState.push(id);
+    if (ticket.titleFromFile) plan.report.fileTitles.push({ id, title: ticket.title });
 
     const stateNotes: string[] = [];
     for (const field of LIMITED_FIELDS) {
@@ -227,7 +232,7 @@ function emptyPlan(root: string): ImportPlan {
     drafts: [],
     links: [],
     days: [],
-    report: { oversize: [], unclassified: [], folded: [], noTicket: [], noState: [] },
+    report: { oversize: [], unclassified: [], folded: [], noTicket: [], noState: [], fileTitles: [] },
   };
 }
 
@@ -394,6 +399,11 @@ export function formatSummary(plan: ImportPlan, changes: number | null): string 
   }
   if (r.noTicket.length > 0) lines.push(`not imported, no ticket: ${r.noTicket.join(", ")}`);
   if (r.noState.length > 0) lines.push(`no State block: ${r.noState.join(", ")}`);
+  if (r.fileTitles.length > 0) {
+    lines.push(
+      `title from file name (no "# <id> - <title>" heading; hub set <id> title fixes it): ${r.fileTitles.map((t) => `${t.id} "${t.title}"`).join("; ")}`,
+    );
+  }
   if (changes !== null) lines.push(`changes: ${changes}`);
   return lines.join("\n");
 }

@@ -31,6 +31,7 @@ export type ParsedDraft = { label: string; body: string; status: string; posted_
 
 export type ParsedTicket = {
   title: string;
+  titleFromFile: boolean;
   hasState: boolean;
   state: StateFields;
   events: ParsedEvent[];
@@ -240,6 +241,7 @@ export function parseTicket(text: string, fallbackTitle: string, config: Config)
 
   const parsed: ParsedTicket = {
     title,
+    titleFromFile: titleMatch?.[2] === undefined,
     hasState,
     state,
     events: [],
@@ -281,6 +283,12 @@ export function parseTicket(text: string, fallbackTitle: string, config: Config)
     }
   }
   return parsed;
+}
+
+export function fileTitle(stem: string, id: string): string {
+  const bare = stem.replace(/^P\d+-\d+-/, "");
+  const rest = bare.toLowerCase().startsWith(id.toLowerCase()) ? bare.slice(id.length) : bare;
+  return rest.replace(/[-_\s]+/g, " ").trim() || stem;
 }
 
 export function splitResume(text: string, heading: string): string | null {

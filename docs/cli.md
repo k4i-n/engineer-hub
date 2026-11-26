@@ -20,7 +20,7 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 | `hub steps <id>` | the ticket's steps, done ones ticked, with their evidence |
 | `hub brief` | what a sync needs to judge new messages: sources and cursors, open tickets, unsent drafts, drafts sent with wording pending, waits, tracked items (each section capped at 40 lines) |
 | `hub day [date] [--full]` | the rev, the RESUME block and the Today lines of a day plan (today, else the latest), each line with its live state; `--full` gives the whole plan with the lines under `## Today`. Today's plan ends with `## From hub`, generated from the database: my open PRs with their state, open waits with their ping time, drafts set to send later, and open gates |
-| `hub lint` | open tickets missing status, next or owner, over a limit, or with a gate or decide that is not a question (no `?`); exit 1 if any |
+| `hub lint` | open tickets missing status, next or owner, over a limit, with a gate or decide that is not a question (no `?`), or with a title that starts with the ticket's id; exit 1 if any |
 | `hub config [key]` | effective config |
 
 | Write | Does |
@@ -125,4 +125,4 @@ The importer reads, and never writes:
 - `plan/plan-YYYY-MM-DD.md`: day plans.
 - every other file under `tasks/<dir>/` that names a ticket id or sits in a folder named after one (`ENG-42-baseline.md` next to `ENG-42-session-sync.md`, `ENG-7-notes-draft.md`, `ENG-7-scripts/notes.md`): one markdown file per id is the ticket (the one with a state block, else the first), each other markdown file becomes a note on it titled with its path, and other files are listed by path in its `Other files` note. The dry run lists what it folded and every file that matched no ticket.
 
-Every section lands in the database. Other headings become notes. A state field over its limit is cut and its full text kept in a `State notes` note. After the import, move the markdown folder to a backup: from then on the database is the only source of truth.
+Every section lands in the database. Other headings become notes. A state field over its limit is cut and its full text kept in a `State notes` note. A ticket file that does not start with `# <id> - <title>` is titled from its file name without the id (`ENG-9-retire-old-watch.md` → "retire old watch"), and the report lists those tickets; Linear's title replaces such a title on the next fetch. After the import, move the markdown folder to a backup: from then on the database is the only source of truth.

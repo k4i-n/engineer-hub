@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -97,6 +97,7 @@ type ImportJson = {
     oversize: { id: string; field: string; length: number }[];
     folded: { id: string; paths: string[] }[];
     noTicket: string[];
+    fileTitles: { id: string; title: string }[];
   };
   changes: number | null;
 };
@@ -143,6 +144,30 @@ describe("import", () => {
       EXPECTED.links,
       EXPECTED.days,
     ]);
+  });
+
+  test("a ticket file with no title heading is titled from its name without the id, and the report lists it", async () => {
+    await configure();
+    const root = mkdtempSync(join(tmpdir(), "hub-root-"));
+    try {
+      mkdirSync(join(root, "tasks", "todo"), { recursive: true });
+      writeFileSync(join(root, "tasks", "todo", "ENG-9-retire-old_watch.md"), "Status: open\n");
+      writeFileSync(join(root, "tasks", "todo", "ENG-8-x.md"), "# ENG-8 - Real title\n");
+      const dry = await json<ImportJson>("import", "--root", root);
+      assert.deepEqual(dry.report.fileTitles, [{ id: "ENG-9", title: "retire old watch" }]);
+      assert.match(
+        await ok("import", "--root", root, "--apply"),
+        /^title from file name .*: ENG-9 "retire old watch"$/m,
+      );
+      assert.deepEqual(sql<{ id: string; title: string }>("SELECT id, title FROM ticket ORDER BY id"), [
+        { id: "ENG-8", title: "Real title" },
+        { id: "ENG-9", title: "retire old watch" },
+      ]);
+      await ok("set", "ENG-8", "title", "ENG-8 real title");
+      assert.match((await hub("lint")).out, /^ENG-8: title starts with the ticket id; set the real title$/m);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("files sharing a ticket id or inside its folder fold into the ticket as notes, and the dry run says so", async () => {

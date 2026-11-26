@@ -138,6 +138,7 @@ async function fetchLinear(sys: System, ctx: Ctx, cursor: string | null): Promis
     .filter((i) => hasTicket(ctx, i.identifier))
     .map((i) => ({
       id: i.identifier,
+      title: i.title,
       state: i.state?.name ?? null,
       priority: i.priorityLabel === undefined || i.priorityLabel === "No priority" ? null : i.priorityLabel,
       assignee: i.assignee?.name ?? null,
