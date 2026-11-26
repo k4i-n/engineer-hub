@@ -185,7 +185,7 @@ export function ticket(ctx: Ctx, id: string): Result {
     `owner: ${v(t.owner)} | updated: ${v(t.updated)} | order: ${t.position ?? "-"}`,
     `tracker: ${v(t.tracker_state)} | ${v(t.tracker_priority)} | ${v(t.tracker_url)}`,
     `path: ${v(t.path)}`,
-    `steps: ${steps.done}/${steps.total}${steps.next ? ` | next step: ${steps.next.n} ${cut(steps.next.title, 100)}` : ""}`,
+    `steps: ${steps.done}/${steps.total}${steps.doing.length > 0 ? ` | doing: ${steps.doing.map((s) => `${s.n} ${cut(s.title, 80)}`).join("; ")}` : ""}`,
     `events: ${eventCount}, last:`,
     ...events.map((e) => `  ${e.ts} ${cut(e.text, 100)}`),
     `drafts: ${drafts.length} (${cut(drafts.map((d) => d.label).join(", "), 150)})`,

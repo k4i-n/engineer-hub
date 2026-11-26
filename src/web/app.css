@@ -1314,7 +1314,6 @@ button.busy::after {
   list-style: none;
   margin: 10px 0 0;
   padding: 0;
-  counter-reset: step;
 }
 .steps li {
   display: flex;
@@ -1322,7 +1321,6 @@ button.busy::after {
   gap: 10px;
   padding: 7px 0;
   border-top: 1px solid var(--line);
-  counter-increment: step;
 }
 .steps li:first-child {
   border-top: 0;
@@ -1340,7 +1338,7 @@ button.busy::after {
   color: var(--muted);
 }
 .check::before {
-  content: counter(step);
+  content: attr(data-n);
 }
 .steps li.done .check {
   background: var(--green);
@@ -1356,12 +1354,12 @@ button.busy::after {
 .steps li.done .s-title {
   color: var(--muted);
 }
-.steps li.next .check {
+.steps li.doing .check {
   border-color: var(--accent);
   color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
-.steps li.next .s-title {
+.steps li.doing .s-title {
   font-weight: 600;
 }
 details {

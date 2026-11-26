@@ -6,19 +6,26 @@ import { HubError, nowIso, nowTs } from "./util.ts";
 const MAX_TITLE = 240;
 const MAX_EVIDENCE = 2048;
 
-export type Progress = { done: number; total: number; next: StepRow | null };
+export type Progress = { done: number; total: number; doing: StepRow[] };
+
+export function isDoing(s: StepRow): boolean {
+  return s.started_at !== null && s.done_at === null;
+}
 
 export function progress(db: DatabaseSync, id: string): Progress {
   const rows = all<StepRow>(db, "SELECT * FROM step WHERE ticket_id = ? ORDER BY n", id);
-  return {
-    done: rows.filter((s) => s.done_at !== null).length,
-    total: rows.length,
-    next: rows.find((s) => s.done_at === null) ?? null,
-  };
+  return { done: rows.filter((s) => s.done_at !== null).length, total: rows.length, doing: rows.filter(isDoing) };
 }
 
 export function stepLine(s: StepRow): string {
-  return `${s.n} [${s.done_at === null ? " " : "x"}] ${s.title}${s.evidence ? ` | ${s.evidence}` : ""}`;
+  const box = s.done_at !== null ? "x" : isDoing(s) ? ">" : " ";
+  return `${s.n} [${box}] ${s.title}${s.evidence ? ` | ${s.evidence}` : ""}`;
+}
+
+function stepEvent(ctx: Ctx, id: string, text: string): void {
+  ctx.db
+    .prepare("INSERT INTO event(ticket_id, ts, kind, text, source, created_at) VALUES (?, ?, 'step', ?, 'agent', ?)")
+    .run(id, nowTs(ctx.now, ctx.config.timezone), text, nowIso(ctx.now));
 }
 
 function checkTitle(title: string): void {
@@ -68,17 +75,28 @@ export function edit(ctx: Ctx, id: string, n: string, title: string): Result {
   return { text: `${id} step ${step.n} changed`, json: { ticket_id: id, n: step.n, title } };
 }
 
-export function undo(ctx: Ctx, id: string, n: string): Result {
+export function start(ctx: Ctx, id: string, n: string): Result {
   const step = getStep(ctx, id, n);
-  if (step.done_at === null) throw new HubError(`step ${n} on ${id} is not done`);
+  if (step.done_at !== null) throw new HubError(`step ${n} on ${id} is already done`);
+  if (step.started_at !== null) throw new HubError(`step ${n} on ${id} is already started`);
   transaction(ctx.db, () => {
-    ctx.db.prepare("UPDATE step SET done_at = NULL, evidence = NULL WHERE id = ?").run(step.id);
-    ctx.db
-      .prepare("INSERT INTO event(ticket_id, ts, kind, text, source, created_at) VALUES (?, ?, 'step', ?, 'agent', ?)")
-      .run(id, nowTs(ctx.now, ctx.config.timezone), `step ${step.n} not done: ${step.title}`, nowIso(ctx.now));
+    ctx.db.prepare("UPDATE step SET started_at = ? WHERE id = ?").run(nowIso(ctx.now), step.id);
+    stepEvent(ctx, id, `step ${step.n} started: ${step.title}`);
     touch(ctx, id);
   });
-  return { text: `${id} step ${step.n} not done`, json: { ticket_id: id, n: step.n } };
+  return { text: `${id} step ${step.n} started`, json: { ticket_id: id, n: step.n } };
+}
+
+export function undo(ctx: Ctx, id: string, n: string): Result {
+  const step = getStep(ctx, id, n);
+  if (step.done_at === null && step.started_at === null) throw new HubError(`step ${n} on ${id} is not started`);
+  const what = step.done_at === null ? "not started" : "not done";
+  transaction(ctx.db, () => {
+    ctx.db.prepare("UPDATE step SET done_at = NULL, started_at = NULL, evidence = NULL WHERE id = ?").run(step.id);
+    stepEvent(ctx, id, `step ${step.n} ${what}: ${step.title}`);
+    touch(ctx, id);
+  });
+  return { text: `${id} step ${step.n} ${what}`, json: { ticket_id: id, n: step.n } };
 }
 
 export function remove(ctx: Ctx, id: string, n: string): Result {
@@ -99,7 +117,9 @@ export function done(ctx: Ctx, id: string, n: string, evidence: string | null): 
   if (step.done_at !== null) throw new HubError(`step ${n} on ${id} is already done`);
   const at = nowIso(ctx.now);
   transaction(ctx.db, () => {
-    ctx.db.prepare("UPDATE step SET done_at = ?, evidence = ? WHERE id = ?").run(at, evidence, step.id);
+    ctx.db
+      .prepare("UPDATE step SET done_at = ?, started_at = coalesce(started_at, ?), evidence = ? WHERE id = ?")
+      .run(at, at, evidence, step.id);
     ctx.db
       .prepare(
         "INSERT INTO event(ticket_id, ts, kind, text, source, ref, created_at) VALUES (?, ?, 'step', ?, 'agent', ?, ?)",
@@ -109,7 +129,7 @@ export function done(ctx: Ctx, id: string, n: string, evidence: string | null): 
   });
   const p = progress(ctx.db, id);
   return {
-    text: `${id} step ${step.n} done (${p.done}/${p.total})${p.next ? `, next: ${p.next.n} ${p.next.title}` : ""}`,
+    text: `${id} step ${step.n} done (${p.done}/${p.total})${p.doing.length > 0 ? `, still doing: ${p.doing.map((s) => s.n).join(", ")}` : ""}`,
     json: { ticket_id: id, n: step.n, done: p.done, total: p.total },
   };
 }
