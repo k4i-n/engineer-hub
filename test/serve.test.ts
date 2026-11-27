@@ -857,7 +857,7 @@ describe("serve", () => {
     writeFileSync(file, JSON.stringify([{ path: "src/limit.ts", line: 12, body: "Make it configurable." }]));
     await hub(["draft", pr, "review", "--stdin", "--verdict", "request_changes", "--comments", file], "Close.");
     const comment =
-      /<li><code class="d-path">src\/limit\.ts:12<\/code><div class="d-cbody md"><p>Make it configurable\.<\/p><\/div><button type="button" class="chip-btn" data-copy="Make it configurable\.">Copy<\/button><\/li>/;
+      /<li><code class="d-path" title="src\/limit\.ts:12"><bdi dir="ltr">src\/limit\.ts:12<\/bdi><\/code><div class="d-cbody md"><p>Make it configurable\.<\/p><\/div><button type="button" class="chip-btn" data-copy="Make it configurable\.">Copy<\/button><\/li>/;
     const home = await (await fetch(`${server.url}/?part=1`)).text();
     const send = new RegExp(`data-key="send-${pr}-review"[\\s\\S]*?</li>`).exec(home)?.[0] ?? "";
     assert.match(send, /<span class="pill tone-orange">request changes<\/span>/);

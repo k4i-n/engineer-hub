@@ -1218,7 +1218,7 @@ button.busy::after {
 }
 .d-comments li {
   display: grid;
-  grid-template-columns: minmax(0, max-content) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
   gap: 8px;
   font-size: 13px;
@@ -1228,7 +1228,15 @@ button.busy::after {
 }
 .d-path {
   font-size: 12px;
-  overflow-wrap: anywhere;
+  direction: rtl;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.d-cbody {
+  grid-column: 1 / -1;
+  grid-row: 2;
 }
 .d-actions {
   margin-left: auto;
@@ -2463,18 +2471,6 @@ kbd {
     grid-column: 2 / -1;
     justify-content: flex-start;
     margin-top: 4px;
-  }
-  .d-comments li {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-  .d-path {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .d-cbody {
-    grid-column: 1 / -1;
-    grid-row: 2;
   }
   .tabs {
     max-width: 100%;
