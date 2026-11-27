@@ -316,6 +316,23 @@ describe("writes", () => {
     assert.equal(priority(), null);
   });
 
+  test("set updated backdates the ticket in the config timezone and refuses the future", async () => {
+    await imported();
+    now = new Date("2026-11-14T16:00:00Z");
+    await ok("set", "ENG-7", "updated", "2026-10-02 09:30");
+    const row = () =>
+      sql<{ updated: string; updated_at: string }>("SELECT updated, updated_at FROM ticket WHERE id = 'ENG-7'")[0];
+    assert.deepEqual(row(), { updated: "2026-10-02", updated_at: "2026-10-02T00:30:00.000Z" });
+    await ok("set", "ENG-7", "updated", "2026-11-01");
+    assert.deepEqual(row(), { updated: "2026-11-01", updated_at: "2026-10-31T15:00:00.000Z" });
+    assert.match((await hub("set", "ENG-7", "updated", "2026-11-16")).err, /updated cannot be in the future/);
+    assert.match(
+      (await hub("set", "ENG-7", "updated", "last week")).err,
+      /updated takes YYYY-MM-DD or YYYY-MM-DD HH:MM/,
+    );
+    assert.deepEqual(row(), { updated: "2026-11-01", updated_at: "2026-10-31T15:00:00.000Z" });
+  });
+
   test("set refuses an unknown field and an unknown ticket", async () => {
     await imported();
     assert.match((await hub("set", "ENG-7", "colour", "x")).err, /unknown body field colour \(title, status, repo/);

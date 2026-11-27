@@ -99,6 +99,18 @@ export function shiftDate(date: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+const PAST = /^(\d{4}-\d{2}-\d{2})(?: (\d{1,2}):(\d{2}))?$/;
+
+export function pastTime(now: Date, value: string, timezone: string, flag: string): string {
+  const at = PAST.exec(value.trim());
+  const [h, m] = [Number(at?.[2] ?? 0), Number(at?.[3] ?? 0)];
+  if (!at?.[1] || !isDate(at[1]) || h > 23 || m > 59)
+    throw new HubError(`${flag} takes YYYY-MM-DD or YYYY-MM-DD HH:MM, not ${value}`);
+  const when = Date.parse(startOfDayIso(at[1], timezone)) + h * 3_600_000 + m * 60_000;
+  if (when > now.getTime()) throw new HubError(`${flag} cannot be in the future: ${value}`);
+  return new Date(when).toISOString();
+}
+
 export function sinceDate(arg: string, now: Date, timezone: string): string {
   if (arg === "today") return today(now, timezone);
   if (arg === "yesterday") return shiftDate(today(now, timezone), -1);

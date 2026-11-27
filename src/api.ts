@@ -121,6 +121,7 @@ const later: Field = { type: "string", about: "30m, 4h, 2d or tomorrow (default 
 
 const FIELD_ABOUT: Partial<Record<(typeof SETTABLE_FIELDS)[number], string>> = {
   priority: "Urgent, High, Medium or Low; empty clears it",
+  updated: "when the ticket last moved, YYYY-MM-DD or YYYY-MM-DD HH:MM, not in the future; for backfilled history",
 };
 
 const TICKET_FIELDS: Fields = Object.fromEntries([

@@ -155,6 +155,7 @@ export const SETTABLE_FIELDS = [
   "next",
   "owner",
   "priority",
+  "updated",
 ] as const;
 export const PRIORITIES = ["Urgent", "High", "Medium", "Low"] as const;
 
