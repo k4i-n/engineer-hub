@@ -34,7 +34,7 @@ import {
 } from "./db.ts";
 import { series, span } from "./horizon.ts";
 import { type IntervalKey, intervalText, KEEP_RANGE, ladder, minutes } from "./intervals.ts";
-import { KIND_NAME } from "./items.ts";
+import { folds, KIND_NAME } from "./items.ts";
 import { esc, renderLine, renderMarkdown } from "./markdown.ts";
 import { pins } from "./pins.ts";
 import * as plan from "./plan.ts";
@@ -621,10 +621,12 @@ function itemNeed(ctx: Ctx, i: ItemRow): Need {
           : queued(i)
             ? "Yes · queued"
             : null;
-  const url = i.url ?? (/^https?:/.test(i.ref) ? i.ref : null);
+  const folded = i.kind === "alert" ? folds(ctx.db, i) : null;
+  const url = folded?.url ?? i.url ?? (/^https?:/.test(i.ref) ? i.ref : null);
   const drafts = itemDrafts(ctx, i, dim === null);
   const source = [
     githubRef(url) ?? i.source,
+    folded === null ? null : `×${folded.count}, last ${when(ctx, folded.last)}`,
     i.source === "slack" ? workspace(ctx, url) : null,
     i.author,
     i.state,

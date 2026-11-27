@@ -1120,7 +1120,7 @@ describe("db", () => {
     db.close();
     assert.throws(
       () => serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] }),
-      /has schema v1, this hub needs v28: move the file aside and re-import/,
+      /has schema v1, this hub needs v29: move the file aside and re-import/,
     );
     server = await serve({ dbPath: join(dir, "other.db"), port: 0, now: () => now, env: {}, fetchers: [] });
   });
@@ -1601,6 +1601,59 @@ UPDATE meta SET value = '27' WHERE key = 'schema_version'`);
     await ok("item", "answer", other, "no");
     assert.match(await ok("items", "--all"), /pull\/150 \| ask: Look at this\? no \| closed$/m);
     assert.match(await ok("items", "--needs-me"), /pull\/151 \| ask: Approve as is\? no$/m);
+  });
+});
+
+describe("alert folding", () => {
+  const minutes = (n: number) => {
+    now = new Date(now.getTime() + n * 60_000);
+  };
+  const alert = (
+    n: number,
+    title = "#tech_alert_critical · Cloudflare: SSL alert [PCI]: certificate 6bb63dcf updated",
+  ) =>
+    JSON.stringify({
+      source: "slack",
+      kind: "alert",
+      url: `https://acme.slack.com/archives/C9/p17957500000${String(n).padStart(5, "0")}`,
+      title,
+      body: title,
+      state: "alert",
+      needs_me: true,
+    });
+  const alerts = async () => (await ok("items", "--needs-me", "--source", "slack")).split("\n").filter((l) => l !== "");
+
+  test("identical alerts within an hour are one row with a count; a re-fetch does not count twice", async () => {
+    await imported();
+    await ok("moved", "--as", "s1", "--start");
+    stdin = [1, 2, 3, 4, 5, 6, 7].map((n) => alert(n)).join("\n");
+    assert.equal(await ok("item", "put", "--stdin"), "items: 1 new, 6 changed, 0 unchanged");
+    stdin = alert(7);
+    assert.equal(await ok("item", "put", "--stdin"), "items: 0 new, 0 changed, 1 unchanged");
+    assert.equal((await alerts()).length, 1);
+    minutes(1);
+    const moved = await ok("moved", "--as", "s1");
+    assert.equal(moved.split("\n").filter((l) => l.includes("SSL alert")).length, 1);
+    assert.match(moved, /SSL alert .* ×7 \(alert\)/);
+    const home = await (await fetch(`${server.url}/?part=1`)).text();
+    assert.match(home, /×7, last \d{2}:\d{2}/);
+    assert.match(home, /p1795750000000007/);
+  });
+
+  test("two hours apart, another text, or after the row is closed: a new row", async () => {
+    await imported();
+    stdin = alert(1);
+    await ok("item", "put", "--stdin");
+    minutes(120);
+    stdin = alert(2);
+    await ok("item", "put", "--stdin");
+    stdin = alert(3, "#tech_alert_critical · Cloudflare: SSL alert [PCI]: certificate 9aa11b00 updated");
+    await ok("item", "put", "--stdin");
+    assert.equal((await alerts()).length, 3);
+    for (const id of (await alerts()).map((l) => l.split(" ")[0]?.slice(1) ?? "")) await ok("item", "close", id);
+    stdin = alert(4);
+    await ok("item", "put", "--stdin");
+    assert.equal((await alerts()).length, 1);
   });
 });
 
