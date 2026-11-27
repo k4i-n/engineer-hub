@@ -685,6 +685,11 @@ describe("linear", () => {
       return { status: 200, body: JSON.stringify(LINEAR) };
     };
     assert.match(await hub("fetch"), /^linear: items: 4 new/);
+    const settings = await (await fetch(`${server.url}/settings?part=1`)).text();
+    assert.match(
+      settings,
+      /<details class="replace-fold" data-key="replace-key-linear">[\s\S]*?security add-generic-password -U -s engineer-hub -a linear -w/,
+    );
     const auth = JSON.parse(calls.find((c) => c[0] === "http")?.[3] ?? "{}");
     assert.equal(auth.Authorization, "lin_api_x");
     const needs = await hub("items", "--needs-me", "--source", "linear");
@@ -824,7 +829,7 @@ describe("linear", () => {
   test("with no key the source says how to store one, either way", async () => {
     assert.match(await hub("fetch", "linear"), /^linear: no linear key$/);
     const settings = await (await fetch(`${server.url}/settings?part=1`)).text();
-    assert.match(settings, /security add-generic-password -s engineer-hub -a linear -w/);
+    assert.match(settings, /security add-generic-password -U -s engineer-hub -a linear -w/);
     assert.match(
       settings,
       /sealcall add linear --host api.linear.app --header &#39;Authorization: \{key\}&#39; --allow &#39;POST \/graphql&#39;/,

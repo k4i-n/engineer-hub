@@ -37,6 +37,11 @@ function sys(platform: NodeJS.Platform = "darwin", env: NodeJS.ProcessEnv = {}):
         judged.push({ args, input: options?.input ?? "", cwd: options?.cwd });
         return judge(options?.input ?? "");
       }
+      if (program === "security" && args[0] === "delete-generic-password") {
+        const had = stored !== null;
+        stored = null;
+        return { code: had ? 0 : 44, stdout: "", stderr: "" };
+      }
       if (program === "security")
         return stored === null ? { code: 44, stdout: "", stderr: "" } : { code: 0, stdout: `${stored}\n`, stderr: "" };
       if (program !== "ioreg") return { code: 127, stdout: "", stderr: "not found" };
@@ -181,7 +186,7 @@ describe("away ping without a judge", () => {
     assert.equal(hub.hasUrl, false);
     assert.match(
       awayState(ctx()).error ?? "",
-      /no webhook URL: security add-generic-password -s engineer-hub -a webhook -w/,
+      /no webhook URL: security add-generic-password -U -s engineer-hub -a webhook -w/,
     );
   });
 
@@ -211,6 +216,15 @@ describe("away ping without a judge", () => {
       "hub test: 3 new | Fix now 1 | Reply 2\nFix now: #alerts (Grafana) ×3, API 5xx above 2%\nReply: #help-desk (ana), can you confirm the app scopes?\nReply: DM (bo), got a minute?";
     assert.equal(await linux.test(), "posted hub test: 3 new | Fix now 1 | Reply 2");
     assert.deepEqual(posts, [sample]);
+  });
+
+  test("Remove deletes the keychain item; an environment URL is named instead", async () => {
+    const hub = away();
+    assert.equal(await hub.remove(), "webhook URL removed");
+    assert.equal(stored, null);
+    assert.equal(hub.hasUrl, false);
+    assert.equal(await hub.remove(), "webhook URL removed");
+    await assert.rejects(away(sys("darwin", { HUB_WEBHOOK_KEY: HOOK })).remove(), /HUB_WEBHOOK_KEY is set/);
   });
 });
 
@@ -472,5 +486,34 @@ describe("dashboard", () => {
       "hub test: 2 need you\nReply: #help-desk (ana), asks you to confirm app scopes\nFix now: #alerts (Grafana) ×3, matches ENG-12 after web#123 merge",
     ]);
     assert.equal(all<ItemRow>(db, "SELECT * FROM item").length, 0);
+  });
+
+  test("a stored URL can be replaced or removed from Settings", async () => {
+    const webhook = async () =>
+      /<span class="set-label">Webhook<\/span>[\s\S]*?<\/div><\/div>/.exec(
+        await (await fetch(`${server.url}/settings?part=1`)).text(),
+      )?.[0] ?? "";
+    await fetch(`${server.url}/api/v1/away/test`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+      body: "{}",
+    });
+    const before = await webhook();
+    assert.match(before, /stored<\/span>/);
+    assert.match(before, /data-act="away-remove"/);
+    assert.match(
+      before,
+      /<details class="replace-fold"[\s\S]*security add-generic-password -U -s engineer-hub -a webhook -w/,
+    );
+    const r = await fetch(`${server.url}/api/v1/away/remove`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+      body: "{}",
+    });
+    assert.equal(r.status, 200);
+    const after = await webhook();
+    assert.match(after, /not stored<\/span>/);
+    assert.doesNotMatch(after, /away-remove|replace-fold/);
+    assert.match(after, /security add-generic-password -U/);
   });
 });

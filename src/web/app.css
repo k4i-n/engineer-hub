@@ -1527,12 +1527,14 @@ a.chip-btn:hover {
 }
 .ngroup > summary,
 .cleared > summary,
-.more-fold > summary {
+.more-fold > summary,
+.replace-fold > summary {
   list-style: none;
 }
 .ngroup > summary::-webkit-details-marker,
 .cleared > summary::-webkit-details-marker,
-.more-fold > summary::-webkit-details-marker {
+.more-fold > summary::-webkit-details-marker,
+.replace-fold > summary::-webkit-details-marker {
   display: none;
 }
 .ngroup > summary {
@@ -1952,6 +1954,16 @@ textarea.text {
 }
 .set-control > .code-block {
   flex-basis: 100%;
+  min-width: 0;
+}
+.replace-fold[open] {
+  flex-basis: 100%;
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+}
+.replace-fold > .code-block {
+  justify-self: stretch;
   min-width: 0;
 }
 .code-block pre {

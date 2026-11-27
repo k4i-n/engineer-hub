@@ -15,6 +15,7 @@ export type Candidate = { item: ItemRow; ids: number[] };
 export type Verdict = { ping: boolean; why: string };
 
 const WEBHOOK_ACCOUNT = "webhook";
+const KEYCHAIN_NOT_FOUND = 44;
 const WEBHOOK_ENV = "HUB_WEBHOOK_KEY";
 const COLLAPSE_MS = 2 * 3_600_000;
 const NS_PER_MS = 1_000_000;
@@ -273,7 +274,7 @@ export async function webhookUrl(sys: System): Promise<string | null> {
 
 export function webhookCommand(platform: NodeJS.Platform): string {
   return platform === "darwin"
-    ? `security add-generic-password -s ${KEYCHAIN_SERVICE} -a ${WEBHOOK_ACCOUNT} -w`
+    ? `security add-generic-password -U -s ${KEYCHAIN_SERVICE} -a ${WEBHOOK_ACCOUNT} -w`
     : `export ${WEBHOOK_ENV}=https://...`;
 }
 
@@ -317,6 +318,23 @@ export class Away {
     const text = sampleText(this.ctx().config.judgeCommand.length > 0);
     await postWebhook(this.sys, url, text);
     return `posted ${text.split("\n")[0]}`;
+  }
+
+  async remove(): Promise<string> {
+    if (this.sys.platform === "darwin") {
+      const r = await this.sys.run("security", [
+        "delete-generic-password",
+        "-s",
+        KEYCHAIN_SERVICE,
+        "-a",
+        WEBHOOK_ACCOUNT,
+      ]);
+      if (r.code !== 0 && r.code !== KEYCHAIN_NOT_FOUND)
+        throw new HubError(lastLine(r.stderr) || "keychain delete failed");
+    }
+    if ((await this.lookup()) !== null)
+      throw new HubError(`${WEBHOOK_ENV} is set in hub's environment: unset it and restart hub`);
+    return "webhook URL removed";
   }
 
   async check(): Promise<void> {

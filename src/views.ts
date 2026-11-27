@@ -183,6 +183,11 @@ function codeBlock(text: string): string {
   return `<div class="md code-block"><pre><code>${esc(text)}</code></pre></div>`;
 }
 
+function replaceFold(key: string, commands: string[]): string {
+  if (commands.length === 0) return "";
+  return `<details class="replace-fold" data-key="replace-${esc(key)}"><summary class="chip-btn">Replace</summary>${commands.map(codeBlock).join("")}</details>`;
+}
+
 function button(
   label: string,
   data: Record<string, string | number>,
@@ -1831,7 +1836,7 @@ function sourceRows(ctx: Ctx, list: Fetching[]): string {
       const warning = f.warning === null ? "" : `<span class="src-how tone-text-amber">${esc(f.warning)}</span>`;
       const fixes =
         f.script === null && f.ok === true && f.error === null && f.warning === null
-          ? ""
+          ? replaceFold(`key-${f.name}`, f.fixes)
           : f.fixes.map(codeBlock).join("");
       const controls = f.script === null ? "" : scriptControls(f);
       return row(
@@ -1897,7 +1902,11 @@ function awayRows(ctx: Ctx, away: AwayView): string {
     ) +
     row(
       "Webhook",
-      `<span class="src-state">${esc(stored)}</span>${button("Test", { act: "away-test" })}${away.hasUrl === true ? "" : codeBlock(away.command)}`,
+      `<span class="src-state">${esc(stored)}</span>${button("Test", { act: "away-test" })}${
+        away.hasUrl === true
+          ? `${button("Remove", { act: "away-remove", confirm: "Remove the webhook URL?" })}${replaceFold("webhook", [away.command])}`
+          : codeBlock(away.command)
+      }`,
     ) +
     row("Last ping", last, !c.awayPing) +
     row("Judge", `${codeBlock(JSON.stringify(c.judgeCommand))}${judged}`, !c.awayPing) +
