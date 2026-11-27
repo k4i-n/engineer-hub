@@ -235,6 +235,7 @@ function sampleGroup(kind: string, place: string, author: string, count: number,
     ask: null,
     ask_answer: null,
     ask_at: null,
+    review_ask: 0,
   };
   return { item, ids: Array.from({ length: count }, (_, i) => i) };
 }

@@ -1082,7 +1082,7 @@ describe("db", () => {
     db.close();
     assert.throws(
       () => serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] }),
-      /has schema v1, this hub needs v27: move the file aside and re-import/,
+      /has schema v1, this hub needs v28: move the file aside and re-import/,
     );
     server = await serve({ dbPath: join(dir, "other.db"), port: 0, now: () => now, env: {}, fetchers: [] });
   });
@@ -1539,10 +1539,30 @@ describe("review question", () => {
     assert.match(await ok("items", "--all"), /pull\/142 \| ask: Review this\? \(no answer yet\) \| closed$/m);
   });
 
-  test("reviewAsk is one line of at most 200 chars", async () => {
-    assert.match((await hub("config", "reviewAsk", JSON.stringify("x".repeat(201)))).err, /one line of at most 200/);
-    assert.match((await hub("config", "reviewAsk", '"a\\nb"')).err, /one line of at most 200/);
-    assert.equal(await ok("config", "reviewAsk", '"Look at this?"'), 'reviewAsk = "Look at this?"');
+  test("the review question is fixed: reviewAsk is no longer a config key", async () => {
+    assert.match((await hub("config", "reviewAsk", '"Look at this?"')).err, /unknown config key reviewAsk/);
+  });
+
+  test("v28: review requests that asked the old configured question still close on No", async () => {
+    await imported();
+    const pr = "https://github.com/acme/web/pull/150";
+    const other = "https://github.com/acme/web/pull/151";
+    await put(pr);
+    await put(other);
+    await ok("item", "ask", other, "Approve", "as", "is?");
+    await server.close();
+    const db = new DatabaseSync(dbFile);
+    db.exec(`ALTER TABLE item DROP COLUMN review_ask;
+UPDATE item SET ask = 'Look at this?' WHERE ref = '${pr}';
+INSERT INTO config(key, value, updated_at) VALUES ('reviewAsk', '"Look at this?"', '2026-11-20T00:00:00Z');
+UPDATE meta SET value = '27' WHERE key = 'schema_version'`);
+    db.close();
+    server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] });
+    assert.equal(sql<{ n: number }>("SELECT count(*) AS n FROM config WHERE key = 'reviewAsk'")[0]?.n, 0);
+    await ok("item", "answer", pr, "no");
+    await ok("item", "answer", other, "no");
+    assert.match(await ok("items", "--all"), /pull\/150 \| ask: Look at this\? no \| closed$/m);
+    assert.match(await ok("items", "--needs-me"), /pull\/151 \| ask: Approve as is\? no$/m);
   });
 });
 

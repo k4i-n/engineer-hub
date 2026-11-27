@@ -1,10 +1,10 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
-import { DEFAULTS } from "./config.ts";
+import { DEFAULTS, REVIEW_ASK } from "./config.ts";
 import { HubError, nowIso, nowTs } from "./util.ts";
 
-export const SCHEMA_VERSION = "27";
+export const SCHEMA_VERSION = "28";
 
 export type Ticket = {
   id: string;
@@ -99,6 +99,7 @@ export type ItemRow = {
   ask: string | null;
   ask_answer: string | null;
   ask_at: string | null;
+  review_ask: number;
 };
 export type WaitRow = {
   id: number;
@@ -209,7 +210,7 @@ CREATE TABLE item(id INTEGER PRIMARY KEY, source TEXT NOT NULL, ref TEXT NOT NUL
   url TEXT, state TEXT, author TEXT, ticket_id TEXT, needs_me INTEGER NOT NULL DEFAULT 0,
   first_seen TEXT NOT NULL, changed_at TEXT NOT NULL, closed_at TEXT, snoozed_until TEXT, ignored TEXT,
   detached INTEGER NOT NULL DEFAULT 0, judged_at TEXT, away_ping INTEGER, away_why TEXT, body TEXT, detail TEXT,
-  ask TEXT, ask_answer TEXT, ask_at TEXT, avatar TEXT);
+  ask TEXT, ask_answer TEXT, ask_at TEXT, avatar TEXT, review_ask INTEGER NOT NULL DEFAULT 0);
 CREATE INDEX item_ticket ON item(ticket_id);
 CREATE TABLE wait(id INTEGER PRIMARY KEY, ticket_id TEXT NOT NULL, who TEXT NOT NULL, url TEXT NOT NULL,
   asked_at TEXT NOT NULL, ping_after TEXT, pinged_at TEXT, closed_at TEXT, reopened_at TEXT);
@@ -271,7 +272,7 @@ ${DRAFT_COMMENT}`,
   "18": { to: "19", sql: "ALTER TABLE draft ADD COLUMN internal INTEGER NOT NULL DEFAULT 0;" },
   "19": {
     to: "20",
-    sql: `UPDATE item SET ask = '${DEFAULTS.reviewAsk}'
+    sql: `UPDATE item SET ask = '${REVIEW_ASK}'
 WHERE kind = 'review_request' AND ask IS NULL AND closed_at IS NULL AND ignored IS NULL;`,
   },
   "20": { to: "21", sql: "ALTER TABLE item ADD COLUMN avatar TEXT;" },
@@ -283,6 +284,13 @@ WHERE kind = 'review_request' AND ask IS NULL AND closed_at IS NULL AND ignored 
   "26": {
     to: "27",
     sql: (db) => (hasColumn(db, "step", "started_at") ? "" : "ALTER TABLE step ADD COLUMN started_at TEXT;"),
+  },
+  "27": {
+    to: "28",
+    sql: (db) => `${hasColumn(db, "item", "review_ask") ? "" : "ALTER TABLE item ADD COLUMN review_ask INTEGER NOT NULL DEFAULT 0;"}
+UPDATE item SET review_ask = 1 WHERE kind = 'review_request'
+  AND ask = coalesce((SELECT json_extract(value, '$') FROM config WHERE key = 'reviewAsk'), '${REVIEW_ASK}');
+DELETE FROM config WHERE key = 'reviewAsk';`,
   },
 };
 

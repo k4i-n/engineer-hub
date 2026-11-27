@@ -1977,11 +1977,6 @@ ${section(
       c.fetch.github !== true,
     ) +
     row(
-      "Review question",
-      `<input class="text" data-config-input="reviewAsk" value="${esc(c.reviewAsk)}" spellcheck="false">`,
-      c.fetch.github !== true,
-    ) +
-    row(
       "My PRs",
       `<input class="text" data-config-input="githubPrQuery" value="${esc(c.githubPrQuery)}" spellcheck="false">`,
       c.fetch.github !== true,

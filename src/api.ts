@@ -713,7 +713,7 @@ export const ROUTES: Route[] = [
     method: "POST",
     path: "/items/{key}/ask",
     about:
-      "Put a yes/no question to the human on an item; the answer shows on the item, in brief and in moved. Review requests already ask reviewAsk by themselves. An empty question removes it.",
+      "Put a yes/no question to the human on an item; the answer shows on the item, in brief and in moved. Review requests already ask Review this? by themselves. An empty question removes it.",
     body: { question: { type: "string", required: true, about: "one line, ending in ?" } },
     run: (ctx, a) => items.ask(ctx, str(a, "key"), str(a, "question")),
   },
