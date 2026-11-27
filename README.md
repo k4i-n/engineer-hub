@@ -54,7 +54,7 @@ hub board
   [-] ENG-42 | - | GATE: waiting on design review | next: write the migration for the sessions table
 ```
 
-Each ticket has its own page with state, steps, timeline, items, waits, drafts and notes:
+Each ticket has its own page with state, steps, timeline, items, waits, drafts, notes and files:
 
 ![Ticket page](docs/images/ticket.png)
 

@@ -522,7 +522,7 @@ export function searchAll(ctx: Ctx, query: string, limit: number): Found[] {
         kind: FOUND_KIND[h.tbl] ?? h.tbl,
         title: h.label ?? "",
         sub: h.snip,
-        href: page(h.ticket_id),
+        href: h.tbl === "file" ? files.fileHref(h.ticket_id, h.label) : page(h.ticket_id),
         out: null,
         ticket: h.ticket_id,
         head: h.head,
@@ -556,17 +556,13 @@ export function noteShow(ctx: Ctx, id: string, title: string): Result {
   return { text: note.body, json: note };
 }
 
-function size(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
 export function fileList(ctx: Ctx, id: string): Result {
   getTicket(ctx.db, id);
   const folder = files.ticketFolder(ctx.files, id);
   const list = files.listFiles(ctx.files, id);
-  const lines = list.map((f) => `${f.path}  ${size(f.size)}  ${nowTs(new Date(f.modified), ctx.config.timezone)}`);
+  const lines = list.map(
+    (f) => `${f.path}  ${files.sizeText(f.size)}  ${nowTs(new Date(f.modified), ctx.config.timezone)}`,
+  );
   return { text: [folder, ...lines].join("\n"), json: { folder, files: list } };
 }
 

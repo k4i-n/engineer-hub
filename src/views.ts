@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import type { AwayState } from "./away.ts";
 import type { Backup, BackupState } from "./backup.ts";
 import { area, bar, donut, half, legend, percent, ring, type Slice, stack } from "./charts.ts";
@@ -32,6 +33,7 @@ import {
   type Ticket,
   type WaitRow,
 } from "./db.ts";
+import { type FileEntry, fileHref, insideFolder, listFiles, show, sizeText, ticketFolder } from "./files.ts";
 import { series, span } from "./horizon.ts";
 import { type IntervalKey, intervalText, KEEP_RANGE, ladder, minutes } from "./intervals.ts";
 import { folds, KIND_NAME } from "./items.ts";
@@ -1577,6 +1579,35 @@ function stepRow(ctx: Ctx, ticket: string, s: StepRow): string {
   return `<li class="${cls}" data-key="s-${s.n}"${hidden}><span class="check" data-n="${s.n}"></span><span class="s-title">${line(ctx, s.title)}</span>${doing}${evidence}${stepMenu(ticket, s)}</li>`;
 }
 
+function filesSection(ctx: Ctx, id: string, files: FileEntry[]): string {
+  const menu = moreMenu("menu-files", [menuItem("copy", "Copy folder path", { copy: ticketFolder(ctx.files, id) })]);
+  const rows = files.map((f) => {
+    const raw = show(f.path) === "raw";
+    const href = fileHref(id, f.path, raw);
+    const target = raw ? ` target="_blank" rel="noreferrer"` : "";
+    return `<li class="file"><a class="f-path" href="${esc(href)}"${target}>${esc(f.path)}</a><span class="f-size">${sizeText(f.size)}</span><span class="ts" title="${esc(f.modified)}">${ago(ctx, f.modified)}</span></li>`;
+  });
+  return section("Files", files.length, `<ul class="rows files">${rows.join("")}</ul>`, "files-sec", menu);
+}
+
+export function fileBody(ctx: Ctx, id: string, path: string, live: Live): string {
+  const t = getTicket(ctx.db, id);
+  const full = insideFolder(ctx.files, id, path);
+  const raw = fileHref(t.id, path, true);
+  const kind = show(path);
+  let content = `<a href="${esc(raw)}">${esc(path)}</a>`;
+  if (kind === "markdown")
+    content = `<section class="file-doc md">${markdown(ctx, readFileSync(full, "utf8"))}</section>`;
+  if (kind === "html") {
+    content = `<iframe class="file-frame" sandbox="allow-scripts" src="${esc(raw)}" title="${esc(path)}"></iframe>`;
+  }
+  if (kind === "image") content = `<img class="file-img" src="${esc(raw)}" alt="${esc(path)}">`;
+  const head = `<div class="page-head">${ticketLink(t.id)}<h1>${esc(path)}</h1><a class="head-link" href="${esc(raw)}" target="_blank" rel="noreferrer">raw ↗</a></div>`;
+  return `${header(ctx, live, "ticket")}
+${head}
+<main class="file-view" data-still>${content}</main>`;
+}
+
 export function ticketBody(ctx: Ctx, id: string, live: Live): string {
   const link = linker(ctx);
   const t = getTicket(ctx.db, id);
@@ -1604,6 +1635,7 @@ export function ticketBody(ctx: Ctx, id: string, live: Live): string {
     MAX_TIMELINE,
   );
   const notes = all<NoteRow>(ctx.db, "SELECT * FROM note WHERE ticket_id = ? ORDER BY position, id", id);
+  const files = listFiles(ctx.files, id);
   const p = progress(ctx.db, id);
 
   const ticketMenu = moreMenu("menu-ticket", [
@@ -1739,6 +1771,7 @@ export function ticketBody(ctx: Ctx, id: string, live: Live): string {
       html: section("Drafts", null, draftList(drafts, draftRows), "drafts", draftTabs(drafts)),
       n: drafts.length,
     },
+    { name: "files", html: filesSection(ctx, t.id, files), n: files.length },
   ];
   const shown = (names: string[]) =>
     parts
@@ -1754,7 +1787,7 @@ export function ticketBody(ctx: Ctx, id: string, live: Live): string {
 ${head}
 <main class="grid">
 <div class="col">${ticketNeeds}${section("State", null, state, "state-sec")}${shown(["steps"])}${section("Timeline", null, timeline, "timeline", timelineTabs)}</div>
-<div class="col">${shown(["items", "waits", "drafts"])}${section("Notes", notes.length, noteRows.length === 0 ? empty() : noteRows.join(""), "notes")}${noneLine}</div>
+<div class="col">${shown(["items", "waits", "drafts"])}${section("Notes", notes.length, noteRows.length === 0 ? empty() : noteRows.join(""), "notes")}${shown(["files"])}${noneLine}</div>
 </main>`;
 }
 

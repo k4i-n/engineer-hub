@@ -17,7 +17,29 @@ import { HubError } from "./util.ts";
 export type FileEntry = { path: string; size: number; modified: string };
 
 const TEXT = new Set([".md", ".markdown", ".txt", ".csv", ".json", ".html", ".htm"]);
+const IMAGE = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"]);
+
+export type Show = "markdown" | "html" | "image" | "raw";
 const MAX_INDEXED = 1_000_000;
+
+export function show(path: string): Show {
+  const ext = extname(path).toLowerCase();
+  if (ext === ".md" || ext === ".markdown") return "markdown";
+  if (ext === ".html" || ext === ".htm") return "html";
+  if (IMAGE.has(ext)) return "image";
+  return "raw";
+}
+
+export function fileHref(id: string, path: string, raw = false): string {
+  const parts = [id, ...path.split("/")].map(encodeURIComponent);
+  return `/t/${parts[0]}/${raw ? "raw" : "files"}/${parts.slice(1).join("/")}`;
+}
+
+export function sizeText(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
 
 export function filesRoot(dbPath: string): string {
   return join(dirname(resolve(dbPath)), "files");

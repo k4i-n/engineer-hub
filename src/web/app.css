@@ -1296,6 +1296,46 @@ button.busy::after {
   color: var(--muted);
 }
 
+/* files */
+.file {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 0;
+}
+.f-path {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.f-size,
+.file .ts {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.file-view {
+  padding: 18px 24px 40px;
+}
+.file-doc {
+  max-width: 920px;
+}
+.file-frame {
+  display: block;
+  width: 100%;
+  height: calc(100vh - 150px);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+.file-img {
+  display: block;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
 /* ticket page */
 .state {
   display: grid;
