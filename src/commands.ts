@@ -1,4 +1,4 @@
-import { basename } from "node:path";
+import { basename, join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { type Config, DEFAULTS, loadConfig, setConfig } from "./config.ts";
 import {
@@ -22,6 +22,7 @@ import {
   transaction,
   type WaitRow,
 } from "./db.ts";
+import * as files from "./files.ts";
 import { span } from "./horizon.ts";
 import { prBodyTitle } from "./items.ts";
 import { fileTitle, splitResume } from "./parse.ts";
@@ -29,7 +30,7 @@ import * as plan from "./plan.ts";
 import { progress } from "./steps.ts";
 import { cut, HubError, nowIso, nowTs, pastTime, sendTime, sinceDate, startOfDayIso, today } from "./util.ts";
 
-export type Ctx = { db: DatabaseSync; config: Config; now: Date };
+export type Ctx = { db: DatabaseSync; config: Config; now: Date; files: string };
 export type Result = { text: string; json: unknown; exitCode?: number };
 
 const EVENT_KINDS = ["log", "reading", "decision", "tracker", "pr", "slack", "sync", "step", "import"];
@@ -176,6 +177,8 @@ export function ticket(ctx: Ctx, id: string): Result {
     one<{ n: number }>(ctx.db, "SELECT count(*) AS n FROM wait WHERE ticket_id = ? AND closed_at IS NULL", id)?.n ?? 0;
   const notes = all<{ title: string }>(ctx.db, "SELECT title FROM note WHERE ticket_id = ? ORDER BY position, id", id);
   const pulls = pullItems(ctx, id);
+  const fileCount = files.fileCount(ctx.files, id);
+  const folder = files.ticketFolder(ctx.files, id);
   const lines = [
     `${t.id} | ${v(t.dir)} | ${v(t.title)}`,
     `status: ${v(t.status)}`,
@@ -192,6 +195,7 @@ export function ticket(ctx: Ctx, id: string): Result {
     `drafts: ${drafts.length} (${cut(drafts.map((d) => d.label).join(", "), 150)})`,
     `items: ${itemCounts.open} open, ${itemCounts.needsMe} need you | waits: ${openWaits} open`,
     `notes: ${cut(notes.map((n) => n.title).join("; "), 200)}`,
+    `files: ${fileCount}${fileCount > 0 ? ` in ${folder}` : ""}`,
   ];
   return {
     text: lines.join("\n"),
@@ -205,6 +209,7 @@ export function ticket(ctx: Ctx, id: string): Result {
       steps,
       notes: notes.map((n) => n.title),
       pulls,
+      files: { count: fileCount, folder },
     },
   };
 }
@@ -536,6 +541,35 @@ export function noteShow(ctx: Ctx, id: string, title: string): Result {
   const note = one<NoteRow>(ctx.db, "SELECT * FROM note WHERE ticket_id = ? AND title = ?", id, title);
   if (!note) throw new HubError(`no note "${title}" on ${id} (hub notes ${id} lists them)`);
   return { text: note.body, json: note };
+}
+
+function size(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+export function fileList(ctx: Ctx, id: string): Result {
+  getTicket(ctx.db, id);
+  const folder = files.ticketFolder(ctx.files, id);
+  const list = files.listFiles(ctx.files, id);
+  const lines = list.map((f) => `${f.path}  ${size(f.size)}  ${nowTs(new Date(f.modified), ctx.config.timezone)}`);
+  return { text: [folder, ...lines].join("\n"), json: { folder, files: list } };
+}
+
+export function fileAdd(ctx: Ctx, id: string, src: string, as: string | null, move: boolean): Result {
+  getTicket(ctx.db, id);
+  const path = files.addFile(ctx.files, id, src, as, move);
+  event(ctx, id, `file added: ${path}`);
+  const full = join(files.ticketFolder(ctx.files, id), path);
+  return { text: `${move ? "moved" : "copied"} ${src} to ${full}`, json: { id, path, full } };
+}
+
+export function fileRemove(ctx: Ctx, id: string, path: string): Result {
+  getTicket(ctx.db, id);
+  const removed = files.removeFile(ctx.files, id, path);
+  event(ctx, id, `file removed: ${removed}`);
+  return { text: `removed ${removed} from ${id}`, json: { id, path: removed } };
 }
 
 export function drafts(ctx: Ctx, id: string | undefined): Result {
@@ -1223,6 +1257,7 @@ function event(ctx: Ctx, id: string, text: string): void {
 export function rename(ctx: Ctx, id: string, to: string): Result {
   getTicket(ctx.db, id);
   checkNewId(ctx, to);
+  files.checkFolderFree(ctx.files, to);
   exec(ctx, "UPDATE ticket SET id = ?, updated_at = ? WHERE id = ?", to, nowIso(ctx.now), id);
   for (const table of TICKET_ROWS) exec(ctx, `UPDATE ${table} SET ticket_id = ? WHERE ticket_id = ?`, to, id);
   exec(ctx, "UPDATE pin SET key = ? WHERE key = ?", `gate-${to}`, `gate-${id}`);
@@ -1237,6 +1272,7 @@ export function rename(ctx: Ctx, id: string, to: string): Result {
   );
   pointIdAt(ctx, id, to);
   event(ctx, to, `renamed from ${id}`);
+  files.moveFolder(ctx.files, id, to);
   return { text: `${id} is now ${to}`, json: { id: to, from: id } };
 }
 
@@ -1250,6 +1286,7 @@ export function deleteTicket(ctx: Ctx, id: string): Result {
   dropPins(ctx, id);
   exec(ctx, "DELETE FROM meta WHERE key LIKE 'moved-id:%' AND value = ?", id);
   exec(ctx, "DELETE FROM ticket WHERE id = ?", id);
+  files.removeFolder(ctx.files, id);
   return { text: `${id} deleted`, json: { id } };
 }
 
@@ -1293,6 +1330,7 @@ export function mergeTicket(ctx: Ctx, id: string, into: string): Result {
   exec(ctx, "DELETE FROM ticket WHERE id = ?", id);
   exec(ctx, "UPDATE ticket SET updated_at = ? WHERE id = ?", nowIso(ctx.now), into);
   event(ctx, into, `merged ${id}${from.title ? `: ${from.title}` : ""}`);
+  files.mergeFolder(ctx.files, id, into);
   return { text: `${id} merged into ${into}`, json: { id: into, from: id } };
 }
 

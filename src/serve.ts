@@ -14,6 +14,7 @@ import { one, openDb, SCHEMA_VERSION, type SourceRow } from "./db.ts";
 import { type Fetcher, isOn, Runner } from "./fetch.ts";
 import { FETCHERS } from "./fetchers/index.ts";
 import { resolveChannels, workspaceFetchers } from "./fetchers/slack.ts";
+import { filesRoot } from "./files.ts";
 import { type System, system } from "./keys.ts";
 import { handleRpc } from "./mcp.ts";
 import { loadToken, tokenPath } from "./token.ts";
@@ -146,7 +147,8 @@ export function serve(options: ServeOptions): Promise<Server> {
   let child: ChildProcess | null = null;
   let port = options.port;
 
-  const ctx = (): Ctx => ({ db, config: loadConfig(db), now: options.now() });
+  const files = filesRoot(options.dbPath);
+  const ctx = (): Ctx => ({ db, config: loadConfig(db), now: options.now(), files });
   const broadcast = () => {
     for (const client of clients) client.write("event: change\ndata: \n\n");
   };
@@ -191,7 +193,7 @@ export function serve(options: ServeOptions): Promise<Server> {
   };
   function backupNow(): Backup {
     try {
-      const made = backup(db, folder(), options.now(), ctx().config.backupKeep);
+      const made = backup(db, folder(), files, options.now(), ctx().config.backupKeep);
       saveBackupState(made.name, null);
       return made;
     } catch (error) {
@@ -215,14 +217,14 @@ export function serve(options: ServeOptions): Promise<Server> {
   backupTimer.unref();
   function restore(name: string): Result {
     const source = checkRestorable(folder(), name);
-    const saved = backup(db, folder(), options.now(), Number.POSITIVE_INFINITY, "-before-restore");
+    const saved = backup(db, folder(), files, options.now(), Number.POSITIVE_INFINITY, "-before-restore");
     db.close();
     watch.close();
     try {
-      replaceDb(options.dbPath, source);
+      replaceDb(options.dbPath, files, source);
       db = openDb(options.dbPath);
     } catch (error) {
-      replaceDb(options.dbPath, saved.path);
+      replaceDb(options.dbPath, files, saved.path);
       db = openDb(options.dbPath);
       watch = openDb(options.dbPath);
       throw error;
@@ -409,7 +411,7 @@ export function serve(options: ServeOptions): Promise<Server> {
     },
     awayRemove: async (): Promise<Result> => ({ text: await away.remove(), json: { removed: true } }),
     backupBefore: (what: "delete" | "merge") =>
-      backup(db, folder(), options.now(), Number.POSITIVE_INFINITY, `-before-${what}`).name,
+      backup(db, folder(), files, options.now(), Number.POSITIVE_INFINITY, `-before-${what}`).name,
     backupNow: (): Result => {
       const made = backupNow();
       return { text: `backed up to ${made.path}`, json: made };

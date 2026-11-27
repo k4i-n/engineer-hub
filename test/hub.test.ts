@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -524,6 +524,86 @@ describe("delete and merge", () => {
   });
 });
 
+describe("files", () => {
+  const folder = (id: string) => join(dir, "files", id);
+  const listed = async (id: string) =>
+    (await json<{ folder: string; files: { path: string }[] }>("files", id)).files.map((f) => f.path);
+
+  test("add copies a file or folder in, lists it with the folder path, and logs it; rm deletes and logs", async () => {
+    await ok("ticket-new", "ENG-1", "Plan");
+    const src = join(dir, "src");
+    mkdirSync(join(src, "research"), { recursive: true });
+    writeFileSync(join(src, "plan.md"), "# Plan");
+    writeFileSync(join(src, "research", "a.csv"), "a,b");
+
+    assert.match(await ok("file", "add", "ENG-1", join(src, "plan.md")), /^copied .*plan\.md to .*ENG-1\/plan\.md$/m);
+    await ok("file", "add", "ENG-1", join(src, "research"));
+    await ok("file", "add", "ENG-1", join(src, "plan.md"), "--as", "old/plan-v1.md");
+    assert.deepEqual(await listed("ENG-1"), ["old/plan-v1.md", "plan.md", "research/a.csv"]);
+    assert.equal(readFileSync(join(src, "plan.md"), "utf8"), "# Plan");
+    const text = await ok("files", "ENG-1");
+    assert.equal(text.split("\n")[0], folder("ENG-1"));
+    assert.match(text, /^plan\.md {2}6 B {2}\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/m);
+    assert.match(await ok("ticket", "ENG-1"), new RegExp(`^files: 3 in ${folder("ENG-1")}$`, "m"));
+
+    assert.match((await hub("file", "add", "ENG-1", join(src, "plan.md"))).err, /plan\.md already exists on ENG-1/);
+    assert.match((await hub("file", "add", "ENG-1", join(src, "nope.md"))).err, /no file or folder/);
+    for (const bad of ["../x.md", "/etc/x", ".git/x", "a/../../x"])
+      assert.match((await hub("file", "add", "ENG-1", join(src, "plan.md"), "--as", bad)).err, /not a path inside/);
+    assert.match((await hub("file", "add", "ENG-9", join(src, "plan.md"))).err, /no ticket ENG-9/);
+
+    await ok("file", "add", "ENG-1", join(src, "plan.md"), "--as", "moved.md", "--move");
+    assert.equal(existsSync(join(src, "plan.md")), false);
+    assert.equal(readFileSync(join(folder("ENG-1"), "moved.md"), "utf8"), "# Plan");
+
+    await ok("file", "rm", "ENG-1", "research");
+    assert.deepEqual(await listed("ENG-1"), ["moved.md", "old/plan-v1.md", "plan.md"]);
+    assert.match((await hub("file", "rm", "ENG-1", "research")).err, /no file research on ENG-1/);
+    assert.deepEqual(
+      sql<{ text: string }>("SELECT text FROM event WHERE ticket_id = 'ENG-1' ORDER BY id").map((e) => e.text),
+      [
+        "file added: plan.md",
+        "file added: research",
+        "file added: old/plan-v1.md",
+        "file added: moved.md",
+        "file removed: research",
+      ],
+    );
+  });
+
+  test("rename moves the folder, merge moves files in with (from <id>) on a clash, delete removes it", async () => {
+    const src = join(dir, "plan.md");
+    writeFileSync(src, "# Plan");
+    await ok("ticket-new", "NEW-a", "A");
+    assert.match(await ok("ticket", "NEW-a"), /^files: 0$/m);
+    await ok("file", "add", "NEW-a", src);
+    await ok("file", "add", "NEW-a", src, "--as", "notes.md");
+
+    await ok("rename", "NEW-a", "ENG-1");
+    assert.equal(existsSync(folder("NEW-a")), false);
+    assert.deepEqual(await listed("ENG-1"), ["notes.md", "plan.md"]);
+
+    mkdirSync(folder("ENG-3"), { recursive: true });
+    assert.match((await hub("rename", "ENG-1", "ENG-3")).err, /ENG-3 already exists: move it aside/);
+    assert.deepEqual(await listed("ENG-1"), ["notes.md", "plan.md"]);
+
+    await ok("ticket-new", "ENG-2", "B");
+    await ok("file", "add", "ENG-2", src);
+    await ok("merge", "ENG-1", "ENG-2");
+    assert.deepEqual(await listed("ENG-2"), ["notes.md", "plan (from ENG-1).md", "plan.md"]);
+    assert.equal(existsSync(folder("ENG-1")), false);
+
+    await ok("ticket-delete", "ENG-2");
+    assert.equal(existsSync(folder("ENG-2")), false);
+    const backups = readdirSync(join(dir, "backups")).filter((n) => n.endsWith("-before-delete.files"));
+    assert.deepEqual(readdirSync(join(dir, "backups", backups[0] ?? "", "ENG-2")).sort(), [
+      "notes.md",
+      "plan (from ENG-1).md",
+      "plan.md",
+    ]);
+  });
+});
+
 describe("edit notes, drafts and steps", () => {
   test("a note is renamed and removed; a taken title is refused", async () => {
     await ok("ticket-new", "ENG-42", "Sync sessions");
@@ -952,9 +1032,10 @@ describe("reads", () => {
     assert.ok(lines.length < 25);
     assert.equal(lines[0], "ENG-42 | inprogress | Sync login sessions across devices");
     assert.equal(
-      lines.at(-1),
+      lines.at(-2),
       "notes: Ticket body as filed; Detail; Inventory; State notes (migrated 2026-11-13); tasks/inprogress/ENG-42-baseline.md; Other files",
     );
+    assert.equal(lines.at(-1), "files: 0");
   });
 
   test("search finds a term in a note, an event and a draft", async () => {

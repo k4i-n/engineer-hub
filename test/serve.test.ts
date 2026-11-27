@@ -1692,6 +1692,9 @@ describe("mcp", () => {
       "match",
       "step_done",
       "item_ask",
+      "files",
+      "file_add",
+      "file_remove",
     ]) {
       assert.ok(names.includes(kept), kept);
     }
