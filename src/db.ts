@@ -287,7 +287,9 @@ WHERE kind = 'review_request' AND ask IS NULL AND closed_at IS NULL AND ignored 
   },
   "27": {
     to: "28",
-    sql: (db) => `${hasColumn(db, "item", "review_ask") ? "" : "ALTER TABLE item ADD COLUMN review_ask INTEGER NOT NULL DEFAULT 0;"}
+    sql: (
+      db,
+    ) => `${hasColumn(db, "item", "review_ask") ? "" : "ALTER TABLE item ADD COLUMN review_ask INTEGER NOT NULL DEFAULT 0;"}
 UPDATE item SET review_ask = 1 WHERE kind = 'review_request'
   AND ask = coalesce((SELECT json_extract(value, '$') FROM config WHERE key = 'reviewAsk'), '${REVIEW_ASK}');
 DELETE FROM config WHERE key = 'reviewAsk';`,
