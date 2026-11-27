@@ -21,7 +21,7 @@ hub config githubPrQuery '"is:pr author:@me org:acme"'
 A source that fails shows its reason in Settings and in the header, with the command that fixes it. Sources with an API key call through sealcall when `sealcall routes` lists a route named after the source, so hub never sees the key; otherwise hub reads its own Keychain item `engineer-hub/<source>` (`HUB_<SOURCE>_KEY` off macOS), which any process running as you can read. For Linear:
 
 ```sh
-security add-generic-password -s engineer-hub -a linear -w     # hub's own item; paste the key at the prompt
+security add-generic-password -U -s engineer-hub -a linear -w  # hub's own item; paste the key at the prompt
 sealcall add linear --host api.linear.app --header 'Authorization: {key}' --allow 'POST /graphql'   # or sealcall
 hub config fetch '{"github":true,"linear":true}'
 ```
@@ -29,7 +29,7 @@ hub config fetch '{"github":true,"linear":true}'
 For Slack, create an app in your workspace (api.slack.com/apps → From scratch), add the user token scopes `search:read`, `channels:history`, `groups:history`, `im:history`, `mpim:history`, plus for names, DMs, group mentions and reactions `users:read`, `usergroups:read`, `channels:read`, `groups:read`, `im:read`, `mpim:read` and `reactions:read`, install it to the workspace (some workspaces need an admin to approve), and store the User OAuth Token from the install page:
 
 ```sh
-security add-generic-password -s engineer-hub -a slack -w      # paste the xoxp- token
+security add-generic-password -U -s engineer-hub -a slack -w   # paste the xoxp- token
 sealcall add slack --host slack.com --header 'Authorization: Bearer {key}' \
   --allow 'GET /api/auth.test' --allow 'GET /api/search.messages' --allow 'GET /api/conversations.replies' \
   --allow 'GET /api/conversations.info' --allow 'GET /api/conversations.list' --allow 'GET /api/users.info' \
