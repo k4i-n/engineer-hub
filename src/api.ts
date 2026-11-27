@@ -14,6 +14,7 @@ import {
 } from "./config.ts";
 import { getTicket, one, SETTABLE_FIELDS, transaction, type WaitRow } from "./db.ts";
 import type { Resolved } from "./fetchers/slack.ts";
+import { importRefs } from "./filerefs.ts";
 import { applyImport, collectImport, countPlan, formatSummary } from "./importer.ts";
 import * as items from "./items.ts";
 import { moved } from "./moved.ts";
@@ -333,6 +334,22 @@ export const ROUTES: Route[] = [
     about: "Delete a file or folder from the ticket's folder.",
     body: { path: { type: "string", required: true, about: "path inside the ticket's folder" } },
     run: (ctx, a) => commands.fileRemove(ctx, str(a, "id"), str(a, "path")),
+  },
+  {
+    name: "file_import_refs",
+    method: "POST",
+    path: "/files/import-refs",
+    about:
+      'Move the files a note lists under "Plan files (source of truth stays in …)" into its ticket\'s folder and drop the block; apply writes, else a dry run.',
+    body: {
+      from: { type: "string", required: true, about: "folder the listed paths are relative to" },
+      apply: { type: "boolean", about: "move the files and edit the notes" },
+    },
+    run: (ctx, a) => {
+      const from = str(a, "from");
+      if (a.apply !== true) return importRefs(ctx, from, false);
+      return transaction(ctx.db, () => importRefs(ctx, from, true));
+    },
   },
   {
     name: "drafts",
