@@ -1,6 +1,6 @@
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import type { Ctx, Result } from "./commands.ts";
-import { type Config, MAX_ASK } from "./config.ts";
+import { type Config, MAX_ASK, REVIEW_ASK } from "./config.ts";
 import { all, type DraftRow, getTicket, type ItemRow, one, transaction } from "./db.ts";
 import { SOURCE_NAME } from "./sources.ts";
 import { cut, HubError, laterTime, linkKind, linkSource, nowIso, nowTs } from "./util.ts";
@@ -203,11 +203,11 @@ function writeItem(ctx: Ctx, input: ItemInput, withEvents: boolean): Upsert {
   if (!existing) {
     const ignored = repoExcluded(ctx.config, input) ? "repo" : null;
     const ticketId = input.ticket_id ?? matchTicket(ctx, [input.title, input.url, input.ref, input.context]);
-    const ask = input.kind === "review_request" && ignored === null ? ctx.config.reviewAsk.trim() || null : null;
+    const reviewAsk = input.kind === "review_request" && ignored === null;
     if (withEvents && ticketId !== null && ignored === null) event(ctx, ticketId, `New ${describe(input)}`, ref);
     db.prepare(
-      `INSERT INTO item(source, ref, kind, title, url, state, author, avatar, ticket_id, needs_me, first_seen, changed_at, closed_at, ignored, body, detail, ask)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO item(source, ref, kind, title, url, state, author, avatar, ticket_id, needs_me, first_seen, changed_at, closed_at, ignored, body, detail, ask, review_ask)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       input.source,
       input.ref,
@@ -225,7 +225,8 @@ function writeItem(ctx: Ctx, input: ItemInput, withEvents: boolean): Upsert {
       ignored,
       input.body,
       input.detail,
-      ask,
+      reviewAsk ? REVIEW_ASK : null,
+      reviewAsk ? 1 : 0,
     );
     return "new";
   }
@@ -255,15 +256,16 @@ function writeItem(ctx: Ctx, input: ItemInput, withEvents: boolean): Upsert {
   const closedAt = reopen ? null : ignored === null ? existing.closed_at : (existing.closed_at ?? at);
   const snoozedUntil = reopen ? null : existing.snoozed_until;
   const askAgain = reopen && next.kind === "review_request";
-  const ask = askAgain ? ctx.config.reviewAsk.trim() || null : existing.ask;
+  const ask = askAgain ? REVIEW_ASK : existing.ask;
+  const reviewAsk = askAgain ? 1 : existing.review_ask;
   const askAnswer = askAgain ? null : existing.ask_answer;
   const askAt = askAgain ? null : existing.ask_at;
   const values: SQLInputValue[] = fields.map((f) => next[f]);
   db.prepare(
     `UPDATE item SET ${fields.map((f) => `${f} = ?`).join(", ")}, closed_at = ?, snoozed_until = ?, ignored = ?, changed_at = ?,
-       ask = ?, ask_answer = ?, ask_at = ?
+       ask = ?, ask_answer = ?, ask_at = ?, review_ask = ?
      WHERE id = ?`,
-  ).run(...values, closedAt, snoozedUntil, ignored, at, ask, askAnswer, askAt, existing.id);
+  ).run(...values, closedAt, snoozedUntil, ignored, at, ask, askAnswer, askAt, reviewAsk, existing.id);
   if (!withEvents || next.ticket_id === null || ignored !== null) return "changed";
   const merged = { ...existing, ...next };
   if (next.ticket_id !== existing.ticket_id) event(ctx, next.ticket_id, `Attached ${describe(merged)}`, ref);
@@ -411,7 +413,9 @@ export function ask(ctx: Ctx, key: string, question: string): Result {
   const text = question.trim();
   if (text.includes("\n") || text.length > MAX_ASK)
     throw new HubError(`a question is one line of at most ${MAX_ASK} chars`);
-  ctx.db.prepare("UPDATE item SET ask = ?, ask_answer = NULL, ask_at = NULL WHERE id = ?").run(text || null, item.id);
+  ctx.db
+    .prepare("UPDATE item SET ask = ?, ask_answer = NULL, ask_at = NULL, review_ask = 0 WHERE id = ?")
+    .run(text || null, item.id);
   return {
     text: text === "" ? `#${item.id} has no question` : `#${item.id} asks: ${text}`,
     json: { id: item.id, ask: text || null },
@@ -423,7 +427,7 @@ export function answer(ctx: Ctx, key: string, given: string): Result {
   const item = findItem(ctx.db, key);
   if (item.ask === null) throw new HubError(`#${item.id} has no question`);
   const at = nowIso(ctx.now);
-  const closes = given === "no" && item.kind === "review_request" && item.ask === ctx.config.reviewAsk.trim();
+  const closes = given === "no" && item.review_ask === 1;
   ctx.db
     .prepare(
       "UPDATE item SET ask_answer = ?, ask_at = ?, closed_at = CASE WHEN ? THEN coalesce(closed_at, ?) ELSE closed_at END WHERE id = ?",

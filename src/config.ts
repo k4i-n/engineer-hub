@@ -36,7 +36,6 @@ export type Config = {
   fetchEvery: string;
   githubReviewQuery: string;
   githubPrQuery: string;
-  reviewAsk: string;
   issueRepo: string;
   slackAlertChannels: SlackChannel[];
   slackIgnoreChannels: SlackChannel[];
@@ -156,6 +155,7 @@ export const DEFAULT_LAYOUT: Layout = {
 };
 
 export const MAX_ASK = 200;
+export const REVIEW_ASK = "Review this?";
 
 export const DEFAULTS: Config = {
   timezone: "Asia/Tokyo",
@@ -213,7 +213,6 @@ export const DEFAULTS: Config = {
   fetchEvery: "1m",
   githubReviewQuery: "is:pr is:open review-requested:@me archived:false draft:false",
   githubPrQuery: "is:pr author:@me",
-  reviewAsk: "Review this?",
   issueRepo: "",
   slackAlertChannels: [],
   slackIgnoreChannels: [],
@@ -344,9 +343,6 @@ function semanticError(key: Key, value: unknown): string | undefined {
   }
   if (key === "issueRepo" && String(value) !== "" && !REPO.test(String(value))) {
     return 'issueRepo is a GitHub repo as owner/name, or "" to use only the ticket\'s repo';
-  }
-  if (key === "reviewAsk" && (String(value).includes("\n") || String(value).trim().length > MAX_ASK)) {
-    return `reviewAsk is one line of at most ${MAX_ASK} chars, or "" for no question`;
   }
   if (key === "backupDir" && !/^($|~$|~\/|\/)/.test(String(value))) {
     return 'backupDir is an absolute folder or ~/..., or "" for backups/ next to the database';

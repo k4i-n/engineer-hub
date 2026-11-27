@@ -482,7 +482,7 @@ describe("github", () => {
     assert.match(await hub("items", "--needs-me"), /noisy\/pull\/1/);
   });
 
-  test("a new review request asks reviewAsk at once; an empty reviewAsk and an ignored repo ask nothing", async () => {
+  test("a new review request asks Review this? at once; an ignored repo asks nothing", async () => {
     const asked = "https://github.com/acme/web/pull/7";
     answers.gh = graphql([PR(asked)], []);
     await hub("fetch", "github");
@@ -490,7 +490,6 @@ describe("github", () => {
     const page = await (await fetch(`${server.url}/?part=1`)).text();
     assert.match(page, /<span class="ask"><span>Review this\?<\/span><button[^>]*data-act="item-answer"/);
 
-    await hub("config", "reviewAsk", '""');
     await hub("config", "githubReviewQuery", '"is:pr is:open review-requested:@me -repo:acme/noisy"');
     answers.gh = graphql(
       [PR(asked), PR("https://github.com/acme/web/pull/8"), PR("https://github.com/acme/noisy/pull/1")],
@@ -498,7 +497,7 @@ describe("github", () => {
     );
     await hub("fetch", "github");
     const all = await hub("items", "--all");
-    assert.match(all, /web\/pull\/8$/m);
+    assert.match(all, /web\/pull\/8 \| ask: Review this\? \(no answer yet\)$/m);
     assert.match(all, /noisy\/pull\/1 \| ignored$/m);
     assert.match(all, /web\/pull\/7 \| ask: Review this\? \(no answer yet\)$/m);
   });

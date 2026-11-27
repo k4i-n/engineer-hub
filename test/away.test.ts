@@ -409,6 +409,7 @@ describe("collapse and escaping", () => {
     ask: null,
     ask_answer: null,
     ask_at: null,
+    review_ask: 0,
     ...over,
   });
 

@@ -43,7 +43,7 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 | `hub draft-mv <id> <label> <new label>`, `hub draft-rm <id> <label>` | renames a draft, or removes one never sent (a sent draft stays as the record) |
 | `hub item put --stdin` | stores items read from a source, one JSON object per line ([format](sources.md#items-from-connectors)) |
 | `hub item close <item>...`, `hub item snooze <item> [--for 1d|tomorrow]`, `hub item attach <item> <id>`, `hub item detach <item>` | marks items handled, hides one for a while (a change brings it back), attaches one to a ticket, takes one off its ticket (a later fetch does not match it back by id; attach does); `<item>` is the `#` number or the ref |
-| `hub item ask <item> <question>`, `hub item answer <item> (yes \| no)`, `hub item unanswer <item>` | puts a one-line yes/no question on an item (an empty question removes it), answers it, takes the answer back; the question and answer show in `hub items`, the brief and on the item's row. Review requests ask `reviewAsk` by themselves; agents ask other questions (`item_ask`); only the human answers |
+| `hub item ask <item> <question>`, `hub item answer <item> (yes \| no)`, `hub item unanswer <item>` | puts a one-line yes/no question on an item (an empty question removes it), answers it, takes the answer back; the question and answer show in `hub items`, the brief and on the item's row. Review requests ask "Review this?" by themselves (No closes them); agents ask other questions (`item_ask`); only the human answers |
 | `hub item ignore <item>`, `hub item unignore <item>` | never shows the item again, whatever changes (it stays in `hub items --all`); to leave out a whole repo, add `-repo:owner/name` to `githubReviewQuery` or `githubPrQuery` |
 | `hub wait <id> <who> <url> [--ping-after 1d]`, `hub wait close <wait \| url>` | records a question asked of someone, closes it when they answer |
 | `hub wait edit <wait> [--who <w>] [--ping-after 1d]` | changes who an open wait is on, or when to ping |
@@ -92,7 +92,6 @@ Config lives in the database. `hub config` lists every key with its value:
 | `horizon` | `"14d"` | the period for Steps done, the Done tab, the done count and Activity: `7d`, `14d`, `30d`, `week`, `month` or `all` |
 | `githubReviewQuery` | `"is:pr is:open review-requested:@me archived:false draft:false"` | the GitHub search for review requests |
 | `issueRepo` | `""` | `owner/name` a note's "Open as GitHub issue" files into when the ticket's `repo` is not one |
-| `reviewAsk` | `"Review this?"` | the yes/no question every new review request asks (not one left out by `-repo:` or ignored); No closes it; `""` asks nothing |
 | `githubPrQuery` | `"is:pr author:@me"` | the GitHub search for your PRs (hub adds `updated:>=` the last fetch) |
 | `slackAlertChannels` | `[]` | Slack channels whose new messages are alerts (Fix now); give names or ids, stored as `{"id","name"}` |
 | `slackIgnoreChannels` | `[]` | Slack channels hub pulls nothing from; same form as `slackAlertChannels` |
