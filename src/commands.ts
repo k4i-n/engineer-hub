@@ -309,6 +309,7 @@ type Hit = { tbl: string; ticket_id: string; label: string; snip: string; score:
 
 export function search(ctx: Ctx, query: string | undefined, limit: number): Result {
   const match = ftsQuery(query ?? "");
+  files.reindex(ctx.db, ctx.files);
   const snippet = (fts: string) => `snippet(${fts}, -1, '[', ']', '...', 10)`;
   const hits = all<Hit>(
     ctx.db,
@@ -321,6 +322,8 @@ export function search(ctx: Ctx, query: string | undefined, limit: number): Resu
        FROM event_fts JOIN event e ON e.id = event_fts.rowid WHERE event_fts MATCH ?1
      UNION ALL
      SELECT 'draft', ticket_id, label, ${snippet("draft_fts")}, bm25(draft_fts) FROM draft_fts WHERE draft_fts MATCH ?1
+     UNION ALL
+     SELECT 'file', ticket_id, path, ${snippet("file_fts")}, bm25(file_fts) FROM file_fts WHERE file_fts MATCH ?1
      ORDER BY score LIMIT ?2`,
     match,
     limit,
@@ -338,7 +341,13 @@ export type Found = {
   ticket: string | null;
 };
 
-const FOUND_KIND: Record<string, string> = { ticket: "Ticket", note: "Note", event: "Log", draft: "Draft" };
+const FOUND_KIND: Record<string, string> = {
+  ticket: "Ticket",
+  note: "Note",
+  event: "Log",
+  draft: "Draft",
+  file: "File",
+};
 
 const ITEM_ID = /^(?:item\s*[:#]?\s*|#)?(\d+)$/i;
 
@@ -429,6 +438,7 @@ export function searchAll(ctx: Ctx, query: string, limit: number): Found[] {
   const like = `%${escaped}%`;
   const opens = (column: string) => `${column} LIKE ?3 ESCAPE '\\'`;
   const words = q.match(/[\p{L}\p{N}_-]+/gu) ?? [];
+  if (words.length > 0) files.reindex(ctx.db, ctx.files);
   const hits =
     words.length === 0
       ? []
@@ -446,6 +456,9 @@ export function searchAll(ctx: Ctx, query: string, limit: number): Found[] {
      UNION ALL
      SELECT 'draft', ticket_id, label, ${snip("draft_fts")}, bm25(draft_fts), CASE WHEN ${opens("label")} THEN 2 ELSE 3 END
        FROM draft_fts WHERE draft_fts MATCH ?1
+     UNION ALL
+     SELECT 'file', ticket_id, path, ${snip("file_fts")}, bm25(file_fts), CASE WHEN ${opens("path")} THEN 2 ELSE 3 END
+       FROM file_fts WHERE file_fts MATCH ?1
      ORDER BY head, score LIMIT ?2`,
           ftsQuery(words.join(" ")),
           limit,

@@ -1,9 +1,23 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, posix, resolve, sep } from "node:path";
-
+import type { DatabaseSync } from "node:sqlite";
+import { all } from "./db.ts";
 import { HubError } from "./util.ts";
 
 export type FileEntry = { path: string; size: number; modified: string };
+
+const TEXT = new Set([".md", ".markdown", ".txt", ".csv", ".json", ".html", ".htm"]);
+const MAX_INDEXED = 1_000_000;
 
 export function filesRoot(dbPath: string): string {
   return join(dirname(resolve(dbPath)), "files");
@@ -114,4 +128,63 @@ export function mergeFolder(root: string, id: string, into: string): void {
 
 export function removeFolder(root: string, id: string): void {
   rmSync(ticketFolder(root, id), { recursive: true, force: true });
+}
+export function isText(path: string): boolean {
+  return TEXT.has(extname(path).toLowerCase());
+}
+
+function htmlText(html: string): string {
+  return html
+    .replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ");
+}
+
+function indexedText(full: string, path: string): string | null {
+  let raw: string;
+  try {
+    raw = readFileSync(full, "utf8").slice(0, MAX_INDEXED);
+  } catch {
+    return null;
+  }
+  return /\.html?$/i.test(path) ? htmlText(raw) : raw;
+}
+
+type Indexed = { id: number; ticket_id: string; path: string; size: number; modified: string };
+
+export function reindex(db: DatabaseSync, root: string): void {
+  const known = new Map(
+    all<Indexed>(db, "SELECT id, ticket_id, path, size, modified FROM file").map((r) => [
+      `${r.ticket_id}/${r.path}`,
+      r,
+    ]),
+  );
+  const tickets = new Set(all<{ id: string }>(db, "SELECT id FROM ticket").map((t) => t.id));
+  const ids = existsSync(root)
+    ? readdirSync(root, { withFileTypes: true })
+        .filter((e) => e.isDirectory() && tickets.has(e.name))
+        .map((e) => e.name)
+    : [];
+  const upsert = db.prepare(
+    `INSERT INTO file(ticket_id, path, size, modified, body) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(ticket_id, path) DO UPDATE SET size = excluded.size, modified = excluded.modified, body = excluded.body`,
+  );
+  for (const id of ids) {
+    for (const f of walk(join(root, id)).filter((e) => isText(e.path))) {
+      const key = `${id}/${f.path}`;
+      const row = known.get(key);
+      known.delete(key);
+      if (row !== undefined && row.size === f.size && row.modified === f.modified) continue;
+      const body = indexedText(join(root, id, f.path), f.path);
+      if (body !== null) upsert.run(id, f.path, f.size, f.modified, body);
+    }
+  }
+  const drop = db.prepare("DELETE FROM file WHERE id = ?");
+  for (const row of known.values()) drop.run(row.id);
 }

@@ -4,7 +4,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { DEFAULTS, REVIEW_ASK, WORKSPACE } from "./config.ts";
 import { HubError, nowIso, nowTs } from "./util.ts";
 
-export const SCHEMA_VERSION = "30";
+export const SCHEMA_VERSION = "31";
 
 export type Ticket = {
   id: string;
@@ -195,6 +195,10 @@ const ITEM_FOLD = `CREATE TABLE IF NOT EXISTS item_fold(ref TEXT PRIMARY KEY,
   item_id INTEGER NOT NULL REFERENCES item(id) ON DELETE CASCADE, url TEXT, seen_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS item_fold_item ON item_fold(item_id);`;
 
+const FILE = `CREATE TABLE file(id INTEGER PRIMARY KEY, ticket_id TEXT NOT NULL, path TEXT NOT NULL,
+  size INTEGER NOT NULL, modified TEXT NOT NULL, body TEXT NOT NULL, UNIQUE(ticket_id, path));
+${ftsTable("file", "file_fts", "id", ["ticket_id", "path", "body"])}`;
+
 const UNMIGRATED_COLUMNS = [
   ["wait", "pinged_at"],
   ["item", "snoozed_until"],
@@ -243,6 +247,7 @@ ${ftsTable("ticket", "ticket_fts", "rowid", TICKET_FTS)}
 ${ftsTable("note", "note_fts", "id", ["ticket_id", "title", "body"])}
 ${ftsTable("event", "event_fts", "id", ["ticket_id", "text"])}
 ${ftsTable("draft", "draft_fts", "id", ["ticket_id", "label", "body", "sent_text"])}
+${FILE}
 INSERT INTO meta(key, value) VALUES ('schema_version', '${SCHEMA_VERSION}');
 `;
 
@@ -312,6 +317,7 @@ DELETE FROM config WHERE key = 'reviewAsk';`,
   },
   "28": { to: "29", sql: ITEM_FOLD },
   "29": { to: "30", sql: slackAsPeer },
+  "30": { to: "31", sql: (db) => (one(db, "SELECT 1 FROM sqlite_master WHERE name = 'file'") ? "" : FILE) },
 };
 
 function hasColumn(db: DatabaseSync, table: string, column: string): boolean {

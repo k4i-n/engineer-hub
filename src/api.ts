@@ -558,7 +558,7 @@ export const ROUTES: Route[] = [
     name: "search",
     method: "GET",
     path: "/search",
-    about: "Full text search over tickets, notes, log and drafts.",
+    about: "Full text search over tickets, notes, log, drafts and the text in ticket files.",
     query: {
       q: { type: "string", required: true, about: "words" },
       n: { type: "integer", about: "how many (default 10)" },
