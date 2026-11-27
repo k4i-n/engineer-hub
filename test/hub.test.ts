@@ -301,6 +301,21 @@ describe("writes", () => {
     assert.deepEqual(t, { gate: "waiting on product", updated: "2026-11-15", updated_at: "2026-11-14T16:00:00.000Z" });
   });
 
+  test("set priority stores the label, clears on empty and refuses other values", async () => {
+    await imported();
+    await ok("set", "ENG-7", "priority", "high");
+    const priority = () =>
+      sql<{ p: string | null }>("SELECT tracker_priority AS p FROM ticket WHERE id = 'ENG-7'")[0]?.p;
+    assert.equal(priority(), "High");
+    assert.match(
+      (await hub("set", "ENG-7", "priority", "soon")).err,
+      /priority must be one of Urgent, High, Medium, Low/,
+    );
+    assert.equal(priority(), "High");
+    await ok("set", "ENG-7", "priority", "");
+    assert.equal(priority(), null);
+  });
+
   test("set refuses an unknown field and an unknown ticket", async () => {
     await imported();
     assert.match((await hub("set", "ENG-7", "colour", "x")).err, /unknown body field colour \(title, status, repo/);

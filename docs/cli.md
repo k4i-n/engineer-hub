@@ -25,7 +25,7 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 
 | Write | Does |
 |---|---|
-| `hub set <id> <field> <value>` | field is title, status, repo, worktree, branch, gate, next or owner |
+| `hub set <id> <field> <value>` | field is title, status, repo, worktree, branch, gate, next, owner or priority (Urgent, High, Medium or Low; empty clears it, and a Linear ticket's priority follows Linear) |
 | `hub merge <id> <into id>` | moves the ticket's timeline, notes, drafts, steps (numbered after the other ticket's), items and waits into the other ticket and deletes it; a clashing note title or draft label gets ` (from <id>)`, and a later write to the old id names the one it went into. Backs up first as `…-before-merge.db`; not an MCP tool |
 | `hub ticket-delete <id>` | deletes the ticket with its timeline, notes, drafts, steps and waits; its items stay, unattached. Backs up first as `…-before-delete.db` (`hub restore` brings it back); not an MCP tool |
 | `hub rename <id> <new id>` | changes the ticket's id (a `NEW-` ticket to its tracker id once filed); its timeline, notes, drafts, steps, items, waits and pins follow, and a later write to the old id fails naming the new one |
