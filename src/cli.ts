@@ -64,6 +64,7 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         move <id> <dir> | rename <id> <new id> | merge <id> <into id> | ticket-delete <id>
         order <id> <place | -> | gate <id> (yes | no)
         file add <id> <src> [--as <path>] [--move] | file rm <id> <path>
+        file import-refs --from <root> [--apply] (moves the plan files notes point at into their tickets)
         config <key> <json>
 backup: backup | backups | restore <name>
 import: import --root <dir> [--apply]
@@ -102,6 +103,7 @@ const OPTIONS = {
   as: { type: "string" },
   start: { type: "boolean" },
   move: { type: "boolean" },
+  from: { type: "string" },
   hook: { type: "boolean" },
   due: { type: "boolean" },
   cursor: { type: "string" },
@@ -149,6 +151,7 @@ type Values = {
   as?: string;
   start?: boolean;
   move?: boolean;
+  from?: string;
   hook?: boolean;
   due?: boolean;
   cursor?: string;
@@ -390,8 +393,14 @@ const COMMANDS: Record<string, Handler> = {
   steps: (a) => c("steps", { id: arg(a, 0, "steps <id>") }),
   files: (a) => c("files", { id: arg(a, 0, "files <id>") }),
   file: (a, v) => {
-    const usage = "file add <id> <src> [--as <path>] [--move] | file rm <id> <path>";
+    const usage =
+      "file add <id> <src> [--as <path>] [--move] | file rm <id> <path> | file import-refs --from <root> [--apply]";
     const sub = arg(a, 0, usage);
+    if (sub === "import-refs") {
+      if (v.from === undefined)
+        throw new HubError("give the folder the notes' paths are relative to with --from <root>");
+      return c("file_import_refs", { from: resolve(v.from), apply: v.apply === true });
+    }
     if (sub === "add") {
       return c("file_add", { id: arg(a, 1, usage), src: resolve(arg(a, 2, usage)), as: v.as, move: v.move === true });
     }

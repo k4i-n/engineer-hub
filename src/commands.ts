@@ -1252,7 +1252,7 @@ function dropPins(ctx: Ctx, id: string): void {
   exec(ctx, "DELETE FROM pin WHERE key = ? OR substr(key, 1, ?) = ?", `gate-${id}`, match.length, match);
 }
 
-function event(ctx: Ctx, id: string, text: string): void {
+export function event(ctx: Ctx, id: string, text: string): void {
   exec(
     ctx,
     "INSERT INTO event(ticket_id, ts, kind, text, source, created_at) VALUES (?, ?, 'log', ?, 'agent', ?)",

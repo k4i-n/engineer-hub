@@ -650,6 +650,87 @@ describe("files", () => {
   });
 });
 
+describe("file import-refs", () => {
+  const block = (...paths: string[]) =>
+    `Plan files (source of truth stays in .claude/plan):\n\n${paths.map((p) => `- \`${p}\``).join("\n")}`;
+  async function setup(): Promise<string> {
+    const root = join(dir, "dev");
+    const plan = join(root, ".claude", "plan");
+    for (const sub of ["a", "b", "g/research", "s"]) mkdirSync(join(plan, sub), { recursive: true });
+    writeFileSync(join(plan, "a", "README.md"), "a readme");
+    writeFileSync(join(plan, "b", "README.md"), "b readme");
+    writeFileSync(join(plan, "g", "research", "x.md"), "x");
+    writeFileSync(join(plan, "s", "brand.md"), "brand");
+    for (const id of ["ZN-1", "ZN-2", "ZN-3"]) await ok("ticket-new", id, id);
+    const notes: [string, string][] = [
+      [
+        "ZN-1",
+        `Intro text.\n\n${block(".claude/plan/a/README.md", ".claude/plan/b/README.md", ".claude/plan/g/research/")}\n\nSteps are tracked in hub.`,
+      ],
+      ["ZN-2", block(".claude/plan/s/brand.md")],
+      ["ZN-3", `Brand work.\n\n${block(".claude/plan/s/brand.md")}`],
+    ];
+    for (const [id, body] of notes) {
+      stdin = body;
+      await ok("note", id, "Detail", "--stdin");
+    }
+    return root;
+  }
+  const noteBody = (id: string) => sql<{ body: string }>("SELECT body FROM note WHERE ticket_id = ?", id)[0]?.body;
+
+  test("dry run lists each move, the shared path and the clash fix, and changes nothing", async () => {
+    const root = await setup();
+    const out = await ok("file", "import-refs", "--from", root);
+    assert.match(out, /^\.claude\/plan\/a\/README\.md -> ZN-1\/README\.md$/m);
+    assert.match(out, /^\.claude\/plan\/b\/README\.md -> ZN-1\/b\/README\.md$/m);
+    assert.match(out, /^\.claude\/plan\/g\/research -> ZN-1\/research$/m);
+    assert.match(out, /^\.claude\/plan\/s\/brand\.md -> ZN-2\/brand\.md$/m);
+    assert.match(out, /^shared: \.claude\/plan\/s\/brand\.md goes to ZN-2; ZN-3 get/m);
+    assert.match(out, /^4 paths into 2 tickets; 1 notes removed, 2 edited$/m);
+    assert.match(out, /^dry run:/m);
+    assert.equal(existsSync(join(root, ".claude", "plan", "a", "README.md")), true);
+    assert.equal(existsSync(join(dir, "files")), false);
+    assert.match(noteBody("ZN-2") ?? "", /Plan files/);
+  });
+
+  test("apply moves the files, drops the blocks, deletes an emptied note, and a re-run finds nothing", async () => {
+    const root = await setup();
+    await ok("file", "import-refs", "--from", root, "--apply");
+    assert.deepEqual(
+      (await json<{ files: { path: string }[] }>("files", "ZN-1")).files.map((f) => f.path),
+      ["b/README.md", "README.md", "research/x.md"],
+    );
+    assert.equal(readFileSync(join(dir, "files", "ZN-2", "brand.md"), "utf8"), "brand");
+    assert.deepEqual(readdirSync(join(root, ".claude", "plan", "g")), []);
+    assert.equal(existsSync(join(root, ".claude", "plan", "s", "brand.md")), false);
+    assert.equal(noteBody("ZN-1"), "Intro text.\n\nSteps are tracked in hub.");
+    assert.equal(noteBody("ZN-2"), undefined);
+    assert.equal(noteBody("ZN-3"), "Brand work.\n\nsee ZN-2/files/brand.md");
+    assert.match(
+      await ok("events", "ZN-1", "-n", "1"),
+      /file added: research \(moved from \.claude\/plan\/g\/research\)$/,
+    );
+    assert.match(
+      await ok("file", "import-refs", "--from", root, "--apply"),
+      /^0 paths into 0 tickets; 0 notes removed, 0 edited$/m,
+    );
+  });
+
+  test("a path missing on disk is listed and apply refuses until it is fixed", async () => {
+    const root = await setup();
+    await ok("ticket-new", "ZN-4", "Gone");
+    stdin = block(".claude/plan/gone.md");
+    await ok("note", "ZN-4", "Detail", "--stdin");
+    assert.match(
+      await ok("file", "import-refs", "--from", root),
+      /^missing on disk: \.claude\/plan\/gone\.md \(ZN-4\)$/m,
+    );
+    assert.match((await hub("file", "import-refs", "--from", root, "--apply")).err, /fix the missing paths/);
+    assert.equal(existsSync(join(dir, "files")), false);
+    assert.match((await hub("file", "import-refs")).err, /--from <root>/);
+  });
+});
+
 describe("edit notes, drafts and steps", () => {
   test("a note is renamed and removed; a taken title is refused", async () => {
     await ok("ticket-new", "ENG-42", "Sync sessions");
