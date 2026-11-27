@@ -20,10 +20,12 @@ import { moved } from "./moved.ts";
 import * as pins from "./pins.ts";
 import * as plan from "./plan.ts";
 import * as scripts from "./scripts.ts";
+import { workspacesByTeam } from "./slackteam.ts";
 import * as sources from "./sources.ts";
 import * as steps from "./steps.ts";
 import { cut, githubRef, HubError, nowIso, nowTs } from "./util.ts";
 import * as waits from "./waits.ts";
+import { addWorkspace, removeWorkspace } from "./workspaces.ts";
 
 export type FieldType = "string" | "integer" | "boolean" | "object" | "array" | "any";
 export type Field = { type: FieldType; required?: boolean; about: string; of?: "string" | "object" };
@@ -61,12 +63,27 @@ export const COMMAND_KEYS = ["syncCommand", "judgeCommand"];
 const REPO_KEYS: string[] = [...GITHUB_QUERY_KEYS, "skipRepos"];
 
 async function channelsToStore(ctx: Ctx, key: SlackChannelKey, value: unknown, hooks: Hooks): Promise<SlackChannel[]> {
-  const given = channelList(key, value).map((c) => ctx.config[key].find((o) => sameChannel(o, c)) ?? c);
-  if (given.every((c) => c.id !== "" && c.name !== "")) return given;
+  const teams = workspacesByTeam(ctx.db);
+  const stored = (c: SlackChannel) =>
+    ctx.config[key].find(
+      (o) => sameChannel(o, c) && (c.where === undefined || (o.team !== undefined && teams.get(o.team) === c.where)),
+    );
+  const given = channelList(key, value).map((c) => stored(c) ?? c);
+  if (given.every((c) => c.id !== "" && c.name !== "" && c.where === undefined)) return given;
   const r = await hooks.slackChannels(given);
-  if (r.unknown.length > 0) throw new HubError(`no Slack channel ${r.unknown.map((n) => `#${n}`).join(", ")}`);
+  const twice = r.ambiguous ?? [];
+  if (twice.length > 0)
+    throw new HubError(
+      twice
+        .map(
+          (a) =>
+            `${a.entry} is in ${a.workspaces.join(" and ")}: write ${a.workspaces.map((w) => `${w}:${a.entry}`).join(" or ")}`,
+        )
+        .join("; "),
+    );
+  if (r.unknown.length > 0) throw new HubError(`no Slack channel ${r.unknown.join(", ")}`);
   if (r.unresolved.length > 0) throw new HubError(`could not look up ${r.unresolved.join(", ")} in Slack: ${r.why}`);
-  return r.channels;
+  return r.channels.map(({ where: _, ...c }) => c);
 }
 
 function str(a: Args, key: string): string {
@@ -840,8 +857,21 @@ export const ROUTES: Route[] = [
     name: "source_remove",
     method: "POST",
     path: "/sources/{name}/remove",
-    about: "Remove a script source.",
-    run: (ctx, a) => scripts.removeScript(ctx, str(a, "name")),
+    about: "Remove a script source, or a Slack workspace's source (slack-<name>).",
+    run: (ctx, a) => {
+      const name = str(a, "name");
+      return name.startsWith("slack-")
+        ? removeWorkspace(ctx, name.slice("slack-".length))
+        : scripts.removeScript(ctx, name);
+    },
+  },
+  {
+    name: "slack_add",
+    method: "POST",
+    path: "/slack/workspaces",
+    about: "Add a Slack workspace: source slack-<name>, on, reading the key slack-<name> (hub slack add).",
+    body: { name: { type: "string", required: true, about: "workspace name, lowercase letters, digits and -" } },
+    run: (ctx, a) => addWorkspace(ctx, str(a, "name")),
   },
   {
     name: "brief",

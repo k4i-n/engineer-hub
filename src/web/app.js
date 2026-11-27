@@ -429,6 +429,7 @@ const ROUTES = {
   "source-set": (d) => ["PATCH", `/sources/${e(d.name)}`, { on: d.on === "1" }],
   "source-fetch": (d) => ["POST", "/fetch", { source: d.name }],
   "source-remove": (d) => ["POST", `/sources/${e(d.name)}/remove`, {}],
+  "slack-add": (d) => ["POST", "/slack/workspaces", { name: d.value }],
   sync: (d) => ["POST", "/sync", { what: d.what }],
   backup: () => ["POST", "/backups", {}],
   "away-test": () => ["POST", "/away/test", {}],

@@ -3,6 +3,7 @@ import { SLACK_CHANNEL_KEYS, type SlackChannel, type SlackChannelKey, slackSourc
 import { all, type ItemRow, type WaitRow } from "../db.ts";
 import type { Fetched, Fetcher } from "../fetch.ts";
 import { findWay, HttpError, type KeySpec, keyedCall, type System, type Way } from "../keys.ts";
+import { workspaceOf } from "../slackteam.ts";
 import { clip, cut, HubError } from "../util.ts";
 import { keyCheck, keyWay } from "./keyed.ts";
 
@@ -272,7 +273,14 @@ class Directory {
   }
 }
 
-export type Resolved = { channels: SlackChannel[]; unknown: string[]; unresolved: string[]; why: string };
+export type Ambiguous = { entry: string; workspaces: string[] };
+export type Resolved = {
+  channels: SlackChannel[];
+  unknown: string[];
+  unresolved: string[];
+  ambiguous?: Ambiguous[];
+  why: string;
+};
 
 function lookupFailure(dir: Directory): string {
   const parts = [
@@ -307,46 +315,62 @@ async function resolveWith(dir: Directory, list: SlackChannel[], team: string): 
 
 const label = (c: SlackChannel) => (c.id !== "" ? c.id : `#${c.name}`);
 
-export async function resolveChannels(sys: System, list: SlackChannel[], sources: string[]): Promise<Resolved> {
-  const channels = [...list];
-  const failed = new Set<string>();
-  const whys = new Set<string>();
-  let pending = channels.map((_, i) => i);
+type Workspace = { name: string; team: string; dir: Directory };
+
+async function workspaces(sys: System, sources: string[], whys: Set<string>): Promise<Workspace[] | null> {
+  const found: Workspace[] = [];
   let looked = false;
   for (const source of sources) {
-    if (pending.length === 0) break;
     const way = await findWay(sys, source);
     if (way.kind === "missing") continue;
     looked = true;
-    let team: string;
     try {
-      team = (await slackGet<Answer & { team_id: string }>(sys, way, "auth.test", {})).team_id;
+      const auth = await slackGet<Answer & { team_id: string; url?: string }>(sys, way, "auth.test", {});
+      const name = workspaceOf(auth.url ?? "") ?? source.replace(/^slack-/, "");
+      found.push({ name, team: auth.team_id, dir: new Directory(sys, way, []) });
     } catch (error) {
       whys.add(`${source}: ${error instanceof Error ? error.message : String(error)}`);
-      for (const i of pending) failed.add(label(channels[i] as SlackChannel));
+    }
+  }
+  return looked ? found : null;
+}
+
+export async function resolveChannels(sys: System, list: SlackChannel[], sources: string[]): Promise<Resolved> {
+  const whys = new Set<string>();
+  const known = await workspaces(sys, sources, whys);
+  if (known === null) return { channels: list, unknown: [], unresolved: [], ambiguous: [], why: "" };
+  const channels: SlackChannel[] = [];
+  const unknown: string[] = [];
+  const unresolved: string[] = [];
+  const ambiguous: Ambiguous[] = [];
+  for (const c of list) {
+    const { where, ...entry } = c;
+    if (entry.team !== undefined && entry.id !== "" && entry.name !== "") {
+      channels.push(entry);
       continue;
     }
-    const r = await resolveWith(
-      new Directory(sys, way, []),
-      pending.map((i) => channels[i] as SlackChannel),
-      team,
-    );
-    for (const u of r.unresolved) failed.add(u);
-    if (r.why !== "") whys.add(r.why);
-    pending.forEach((i, j) => {
-      channels[i] = r.channels[j] as SlackChannel;
-    });
-    pending = pending.filter((i) => channels[i]?.team !== team);
+    const places = where === undefined ? known : known.filter((w) => w.name === where);
+    if (where !== undefined && places.length === 0) {
+      unknown.push(`${where}:${label(entry)} (no workspace ${where})`);
+      continue;
+    }
+    const hits: { w: Workspace; c: SlackChannel }[] = [];
+    let failed = known.length < sources.length && where === undefined;
+    for (const w of places) {
+      const r = await resolveWith(w.dir, [entry], w.team);
+      const got = r.channels[0] as SlackChannel;
+      if (got.team !== undefined) hits.push({ w, c: got });
+      if (r.unresolved.length > 0) {
+        failed = true;
+        whys.add(r.why);
+      }
+    }
+    if (hits.length > 1) ambiguous.push({ entry: label(entry), workspaces: hits.map((h) => h.w.name) });
+    else if (hits.length === 1) channels.push((hits[0] as { c: SlackChannel }).c);
+    else if (failed) unresolved.push(label(entry));
+    else unknown.push(label(entry));
   }
-  if (!looked) return { channels: list, unknown: [], unresolved: [], why: "" };
-  const left = pending.map((i) => channels[i] as SlackChannel);
-  const unresolved = left.map(label).filter((l) => failed.has(l));
-  return {
-    channels,
-    unknown: left.filter((c) => c.id === "" && !failed.has(label(c))).map((c) => c.name),
-    unresolved,
-    why: unresolved.length === 0 ? "" : [...whys].join("; "),
-  };
+  return { channels, unknown, unresolved, ambiguous, why: unresolved.length === 0 ? "" : [...whys].join("; ") };
 }
 
 function inChannels(list: SlackChannel[]): (m: Match) => boolean {
@@ -497,10 +521,16 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null, spec: Ke
   const lists = {} as Record<SlackChannelKey, SlackChannel[]>;
   const unknown: string[] = [];
   const inTeam = (c: SlackChannel) => c.team === undefined || c.team === auth.team_id;
+  const alone = ctx.config.slackWorkspaces.length === 0;
   for (const key of SLACK_CHANNEL_KEYS) {
     const r = await resolveWith(dir, ctx.config[key].filter(inTeam), auth.team_id);
     lists[key] = r.channels;
-    unknown.push(...r.unknown.map((name) => `#${name} (${key})`));
+    const mine = new Set(ctx.config[key].filter((c) => alone || c.team === auth.team_id).map(label));
+    const lost = [
+      ...r.unknown.map((name) => `#${name}`),
+      ...r.unresolved.filter((u) => mine.has(u) && !u.startsWith("#")),
+    ];
+    unknown.push(...lost.map((l) => `${l} (${key})`));
   }
   const ignored = inChannels(lists.slackIgnoreChannels);
   const kept = (m: Match) => !ignored(m);
@@ -515,7 +545,6 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null, spec: Ke
   const dms = (await search(sys, way, `to:<@${me}> after:${after}`)).filter(
     (m) => newer(m) && m.user !== me && m.channel !== undefined && inDm(m.channel),
   );
-  const alone = ctx.config.slackWorkspaces.length === 0;
   const inList = async (list: SlackChannel[]): Promise<Match[]> => {
     const found: Match[] = [];
     for (const c of list) {

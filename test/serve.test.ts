@@ -1172,9 +1172,33 @@ describe("serve", () => {
     assert.match(await ticket(), /beta · (next|no reply yet)/);
     const page = await settings();
     assert.ok(page.includes('<span class="chip tone-grey">#ops · C70 · beta</span>'));
-    assert.ok(page.includes('data-config-input="slackAlertChannels" data-list value="C07, C70"'));
+    assert.ok(page.includes('data-config-input="slackAlertChannels" data-list value="C07, beta:#ops"'));
+    assert.ok(
+      page.includes(
+        '<span class="chip tone-red" title="Not read: not tied to a workspace. Save the list again, or write workspace:#name.">#ops · C07</span>',
+      ),
+    );
     assert.ok(!/<div class="set-row off" inert><span class="set-label">Alert channels/.test(page));
-    assert.ok(page.includes("hub slack add &lt;workspace&gt;"));
+    assert.match(page, /data-act="slack-add" data-ask="Slack workspace name, e.g. acme"/);
+    assert.match(page, /data-act="source-remove" data-name="slack-beta" data-confirm="Remove Slack beta\?"/);
+    assert.doesNotMatch(page, /data-act="source-remove" data-name="slack"/);
+  });
+
+  test("Settings adds and removes a Slack workspace like hub slack add and remove", async () => {
+    const call = (path: string, body: object = {}) =>
+      fetch(`${server.url}/api/v1${path}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    assert.equal((await call("/slack/workspaces", { name: "gamma" })).status, 200);
+    assert.equal(await hub(["config", "slackWorkspaces"]), 'slackWorkspaces = ["gamma"]');
+    assert.match(await hub(["config", "fetch"]), /"slack-gamma":true/);
+    assert.match(await (await fetch(`${server.url}/settings?part=1`)).text(), /Slack gamma/);
+    assert.equal((await call("/slack/workspaces", { name: "Bad Name" })).status, 400);
+    assert.equal((await call("/sources/slack-gamma/remove")).status, 200);
+    assert.equal(await hub(["config", "slackWorkspaces"]), "slackWorkspaces = []");
+    assert.doesNotMatch(await hub(["config", "fetch"]), /slack-gamma/);
   });
 
   test("in app mode a Slack message keeps its permalink, a channel and Linear open in the app, and Open matches", async () => {

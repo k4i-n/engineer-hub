@@ -1290,6 +1290,38 @@ describe("slack", () => {
     await assert.rejects(hub("config", "slackAlertChannels", '["#nope"]'), /no Slack channel #nope/);
   });
 
+  test("a channel name in two workspaces asks which one; workspace:#name picks it", async () => {
+    await hub("slack", "add", "beta");
+    answers.security = twoKeys;
+    const ok = (body: unknown) => ({ status: 200, body: JSON.stringify({ ok: true, ...(body as object) }) });
+    httpAnswer = (url) => {
+      const u = new URL(url);
+      const beta = fromBeta();
+      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, ...(beta ? BETA : WORKSPACE) });
+      if (u.pathname === "/api/conversations.list")
+        return ok({ channels: [beta ? { id: "C70", name: "general" } : { id: "C01", name: "general" }] });
+      return { status: 404, body: "" };
+    };
+    await assert.rejects(
+      hub("config", "slackAlertChannels", '["#general"]'),
+      /#general is in acme and beta: write acme:#general or beta:#general/,
+    );
+    await hub("config", "slackAlertChannels", '["beta:#general"]');
+    assert.match(
+      await hub("config", "slackAlertChannels"),
+      /^slackAlertChannels = \[\{"id":"C70","name":"general","team":"T0BETA"\}\]$/,
+    );
+    await assert.rejects(
+      hub("config", "slackAlertChannels", '["gamma:#general"]'),
+      /no Slack channel gamma:#general \(no workspace gamma\)/,
+    );
+    await hub("config", "slackAlertChannels", '["acme:#general", "beta:#general"]');
+    assert.match(
+      await hub("config", "slackAlertChannels"),
+      /\[\{"id":"C01","name":"general","team":"T0ACME"\},\{"id":"C70","name":"general","team":"T0BETA"\}\]/,
+    );
+  });
+
   test("a wait on a Slack user closes on their reply; someone else's reply shows and keeps it open", async () => {
     await hub("config", "fetch", '{"github":false,"slack":true}');
     answers.security = (args) =>
@@ -1663,6 +1695,31 @@ describe("slack", () => {
       hub("config", "slackIgnoreChannels", '["C55"]'),
       /could not look up C55 in Slack: failed conversations\.info channel_not_found/,
     );
+  });
+
+  test("a listed channel the fetch cannot find is named in the source warning", async () => {
+    await hub("config", "fetch", '{"github":false,"slack":true}');
+    const db = new DatabaseSync(dbFile);
+    db.prepare("INSERT OR REPLACE INTO config(key, value, updated_at) VALUES (?, ?, ?)").run(
+      "slackWatchChannels",
+      JSON.stringify([{ id: "C55", name: "" }]),
+      new Date().toISOString(),
+    );
+    db.close();
+    answers.security = (args) =>
+      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+    const ok = (body: unknown) => ({ status: 200, body: JSON.stringify({ ok: true, ...(body as object) }) });
+    httpAnswer = (url) => {
+      const u = new URL(url);
+      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, ...WORKSPACE });
+      if (u.pathname === "/api/conversations.list") return ok({ channels: [] });
+      if (u.pathname === "/api/conversations.info")
+        return { status: 200, body: JSON.stringify({ ok: false, error: "channel_not_found" }) };
+      if (u.pathname === "/api/search.messages") return ok({ messages: { matches: [] } });
+      return { status: 404, body: "" };
+    };
+    await hub("fetch", "slack");
+    assert.match(await hub("sources"), /slack \| .*warning: .*no channel C55 \(slackWatchChannels\)/);
   });
 
   test("every message in a watch channel needs me, with or without a mention, except my own", async () => {
