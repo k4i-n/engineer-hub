@@ -192,11 +192,52 @@ export function upsertItem(ctx: Ctx, input: ItemInput, withEvents: boolean): Ups
   return result;
 }
 
+const FOLD_WINDOW_MS = 3_600_000;
+
+export type Folds = { count: number; last: string; url: string | null };
+
+export function folds(db: DatabaseSync, item: ItemRow): Folds | null {
+  const latest = one<{ n: number; seen_at: string; url: string | null }>(
+    db,
+    `SELECT (SELECT count(*) FROM item_fold WHERE item_id = ?) AS n, seen_at, url FROM item_fold
+     WHERE item_id = ? ORDER BY seen_at DESC, rowid DESC LIMIT 1`,
+    item.id,
+    item.id,
+  );
+  return latest === undefined ? null : { count: latest.n + 1, last: latest.seen_at, url: latest.url };
+}
+
+function foldInto(ctx: Ctx, input: ItemInput, at: string): ItemRow | undefined {
+  if (input.kind !== "alert") return undefined;
+  return one<ItemRow>(
+    ctx.db,
+    `SELECT * FROM item i WHERE source = ? AND kind = 'alert' AND closed_at IS NULL AND ignored IS NULL
+       AND title IS ? AND body IS ?
+       AND max(first_seen, coalesce((SELECT max(seen_at) FROM item_fold f WHERE f.item_id = i.id), '')) >= ?
+     ORDER BY id DESC LIMIT 1`,
+    input.source,
+    input.title,
+    input.body,
+    nowIso(new Date(Date.parse(at) - FOLD_WINDOW_MS)),
+  );
+}
+
 function writeItem(ctx: Ctx, input: ItemInput, withEvents: boolean): Upsert {
   const { db } = ctx;
   const at = nowIso(ctx.now);
   const existing = itemByRef(db, input.ref);
   const ref = input.url ?? input.ref;
+  if (!existing && one(db, "SELECT 1 FROM item_fold WHERE ref = ?", input.ref) !== undefined) return "unchanged";
+  const head = existing ? undefined : foldInto(ctx, input, at);
+  if (head !== undefined) {
+    db.prepare("INSERT INTO item_fold(ref, item_id, url, seen_at) VALUES (?, ?, ?, ?)").run(
+      input.ref,
+      head.id,
+      input.url,
+      at,
+    );
+    return "changed";
+  }
   if (!existing) {
     const ignored = repoExcluded(ctx.config, input) ? "repo" : null;
     const ticketId = input.ticket_id ?? matchTicket(ctx, [input.title, input.url, input.ref, input.context]);

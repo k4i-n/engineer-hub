@@ -4,7 +4,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { DEFAULTS, REVIEW_ASK } from "./config.ts";
 import { HubError, nowIso, nowTs } from "./util.ts";
 
-export const SCHEMA_VERSION = "28";
+export const SCHEMA_VERSION = "29";
 
 export type Ticket = {
   id: string;
@@ -179,6 +179,9 @@ const STEP = `CREATE TABLE IF NOT EXISTS step(id INTEGER PRIMARY KEY, ticket_id 
   title TEXT NOT NULL, done_at TEXT, evidence TEXT, created_at TEXT NOT NULL, started_at TEXT, UNIQUE(ticket_id, n));`;
 
 const PIN = "CREATE TABLE IF NOT EXISTS pin(key TEXT PRIMARY KEY, pinned_at TEXT NOT NULL);";
+const ITEM_FOLD = `CREATE TABLE IF NOT EXISTS item_fold(ref TEXT PRIMARY KEY,
+  item_id INTEGER NOT NULL REFERENCES item(id) ON DELETE CASCADE, url TEXT, seen_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS item_fold_item ON item_fold(item_id);`;
 
 const UNMIGRATED_COLUMNS = [
   ["wait", "pinged_at"],
@@ -212,6 +215,7 @@ CREATE TABLE item(id INTEGER PRIMARY KEY, source TEXT NOT NULL, ref TEXT NOT NUL
   detached INTEGER NOT NULL DEFAULT 0, judged_at TEXT, away_ping INTEGER, away_why TEXT, body TEXT, detail TEXT,
   ask TEXT, ask_answer TEXT, ask_at TEXT, avatar TEXT, review_ask INTEGER NOT NULL DEFAULT 0);
 CREATE INDEX item_ticket ON item(ticket_id);
+${ITEM_FOLD}
 CREATE TABLE wait(id INTEGER PRIMARY KEY, ticket_id TEXT NOT NULL, who TEXT NOT NULL, url TEXT NOT NULL,
   asked_at TEXT NOT NULL, ping_after TEXT, pinged_at TEXT, closed_at TEXT, reopened_at TEXT);
 ${STEP}
@@ -294,6 +298,7 @@ UPDATE item SET review_ask = 1 WHERE kind = 'review_request'
   AND ask = coalesce((SELECT json_extract(value, '$') FROM config WHERE key = 'reviewAsk'), '${REVIEW_ASK}');
 DELETE FROM config WHERE key = 'reviewAsk';`,
   },
+  "28": { to: "29", sql: ITEM_FOLD },
 };
 
 function hasColumn(db: DatabaseSync, table: string, column: string): boolean {

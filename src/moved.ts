@@ -1,6 +1,6 @@
 import type { Ctx, Result } from "./commands.ts";
 import { all, type EventRow, type ItemRow, one, type WaitRow } from "./db.ts";
-import { KIND_NAME } from "./items.ts";
+import { folds, KIND_NAME } from "./items.ts";
 import { cut, HubError, nowIso } from "./util.ts";
 
 const MAX_LINES = 8;
@@ -59,10 +59,10 @@ function since(ctx: Ctx, mark: Mark): string[] {
   );
   const human = all<EventRow>(ctx.db, "SELECT * FROM event WHERE source = 'human' AND id > ? ORDER BY id", mark.event);
   return [
-    ...items.map(
-      (i) =>
-        `${KIND_NAME[i.kind] ?? i.kind}: ${cut(i.title ?? i.ref, 120)}${i.state ? ` (${i.state})` : ""}${i.ticket_id ? ` ${i.ticket_id}` : ""}`,
-    ),
+    ...items.map((i) => {
+      const count = folds(ctx.db, i)?.count;
+      return `${KIND_NAME[i.kind] ?? i.kind}: ${cut(i.title ?? i.ref, 120)}${count ? ` ×${count}` : ""}${i.state ? ` (${i.state})` : ""}${i.ticket_id ? ` ${i.ticket_id}` : ""}`;
+    }),
     ...replied.map((i) => `replied: ${cut(i.title ?? i.ref, 120)}`),
     ...answered.map((w) => `answered: ${w.who} on ${w.ticket_id}`),
     ...due.map((w) => `ping due: ${w.who} on ${w.ticket_id}`),
