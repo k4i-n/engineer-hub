@@ -407,6 +407,7 @@ export function serve(options: ServeOptions): Promise<Server> {
       const text = await away.test();
       return { text, json: { posted: true } };
     },
+    awayRemove: async (): Promise<Result> => ({ text: await away.remove(), json: { removed: true } }),
     backupBefore: (what: "delete" | "merge") =>
       backup(db, folder(), options.now(), Number.POSITIVE_INFINITY, `-before-${what}`).name,
     backupNow: (): Result => {

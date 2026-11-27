@@ -74,7 +74,7 @@ export function storeCommands(spec: KeySpec, platform: NodeJS.Platform): { hub: 
   return {
     hub:
       platform === "darwin"
-        ? `security add-generic-password -s ${KEYCHAIN_SERVICE} -a ${spec.source} -w`
+        ? `security add-generic-password -U -s ${KEYCHAIN_SERVICE} -a ${spec.source} -w`
         : `export ${envName(spec.source)}=<key>`,
     sealcall: `sealcall add ${spec.source} --host ${spec.host} --header '${spec.header}'${allow}`,
   };

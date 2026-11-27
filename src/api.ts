@@ -33,6 +33,7 @@ export type Hooks = {
   startSync: (what: string) => { started: boolean; status: unknown };
   fetchNow: (source: string | null) => Promise<Result>;
   awayTest: () => Promise<Result>;
+  awayRemove: () => Promise<Result>;
   slackChannels: (list: SlackChannel[]) => Promise<Resolved>;
   backupNow: () => Result;
   backupBefore: (what: "delete" | "merge") => string;
@@ -939,6 +940,13 @@ export const ROUTES: Route[] = [
     path: "/away/test",
     about: "Post a test message to the webhook that away pings use.",
     run: (_ctx, _a, hooks) => hooks.awayTest(),
+  },
+  {
+    name: "away_remove",
+    method: "POST",
+    path: "/away/remove",
+    about: "Remove the stored webhook URL that away pings use.",
+    run: (_ctx, _a, hooks) => hooks.awayRemove(),
   },
   {
     name: "backup",
