@@ -255,7 +255,7 @@ function menuItem(icon: string, label: string, data: Data, key = ""): string {
 }
 
 function copyId(token: string): string {
-  return menuItem("copy", `Copy id (${token})`, { copy: token });
+  return menuItem("copy", `Copy id (${token})`, { copy: token, hotkey: "c" }, "c");
 }
 
 function moreMenu(key: string, items: string[]): string {
@@ -287,7 +287,9 @@ function rail(n: Need, pinned: boolean, target: string | null): string {
           menuItem("later", LATER_TEXT[later.act][f] ?? f, { act: later.act, ...later.data, for: f }),
         )),
     ...(target === null ? [] : [menuItem("open", "Open", { open: target }, "↵")]),
-    ...(n.href !== null && /^https?:/.test(n.href) ? [menuItem("link", "Copy link", { copy: n.href })] : []),
+    ...(n.href !== null && /^https?:/.test(n.href)
+      ? [menuItem("link", "Copy link", { copy: n.href, hotkey: "C" }, "C")]
+      : []),
     ...(n.id === undefined ? [] : [copyId(n.id.token)]),
     ...(n.ignore === undefined ? [] : [menuItem("ignore", "Ignore this PR", { act: "item-ignore", id: n.ignore })]),
     ...(n.detach === undefined ? [] : [menuItem("ignore", "Detach", { act: "item-detach", ...n.detach })]),
@@ -1027,8 +1029,8 @@ function ticketRow(ctx: Ctx, t: Ticket, done = false, needing: Need[] = []): str
     : p.doing.length > 0
       ? `${p.doing.map((s) => s.n).join(", ")}: ${p.doing[0]?.title ?? ""}`
       : (t.next ?? "");
-  const drag = done ? "" : ` draggable="true" data-id="${esc(t.id)}" data-dir="${esc(t.dir ?? "")}"`;
-  return `<li class="ticket${done ? " is-closed" : ""}" data-key="t-${esc(t.id)}" data-href="/t/${encodeURIComponent(t.id)}"${drag}>
+  const drag = done ? "" : ` draggable="true" data-dir="${esc(t.dir ?? "")}"`;
+  return `<li class="ticket${done ? " is-closed" : ""}" data-key="t-${esc(t.id)}" data-id="${esc(t.id)}" data-href="/t/${encodeURIComponent(t.id)}"${drag}>
 <div class="t-top">${priorityMark(t.tracker_priority)}${ticketLink(t.id)}<span class="t-title">${line(ctx, t.title ?? "")}</span>${needPill(needing)}${pill(DIR_LABEL[t.dir ?? ""] ?? t.dir ?? "", DIR_TONE[t.dir ?? ""] ?? "grey")}</div>
 <div class="t-meta">${progressView(ctx.config.progressStyle, p.done, p.total, false)}<span class="t-next">${line(ctx, next || "–", 160)}</span><span class="chips">${chips}</span></div>
 </li>`;
@@ -1954,6 +1956,7 @@ export function settingsBody(
     ["s", "later: snooze or remind tomorrow"],
     ["y / n", "yes / no"],
     ["p", "pin to top"],
+    ["c / C", "copy id / link"],
     ["u", "undo"],
     ["/", "search"],
     [",", "settings"],
