@@ -141,7 +141,7 @@ export const ROUTES: Route[] = [
     name: "ticket",
     method: "GET",
     path: "/tickets/{id}",
-    about: "One ticket: state, last events, drafts, links, notes.",
+    about: "One ticket: state, last events, drafts, links, notes, and its files folder.",
     run: (ctx, a) => commands.ticket(ctx, str(a, "id")),
   },
   {
@@ -179,7 +179,7 @@ export const ROUTES: Route[] = [
     method: "POST",
     path: "/tickets/{id}/rename",
     about:
-      "Change the ticket's id, e.g. a NEW- ticket to its tracker id once filed; its timeline, notes, drafts, steps, items and waits follow.",
+      "Change the ticket's id, e.g. a NEW- ticket to its tracker id once filed; its timeline, notes, drafts, steps, items, waits and files follow.",
     body: { to: { type: "string", required: true, about: "the new id" } },
     run: (ctx, a) => transaction(ctx.db, () => commands.rename(ctx, str(a, "id"), str(a, "to"))),
   },
@@ -188,7 +188,7 @@ export const ROUTES: Route[] = [
     method: "POST",
     path: "/tickets/{id}/delete",
     about:
-      "Delete the ticket with its timeline, notes, drafts, steps and waits; its items stay, unattached. Backs up first.",
+      "Delete the ticket with its timeline, notes, drafts, steps, waits and files; its items stay, unattached. Backs up first.",
     run: (ctx, a, hooks) => {
       getTicket(ctx.db, str(a, "id"));
       const saved = hooks.backupBefore("delete");
@@ -204,7 +204,7 @@ export const ROUTES: Route[] = [
     method: "POST",
     path: "/tickets/{id}/merge",
     about:
-      "Move everything on the ticket into another one, then delete it; a clashing note title or draft label gets (from <id>). Backs up first.",
+      "Move everything on the ticket into another one, then delete it; a clashing note title, draft label or file name gets (from <id>). Backs up first.",
     body: { into: { type: "string", required: true, about: "the ticket that keeps everything" } },
     run: (ctx, a, hooks) => {
       commands.checkMerge(ctx, str(a, "id"), str(a, "into"));
@@ -304,6 +304,34 @@ export const ROUTES: Route[] = [
     about: "Give a note a new title.",
     body: { to: { type: "string", required: true, about: "the new title" } },
     run: (ctx, a) => commands.noteRename(ctx, str(a, "id"), str(a, "title"), str(a, "to")),
+  },
+  {
+    name: "files",
+    method: "GET",
+    path: "/tickets/{id}/files",
+    about:
+      "The ticket's folder and its files (path, size, modified). Read and edit them at that path with your own file tools; hub never takes file content.",
+    run: (ctx, a) => commands.fileList(ctx, str(a, "id")),
+  },
+  {
+    name: "file_add",
+    method: "POST",
+    path: "/tickets/{id}/files",
+    about: "Copy, or move, a file or folder on this machine into the ticket's folder.",
+    body: {
+      src: { type: "string", required: true, about: "absolute path of the file or folder" },
+      as: { type: "string", about: "path inside the ticket's folder (default: its name)" },
+      move: { type: "boolean", about: "move instead of copy" },
+    },
+    run: (ctx, a) => commands.fileAdd(ctx, str(a, "id"), str(a, "src"), opt(a, "as"), a.move === true),
+  },
+  {
+    name: "file_remove",
+    method: "POST",
+    path: "/tickets/{id}/files/remove",
+    about: "Delete a file or folder from the ticket's folder.",
+    body: { path: { type: "string", required: true, about: "path inside the ticket's folder" } },
+    run: (ctx, a) => commands.fileRemove(ctx, str(a, "id"), str(a, "path")),
   },
   {
     name: "drafts",
