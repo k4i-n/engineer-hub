@@ -2081,6 +2081,33 @@ kbd {
   color: var(--text);
 }
 
+.ws-hidden {
+  display: none;
+}
+.ws-filter {
+  display: inline;
+  font: inherit;
+  min-width: 0;
+  height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+}
+.ws-filter:hover {
+  text-decoration: underline;
+}
+.ws-on {
+  min-width: 0;
+  height: auto;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 400;
+  white-space: nowrap;
+  cursor: pointer;
+}
 /* toasts */
 .toasts {
   position: fixed;

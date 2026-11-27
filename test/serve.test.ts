@@ -1167,9 +1167,12 @@ describe("serve", () => {
     );
     db.close();
     html = await home();
-    assert.match(html, /slack · acme · ana/);
-    assert.match(html, /slack · beta · yui/);
-    assert.match(await ticket(), /beta · (next|no reply yet)/);
+    const filter = (ws: string) =>
+      `<button type="button" class="ws-filter" data-ws-filter="${ws}" title="Show only ${ws} in Slack rows">${ws}</button>`;
+    assert.ok(html.includes(`slack · ${filter("acme")} · ana`));
+    assert.ok(html.includes(`slack · ${filter("beta")} · yui`));
+    assert.match(html, /<li class="need[^"]*" data-key="item-\d+"[^>]*data-ws="beta">/);
+    assert.match(await ticket(), /data-ws-filter="beta"[^>]*>beta<\/button> · (next|no reply yet)/);
     const page = await settings();
     assert.ok(page.includes('<span class="chip tone-grey">#ops · C70 · beta</span>'));
     assert.ok(page.includes('data-config-input="slackAlertChannels" data-list value="C07, beta:#ops"'));
