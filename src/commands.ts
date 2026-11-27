@@ -27,7 +27,7 @@ import { prBodyTitle } from "./items.ts";
 import { fileTitle, splitResume } from "./parse.ts";
 import * as plan from "./plan.ts";
 import { progress } from "./steps.ts";
-import { cut, HubError, nowIso, nowTs, sendTime, sinceDate, startOfDayIso, today } from "./util.ts";
+import { cut, HubError, nowIso, nowTs, pastTime, sendTime, sinceDate, startOfDayIso, today } from "./util.ts";
 
 export type Ctx = { db: DatabaseSync; config: Config; now: Date };
 export type Result = { text: string; json: unknown; exitCode?: number };
@@ -662,8 +662,17 @@ function priorityLabel(value: string): string | null {
   return label;
 }
 
+function setUpdated(ctx: Ctx, id: string, value: string): Result {
+  getTicket(ctx.db, id);
+  const at = pastTime(ctx.now, value, ctx.config.timezone, "updated");
+  const updated = today(new Date(at), ctx.config.timezone);
+  ctx.db.prepare("UPDATE ticket SET updated = ?, updated_at = ? WHERE id = ?").run(updated, at, id);
+  return { text: `${id} updated set to ${updated}`, json: { id, field: "updated", value: at, updated } };
+}
+
 export function set(ctx: Ctx, id: string, field: string, value: string): Result {
   oneOf("field", field, SETTABLE_FIELDS);
+  if (field === "updated") return setUpdated(ctx, id, value);
   if (field === "title" && !value.trim()) throw new HubError("title is empty");
   checkLimit(field, value, ctx.config.limits);
   getTicket(ctx.db, id);
