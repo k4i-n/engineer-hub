@@ -1099,7 +1099,7 @@ function commentList(ctx: Ctx, comments: CommentRow[]): string {
   if (comments.length === 0) return "";
   const rows = comments.map(
     (c) =>
-      `<li><code class="d-path">${esc(c.path)}:${c.line}</code><div class="d-cbody md">${markdown(ctx, c.body)}</div>${button("Copy", { copy: c.body }, { cls: "chip-btn" })}</li>`,
+      `<li><code class="d-path" title="${esc(c.path)}:${c.line}"><bdi dir="ltr">${esc(c.path)}:${c.line}</bdi></code><div class="d-cbody md">${markdown(ctx, c.body)}</div>${button("Copy", { copy: c.body }, { cls: "chip-btn" })}</li>`,
   );
   return `<ul class="d-comments">${rows.join("")}</ul>`;
 }
