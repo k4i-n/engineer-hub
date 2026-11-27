@@ -1877,7 +1877,12 @@ function sourceRows(ctx: Ctx, list: Fetching[]): string {
         f.script === null && f.ok === true && f.error === null && f.warning === null
           ? replaceFold(`key-${f.name}`, f.fixes)
           : f.fixes.map(codeBlock).join("");
-      const controls = f.script === null ? "" : scriptControls(f);
+      const controls =
+        f.script !== null
+          ? scriptControls(f)
+          : f.name.startsWith("slack-")
+            ? button("Remove", { act: "source-remove", name: f.name, confirm: `Remove ${sourceLabel(f.name)}?` })
+            : "";
       return row(
         sourceLabel(f.name),
         `${swtch}<div class="src-info">${fetchStatus(ctx, f)}${script}${how}${warning}</div>${controls}${fixes}`,
@@ -1889,7 +1894,8 @@ function sourceRows(ctx: Ctx, list: Fetching[]): string {
 function addSourceRow(): string {
   return row(
     "Add",
-    codeBlock("hub source add <name> --every 5m -- <program>") + codeBlock("hub slack add <workspace>"),
+    button("Slack workspace", { act: "slack-add", ask: "Slack workspace name, e.g. acme" }) +
+      codeBlock("hub source add <name> --every 5m -- <program>"),
   );
 }
 

@@ -36,11 +36,11 @@ sealcall add slack --host slack.com --header 'Authorization: Bearer {key}' \
   --allow 'GET /api/usergroups.list' --allow 'GET /api/reactions.get'   # or sealcall
 ```
 
-For another workspace, add it by a short name and store its token under `slack-<name>`; it becomes its own source with its own on/off switch, sync position and status in Settings → Sources:
+For another workspace, add it by a short name (Settings → Sources → Add → Slack workspace, or the terminal) and store its token under `slack-<name>`; it becomes its own source with its own on/off switch, sync position, status and Remove button in Settings → Sources:
 
 ```sh
 hub slack add beta                                                  # source slack-beta, on
-security add-generic-password -s engineer-hub -a slack-beta -w      # that workspace's xoxp- token
+security add-generic-password -U -s engineer-hub -a slack-beta -w   # that workspace's xoxp- token
 hub slack remove beta                                               # the key stays where you stored it
 ```
 

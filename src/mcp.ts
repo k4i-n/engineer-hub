@@ -34,6 +34,7 @@ const NOT_TOOLS = [
   "item_unanswer",
   "restore",
   "skip_repos_from_query",
+  "slack_add",
   "source_remove",
   "source_set",
   "ticket_delete",

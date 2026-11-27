@@ -24,6 +24,7 @@ import * as sources from "./sources.ts";
 import * as steps from "./steps.ts";
 import { cut, githubRef, HubError, nowIso, nowTs } from "./util.ts";
 import * as waits from "./waits.ts";
+import { addWorkspace, removeWorkspace } from "./workspaces.ts";
 
 export type FieldType = "string" | "integer" | "boolean" | "object" | "array" | "any";
 export type Field = { type: FieldType; required?: boolean; about: string; of?: "string" | "object" };
@@ -840,8 +841,21 @@ export const ROUTES: Route[] = [
     name: "source_remove",
     method: "POST",
     path: "/sources/{name}/remove",
-    about: "Remove a script source.",
-    run: (ctx, a) => scripts.removeScript(ctx, str(a, "name")),
+    about: "Remove a script source, or a Slack workspace's source (slack-<name>).",
+    run: (ctx, a) => {
+      const name = str(a, "name");
+      return name.startsWith("slack-")
+        ? removeWorkspace(ctx, name.slice("slack-".length))
+        : scripts.removeScript(ctx, name);
+    },
+  },
+  {
+    name: "slack_add",
+    method: "POST",
+    path: "/slack/workspaces",
+    about: "Add a Slack workspace: source slack-<name>, on, reading the key slack-<name> (hub slack add).",
+    body: { name: { type: "string", required: true, about: "workspace name, lowercase letters, digits and -" } },
+    run: (ctx, a) => addWorkspace(ctx, str(a, "name")),
   },
   {
     name: "brief",
