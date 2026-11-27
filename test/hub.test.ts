@@ -8,6 +8,7 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import { type Io, run } from "../src/cli.ts";
 import { openDb, SCHEMA_VERSION } from "../src/db.ts";
+import { intervalText, ladder } from "../src/intervals.ts";
 import { type Server, serve } from "../src/serve.ts";
 
 const ROOT = join(import.meta.dirname, "fixtures", "root");
@@ -1024,6 +1025,43 @@ describe("config", () => {
       (await hub("config", "recordActions", '["deploy("]')).err,
       /recordActions has deploy\(, which is not a valid regular expression/,
     );
+  });
+
+  test("intervals take any duration in their range; the old choices stay valid", async () => {
+    assert.equal(await ok("config", "syncEvery", '"45m"'), 'syncEvery = "45m"');
+    assert.equal(await ok("config", "syncEvery", '"3h"'), 'syncEvery = "3h"');
+    for (const bad of ['"0m"', '"9h"', '"soon"'])
+      assert.match(
+        (await hub("config", "syncEvery", bad)).err,
+        /syncEvery takes a duration from 5m to 8h, e\.g\. 45m or 3h/,
+      );
+    assert.match((await hub("config", "fetchEvery", '"2h"')).err, /from 1m to 60m/);
+    assert.match((await hub("config", "backupKeep", "0")).err, /backupKeep is a count from 1 to 100/);
+    const old: [string, string][] = [
+      ["syncEvery", "4h"],
+      ["fetchEvery", "30m"],
+      ["awayAfter", "5m"],
+      ["awayEvery", "2h"],
+      ["watchFor", "6h"],
+      ["backupEvery", "7d"],
+    ];
+    for (const [key, value] of old) await ok("config", key, JSON.stringify(value));
+    await ok("config", "backupKeep", "30");
+  });
+});
+
+describe("intervals", () => {
+  test("the slider steps are 5 min below 1 hour, 15 min to 4 hours, then hours, then days", () => {
+    assert.deepEqual(ladder("fetchEvery").slice(0, 4), ["1m", "5m", "10m", "15m"]);
+    assert.equal(ladder("fetchEvery").at(-1), "1h");
+    assert.deepEqual(ladder("syncEvery").slice(11, 16), ["1h", "75m", "90m", "105m", "2h"]);
+    assert.deepEqual(ladder("syncEvery").slice(-4), ["5h", "6h", "7h", "8h"]);
+    assert.ok(ladder("syncEvery").includes("3h"));
+    assert.deepEqual(ladder("backupEvery").slice(-3), ["5d", "6d", "7d"]);
+    assert.equal(intervalText("45m"), "45 min");
+    assert.equal(intervalText("75m"), "1 hour 15 min");
+    assert.equal(intervalText("3h"), "3 hours");
+    assert.equal(intervalText("1d"), "1 day");
   });
 });
 

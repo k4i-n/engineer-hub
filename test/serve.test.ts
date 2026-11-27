@@ -1029,6 +1029,23 @@ describe("serve", () => {
     assert.match(await (await fetch(`${server.url}/settings`)).text(), /<title>Settings · EngineerHub<\/title>/);
   });
 
+  test("intervals are sliders that show the stored value, also one between steps", async () => {
+    assert.equal((await setConfigKey("syncEvery", '"3h"')).status, 200);
+    assert.equal((await setConfigKey("awayEvery", '"47m"')).status, 200);
+    const html = await (await fetch(`${server.url}/settings?part=1`)).text();
+    const sync =
+      /<input type="range"[^>]*data-config-slider="syncEvery"[^>]*><span class="slider-text">3 hours<\/span>/.exec(
+        html,
+      )?.[0] ?? "";
+    assert.match(sync, /max="27" value="19"/);
+    assert.match(html, /data-config-slider="awayEvery"[^>]*><span class="slider-text">47 min<\/span>/);
+    assert.match(html, /data-config-slider="backupKeep"[^>]*><span class="slider-text">14 backups<\/span>/);
+    assert.doesNotMatch(
+      html,
+      /data-config="(syncEvery|fetchEvery|awayAfter|awayEvery|watchFor|backupEvery|backupKeep)"/,
+    );
+  });
+
   test("a setting that only matters while a switch is on is off with it", async () => {
     const offRow = (html: string, label: string) =>
       new RegExp(`<div class="set-row off" inert><span class="set-label">${label}</span>`).test(html);
@@ -1471,7 +1488,7 @@ describe("serve", () => {
     clock = new Date("2026-11-18T18:00:00Z");
     await new Promise((r) => setTimeout(r, 80));
     assert.equal((await syncState()).at, ran.at);
-    assert.equal((await setConfigKey("syncEvery", '"5m"')).status, 400);
+    assert.equal((await setConfigKey("syncEvery", '"9h"')).status, 400);
   });
 
   test("the last agent run survives a restart, so auto sync waits only the rest of the interval", async () => {

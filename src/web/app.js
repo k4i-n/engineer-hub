@@ -974,6 +974,18 @@ document.addEventListener("change", (e) => {
 
 window.addEventListener("popstate", refresh);
 
+document.addEventListener("input", (e) => {
+  const el = e.target.closest("[data-config-slider]");
+  if (!el) return;
+  el.nextElementSibling.textContent = JSON.parse(el.dataset.texts)[el.value];
+});
+
+document.addEventListener("change", (e) => {
+  const el = e.target.closest("[data-config-slider]");
+  if (!el) return;
+  saveConfig(el.dataset.configSlider, JSON.stringify(JSON.parse(el.dataset.steps)[el.value]), el);
+});
+
 document.addEventListener("change", (e) => {
   const el = e.target.closest("[data-config-input]");
   if (!el) return;
