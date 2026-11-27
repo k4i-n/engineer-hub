@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -568,6 +577,43 @@ describe("files", () => {
         "file added: moved.md",
         "file removed: research",
       ],
+    );
+  });
+
+  test("search finds text in md, csv, json and html files, follows edits by modified time, and drops removed files", async () => {
+    await ok("ticket-new", "ENG-1", "Plan");
+    const f = folder("ENG-1");
+    mkdirSync(join(f, "data"), { recursive: true });
+    writeFileSync(join(f, "plan.md"), "# Plan\n\nmove the clock to per-move timers");
+    writeFileSync(join(f, "data", "rows.csv"), "game,seats\nmancala,2");
+    writeFileSync(join(f, "data", "cfg.json"), '{"region": "asia-northeast1"}');
+    writeFileSync(
+      join(f, "report.html"),
+      "<html><style>.quarterly{}</style><script>var hidden = 1</script><p>Latency&nbsp;dropped</p></html>",
+    );
+    writeFileSync(join(f, "shot.png"), "timers in an image");
+    mkdirSync(folder("NOT-A-TICKET"), { recursive: true });
+    writeFileSync(join(folder("NOT-A-TICKET"), "x.md"), "timers");
+
+    assert.match(await ok("search", "per-move timers"), /^file ENG-1 plan\.md: .*\[timers\]/m);
+    assert.match(await ok("search", "mancala"), /^file ENG-1 data\/rows\.csv:/m);
+    assert.match(await ok("search", "northeast1"), /^file ENG-1 data\/cfg\.json:/m);
+    assert.match(await ok("search", "latency dropped"), /^file ENG-1 report\.html:/m);
+    for (const gone of ["quarterly", "hidden", "style"]) assert.equal(await ok("search", gone), "no matches", gone);
+    assert.equal((await ok("search", "timers")).split("\n").length, 1);
+
+    writeFileSync(join(f, "plan.md"), "# Plan\n\nkeep a shared clock", { flag: "w" });
+    utimesSync(join(f, "plan.md"), new Date(), new Date(Date.now() + 5000));
+    assert.equal(await ok("search", "per-move"), "no matches");
+    assert.match(await ok("search", "shared clock"), /^file ENG-1 plan\.md:/m);
+
+    await ok("file", "rm", "ENG-1", "data");
+    assert.equal(await ok("search", "mancala"), "no matches");
+    await ok("rename", "ENG-1", "ENG-2");
+    assert.match(await ok("search", "shared clock"), /^file ENG-2 plan\.md:/m);
+    assert.deepEqual(
+      sql<{ id: string }>("SELECT DISTINCT ticket_id AS id FROM file").map((r) => r.id),
+      ["ENG-2"],
     );
   });
 
@@ -1233,7 +1279,7 @@ describe("db", () => {
     db.close();
     assert.throws(
       () => serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] }),
-      /has schema v1, this hub needs v30: move the file aside and re-import/,
+      /has schema v1, this hub needs v31: move the file aside and re-import/,
     );
     server = await serve({ dbPath: join(dir, "other.db"), port: 0, now: () => now, env: {}, fetchers: [] });
   });

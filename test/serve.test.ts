@@ -351,7 +351,7 @@ describe("serve", () => {
   test("settings show the database and save config through the same checks as the CLI", async () => {
     const html = await (await fetch(`${server.url}/settings`)).text();
     assert.ok(html.includes(dbFile));
-    assert.match(html, /Schema<\/span><div class="set-control">v30/);
+    assert.match(html, /Schema<\/span><div class="set-control">v31/);
     const titles = [...html.matchAll(/<h2><button type="button" class="fold" data-fold="([^"]+)"/g)].map((m) => m[1]);
     assert.deepEqual(titles, ["Sources", "Agent", "Away", "Database", "Behavior", "Dashboard", "Keyboard"]);
     assert.equal(html.match(/<div class="col">/g)?.length, 1);

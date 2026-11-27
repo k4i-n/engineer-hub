@@ -14,7 +14,7 @@ import { one, openDb, SCHEMA_VERSION, type SourceRow } from "./db.ts";
 import { type Fetcher, isOn, Runner } from "./fetch.ts";
 import { FETCHERS } from "./fetchers/index.ts";
 import { resolveChannels, workspaceFetchers } from "./fetchers/slack.ts";
-import { filesRoot } from "./files.ts";
+import { filesRoot, reindex } from "./files.ts";
 import { type System, system } from "./keys.ts";
 import { handleRpc } from "./mcp.ts";
 import { loadToken, tokenPath } from "./token.ts";
@@ -298,6 +298,7 @@ export function serve(options: ServeOptions): Promise<Server> {
     if (sync.status === "running") return false;
     const command = ctx().config.syncCommand;
     if (what !== "sources" && command.length === 0) throw new HubError("syncCommand is empty (hub config syncCommand)");
+    reindex(db, files);
     sync = { status: "running", at: nowIso(options.now()), detail: null };
     syncWhat = what;
     broadcast();

@@ -11,7 +11,7 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 | `hub next` | the next action of each ticket in progress, then to do, in your order, then by tracker priority |
 | `hub gates` | tickets waiting on a human decision |
 | `hub changed --since <date\|yesterday\|today>` | events and state changes since a day |
-| `hub search <query> [-n 10]` | full-text search over tickets, notes, events and drafts |
+| `hub search <query> [-n 10]` | full-text search over tickets, notes, events, drafts and the text of [ticket files](#ticket-files) |
 | `hub events <id> [-n 20] [--full]`, `hub notes <id>`, `hub note-show <id> <title>` | timeline and notes |
 | `hub drafts [id]`, `hub draft-show <id> <label>` | messages for humans to post; `id` is a ticket, or an item's url or ref for the drafts on that item |
 | `hub items [--needs-me] [--source <s>] [--ticket <id>] [--all]` | open items (PRs, threads, review requests, alerts…), the ones that need you first |
@@ -64,7 +64,7 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 
 ## Ticket files
 
-Each ticket owns a folder of real files, `files/<id>/` next to the database (`~/.hub/files/ENG-42/`): plans, images, scripts, CSV, JSON, delivered HTML reports, in any subfolders. Agents read and edit them in place with their own file tools; hub never passes file content through the API or MCP. `files` (MCP) or `hub files` gives the absolute folder path. A rename moves the folder, a merge moves its files into the other ticket's, a delete removes it (after the backup), and a ticket moved to done keeps it. Names starting with `.` are left out of the list. For version history, run `git init` in the `files` folder.
+Each ticket owns a folder of real files, `files/<id>/` next to the database (`~/.hub/files/ENG-42/`): plans, images, scripts, CSV, JSON, delivered HTML reports, in any subfolders. Agents read and edit them in place with their own file tools; hub never passes file content through the API or MCP. `files` (MCP) or `hub files` gives the absolute folder path. A rename moves the folder, a merge moves its files into the other ticket's, a delete removes it (after the backup), and a ticket moved to done keeps it. Names starting with `.` are left out of the list. Search covers the text files (`.md`, `.txt`, `.csv`, `.json`, and `.html` without its tags, scripts and styles; the first 1 MB of each), re-read by modified time on each search and sync. For version history, run `git init` in the `files` folder.
 
 ## Limits
 
