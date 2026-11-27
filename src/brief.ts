@@ -59,7 +59,8 @@ export function brief(ctx: Ctx): Result {
   mark.run("brief_event", String(top));
 
   const scripts = all<{ name: string }>(ctx.db, "SELECT name FROM script_source ORDER BY name").map((r) => r.name);
-  const fetched = [...Object.keys(ctx.config.fetch).filter((k) => ctx.config.fetch[k] === true), ...scripts];
+  const on = Object.keys(ctx.config.fetch).filter((k) => ctx.config.fetch[k] === true);
+  const fetched = [...new Set(on.map((k) => (k.startsWith("slack-") ? "slack" : k))), ...scripts];
   const toJudge = all<ItemRow>(
     ctx.db,
     "SELECT * FROM item WHERE state = 'sent' AND closed_at IS NULL ORDER BY first_seen, id",

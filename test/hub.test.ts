@@ -1120,7 +1120,7 @@ describe("db", () => {
     db.close();
     assert.throws(
       () => serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] }),
-      /has schema v1, this hub needs v29: move the file aside and re-import/,
+      /has schema v1, this hub needs v30: move the file aside and re-import/,
     );
     server = await serve({ dbPath: join(dir, "other.db"), port: 0, now: () => now, env: {}, fetchers: [] });
   });
@@ -1279,6 +1279,40 @@ describe("schema upgrade to v26", () => {
       0,
     );
     assert.doesNotMatch(await ok("ticket", "ENG-42"), /^prs:/m);
+  });
+});
+
+describe("schema upgrade to v30", () => {
+  const downgrade = async (setup: string) => {
+    await server.close();
+    const db = new DatabaseSync(dbFile);
+    db.exec(`${setup}; UPDATE meta SET value = '29' WHERE key = 'schema_version'`);
+    db.close();
+    server = await serve({ dbPath: dbFile, port: 0, now: () => now, env: {}, fetchers: [] });
+  };
+
+  test("the bare slack source becomes a workspace named by its Slack address, with its cursor and switch", async () => {
+    await imported();
+    await downgrade(`INSERT INTO config(key, value, updated_at) VALUES
+        ('fetch', '{"github":true,"linear":false,"slack":true,"slack-zuno8":true}', '2026-11-20T00:00:00Z'),
+        ('slackWorkspaces', '["zuno8"]', '2026-11-20T00:00:00Z');
+      INSERT INTO meta(key, value) VALUES ('slack-team:up-sider.slack.com', 'T01'), ('slack-team:zuno8.slack.com', 'T02');
+      INSERT INTO source(name, cursor, last_sync) VALUES ('slack', '1795700000.000100', '2026-11-27T00:00:00Z')`);
+    assert.equal(await ok("config", "slackWorkspaces"), 'slackWorkspaces = ["up-sider","zuno8"]');
+    assert.equal(
+      await ok("config", "fetch"),
+      'fetch = {"github":true,"linear":false,"slack-zuno8":true,"slack-up-sider":true}',
+    );
+    assert.match(await ok("sources"), /^slack-up-sider \| last sync .* \| cursor 1795700000\.000100$/m);
+    assert.doesNotMatch(await ok("sources"), /^slack \|/m);
+  });
+
+  test("a bare slack source that never fetched is dropped; Settings asks for a workspace", async () => {
+    await imported();
+    await downgrade(`INSERT INTO config(key, value, updated_at) VALUES
+        ('fetch', '{"github":true,"linear":false,"slack":true}', '2026-11-20T00:00:00Z')`);
+    assert.equal(await ok("config", "slackWorkspaces"), "slackWorkspaces = []");
+    assert.equal(await ok("config", "fetch"), 'fetch = {"github":true,"linear":false}');
   });
 });
 
@@ -1511,7 +1545,8 @@ describe("item questions", () => {
 describe("brief for judging", () => {
   test("brief names what hub fetches itself and lists the user's sent messages to judge, apart from tracked", async () => {
     await imported();
-    await ok("config", "fetch", '{"github":true,"slack":true}');
+    await ok("slack", "add", "acme");
+    await ok("slack", "add", "beta");
     stdin = [
       '{"source":"slack","kind":"message","url":"https://acme.slack.com/archives/C1/p1763350000000100","title":"#web khai: shipped it","author":"me","state":"sent"}',
       '{"source":"slack","kind":"message","url":"https://acme.slack.com/archives/C1/p1763350000000200","title":"#ops ana: on call?","state":"mention","needs_me":true}',

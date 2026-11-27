@@ -73,7 +73,7 @@ const TEAM_ID = /^[TE][A-Z0-9]{2,}$/;
 export const WORKSPACE = /^[a-z][a-z0-9-]{0,33}$/;
 
 export function slackSources(config: Config): string[] {
-  return ["slack", ...config.slackWorkspaces.map((w) => `slack-${w}`)];
+  return config.slackWorkspaces.map((w) => `slack-${w}`);
 }
 
 export function isChannelKey(key: string): key is SlackChannelKey {
@@ -242,7 +242,7 @@ export const DEFAULTS: Config = {
   layout: DEFAULT_LAYOUT,
   autoSync: false,
   syncEvery: "4h",
-  fetch: { github: true, linear: false, slack: false },
+  fetch: { github: true, linear: false },
   fetchEvery: "1m",
   githubReviewQuery: "is:pr is:open review-requested:@me archived:false draft:false",
   githubPrQuery: "is:pr author:@me",

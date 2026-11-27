@@ -407,7 +407,7 @@ function avatar(url: string | null): string {
 }
 
 function workspace(ctx: Ctx, url: string | null): string | null {
-  return ctx.config.slackWorkspaces.length === 0 ? null : workspaceOf(url);
+  return ctx.config.slackWorkspaces.length < 2 ? null : workspaceOf(url);
 }
 
 type Part = string | { html: string } | null;
@@ -1868,7 +1868,7 @@ export type Fetching = {
   warning: string | null;
 };
 
-const SOURCE_NAME: Record<string, string> = { github: "GitHub", linear: "Linear", slack: "Slack" };
+const SOURCE_NAME: Record<string, string> = { github: "GitHub", linear: "Linear" };
 
 function sourceLabel(name: string): string {
   return SOURCE_NAME[name] ?? (name.startsWith("slack-") ? `Slack ${name.slice("slack-".length)}` : name);
@@ -1993,7 +1993,7 @@ export function settingsBody(
 ): string {
   const c = ctx.config;
   const slackOn = slackSources(c).some((name) => c.fetch[name] === true);
-  const teams = c.slackWorkspaces.length === 0 ? null : workspacesByTeam(ctx.db);
+  const teams = c.slackWorkspaces.length < 2 ? null : workspacesByTeam(ctx.db);
   const shortcuts: [string, string][] = [
     ["j / k", "next / previous row"],
     ["Enter", "open"],
