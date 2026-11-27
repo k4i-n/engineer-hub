@@ -578,6 +578,12 @@ describe("files", () => {
 
     await ok("ticket-delete", "ENG-2");
     assert.equal(existsSync(folder("ENG-2")), false);
+    const backups = readdirSync(join(dir, "backups")).filter((n) => n.endsWith("-before-delete.files"));
+    assert.deepEqual(readdirSync(join(dir, "backups", backups[0] ?? "", "ENG-2")).sort(), [
+      "notes.md",
+      "plan (from ENG-1).md",
+      "plan.md",
+    ]);
   });
 });
 
