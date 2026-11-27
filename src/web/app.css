@@ -1952,6 +1952,16 @@ textarea.text {
   flex: none;
   width: 120px;
 }
+.slider {
+  flex: 1;
+  max-width: 320px;
+  min-width: 120px;
+  accent-color: var(--accent);
+}
+.slider-text {
+  min-width: 110px;
+  font-variant-numeric: tabular-nums;
+}
 .set-control > .code-block {
   flex-basis: 100%;
   min-width: 0;

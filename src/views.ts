@@ -33,6 +33,7 @@ import {
   type WaitRow,
 } from "./db.ts";
 import { series, span } from "./horizon.ts";
+import { type IntervalKey, intervalText, KEEP_RANGE, ladder, minutes } from "./intervals.ts";
 import { KIND_NAME } from "./items.ts";
 import { esc, renderLine, renderMarkdown } from "./markdown.ts";
 import { pins } from "./pins.ts";
@@ -1751,6 +1752,24 @@ function segmented(key: string, value: string | number, options: Option[], cls =
     .join("")}</div>`;
 }
 
+function slider<T extends string | number>(key: string, value: T, steps: T[], text: (v: T) => string): string {
+  const near = (v: T) => (typeof v === "number" ? v : minutes(v, key));
+  const at = near(value);
+  const index = steps.reduce(
+    (best, v, i) => (Math.abs(near(v) - at) < Math.abs(near(steps[best] as T) - at) ? i : best),
+    0,
+  );
+  return `<input type="range" class="slider" min="0" max="${steps.length - 1}" value="${index}" data-config-slider="${esc(key)}" data-steps="${esc(JSON.stringify(steps))}" data-texts="${esc(JSON.stringify(steps.map(text)))}" aria-label="${esc(key)}"><span class="slider-text">${esc(text(value))}</span>`;
+}
+
+function intervalSlider(key: IntervalKey, value: string): string {
+  return slider(key, value, ladder(key), intervalText);
+}
+
+function range(low: number, high: number): number[] {
+  return Array.from({ length: high - low + 1 }, (_, i) => low + i);
+}
+
 function blockNames(extra: Group[]): Record<string, string> {
   return { ...BLOCK_NAME, ...Object.fromEntries(extra.map((g) => [g.key, g.label])) };
 }
@@ -1898,26 +1917,8 @@ function awayRows(ctx: Ctx, away: AwayView): string {
         : `<span class="src-state">${esc(agoText(ctx, away.lastJudge))}</span>`;
   return (
     row("Ping when away", toggle("awayPing", c.awayPing)) +
-    row(
-      "Away after",
-      segmented("awayAfter", c.awayAfter, [
-        ["5m", "5 min"],
-        ["10m", "10 min"],
-        ["15m", "15 min"],
-        ["30m", "30 min"],
-      ]),
-      !c.awayPing,
-    ) +
-    row(
-      "At most every",
-      segmented("awayEvery", c.awayEvery, [
-        ["15m", "15 min"],
-        ["30m", "30 min"],
-        ["1h", "1 hour"],
-        ["2h", "2 hours"],
-      ]),
-      !c.awayPing,
-    ) +
+    row("Away after", intervalSlider("awayAfter", c.awayAfter), !c.awayPing) +
+    row("At most every", intervalSlider("awayEvery", c.awayEvery), !c.awayPing) +
     row(
       "Webhook",
       `<span class="src-state">${esc(stored)}</span>${button("Test", { act: "away-test" })}${
@@ -1933,15 +1934,7 @@ function awayRows(ctx: Ctx, away: AwayView): string {
       `<textarea class="text" data-config-input="judgePrompt" rows="4" spellcheck="false">${esc(c.judgePrompt)}</textarea>`,
       !c.awayPing || c.judgeCommand.length === 0,
     ) +
-    row(
-      "Merged PRs",
-      segmented("watchFor", c.watchFor, [
-        ["1h", "1 hour"],
-        ["3h", "3 hours"],
-        ["6h", "6 hours"],
-      ]),
-      !c.awayPing || c.judgeCommand.length === 0,
-    )
+    row("Merged PRs", intervalSlider("watchFor", c.watchFor), !c.awayPing || c.judgeCommand.length === 0)
   );
 }
 
@@ -1998,33 +1991,14 @@ ${section(
     row("Ignore channels", channelInput("slackIgnoreChannels", c.slackIgnoreChannels, teams), !slackOn) +
     row("Group channels", channelInput("slackGroupChannels", c.slackGroupChannels, teams), !slackOn) +
     row("Watch channels", channelInput("slackWatchChannels", c.slackWatchChannels, teams), !slackOn) +
-    row(
-      "Every",
-      segmented("fetchEvery", c.fetchEvery, [
-        ["1m", "1 min"],
-        ["5m", "5 min"],
-        ["15m", "15 min"],
-        ["30m", "30 min"],
-      ]),
-      !fetching.some((f) => f.script === null && f.on),
-    ),
+    row("Every", intervalSlider("fetchEvery", c.fetchEvery), !fetching.some((f) => f.script === null && f.on)),
   "set-sec",
 )}
 ${section(
   "Agent",
   null,
   row("Auto sync", toggle("autoSync", c.autoSync)) +
-    row(
-      "Every",
-      segmented("syncEvery", c.syncEvery, [
-        ["15m", "15 min"],
-        ["30m", "30 min"],
-        ["1h", "1 hour"],
-        ["2h", "2 hours"],
-        ["4h", "4 hours"],
-      ]),
-      !c.autoSync,
-    ) +
+    row("Every", intervalSlider("syncEvery", c.syncEvery), !c.autoSync) +
     row("Command", codeBlock(JSON.stringify(c.syncCommand))),
   "set-sec",
 )}
@@ -2036,24 +2010,10 @@ ${section(
     row("Size", esc(size(db.size))) +
     row("Schema", `v${esc(db.schema)}`) +
     row("Backup", toggle("autoBackup", c.autoBackup)) +
-    row(
-      "Every",
-      segmented("backupEvery", c.backupEvery, [
-        ["1h", "1 hour"],
-        ["6h", "6 hours"],
-        ["12h", "12 hours"],
-        ["1d", "1 day"],
-        ["7d", "7 days"],
-      ]),
-      !c.autoBackup,
-    ) +
+    row("Every", intervalSlider("backupEvery", c.backupEvery), !c.autoBackup) +
     row(
       "Keep",
-      segmented(
-        "backupKeep",
-        c.backupKeep,
-        [7, 14, 30].map((n) => [n, String(n)]),
-      ),
+      slider("backupKeep", c.backupKeep, range(KEEP_RANGE[0], KEEP_RANGE[1]), (n) => `${n} backups`),
       !c.autoBackup,
     ) +
     row(

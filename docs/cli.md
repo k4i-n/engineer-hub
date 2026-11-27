@@ -85,7 +85,8 @@ Config lives in the database. `hub config` lists every key with its value:
 | `trackerHosts` | `["linear.app"]` | URLs whose links count as the tracker |
 | `syncCommand` | `claude -p /engineer-hub:hub-sync …` | the agent run that Sync → Agent, Sync → All and auto sync start; any headless agent CLI |
 | `autoSync` | `false` | run the agent every `syncEvery` after its last run |
-| `syncEvery` | `4h` | 15m, 30m, 1h, 2h or 4h |
+| `syncEvery` | `4h` | 5m to 8h |
+| `fetchEvery` | `1m` | how often built-in sources fetch, 1m to 60m |
 | `layout` | `{"top":["overview"],"left":[…],"right":[…]}` | where each dashboard card sits |
 | `hiddenBlocks` | `[]` | dashboard cards that are hidden |
 | `progressStyle` | `"ring"` | step progress as `ring`, `half` or `bar` |
@@ -101,15 +102,15 @@ Config lives in the database. `hub config` lists every key with its value:
 | `laterHour` | `9` | the hour "later until tomorrow" means |
 | `recordActions` | `git push`, `gh pr create\|merge\|comment\|review\|close\|edit`, `gh issue create\|comment\|close\|edit` | regular expressions for shell commands a session must record in hub before it stops, and whose printed PR the PostToolUse hook links to the ticket on the current branch; `[]` switches the Stop hook off |
 | `awayPing` | `false` | post to a webhook when new alerts or messages arrive while you are away (see Dashboard) |
-| `awayAfter` | `"10m"` | idle time that counts as away: 5m, 10m, 15m or 30m; a locked screen is away at once |
-| `awayEvery` | `"30m"` | at most one post per 15m, 30m, 1h or 2h |
+| `awayAfter` | `"10m"` | idle time that counts as away, 1m to 60m; a locked screen is away at once |
+| `awayEvery` | `"30m"` | at most one post per this long, 5m to 4h |
 | `judgeCommand` | `claude -p --model haiku --max-turns 1 --tools "" …` | the one-shot command that picks which new items are worth an away ping (terminal only); `[]` posts counts instead |
 | `judgePrompt` | ping questions, requests, blockers and alerts that match a ticket or a recent merge; skip thanks, FYI, routine alerts, bot updates | the rules the judge gets |
-| `watchFor` | `"3h"` | how far back the judge sees your merged PRs: 1h, 3h or 6h |
+| `watchFor` | `"3h"` | how far back the judge sees your merged PRs, 30m to 24h |
 | `autoBackup` | `true` | back up the database on a schedule |
-| `backupEvery` | `"1d"` | how often: `1h`, `6h`, `12h`, `1d` or `7d` |
+| `backupEvery` | `"1d"` | how often, 1h to 7d |
 | `backupDir` | `""` | backup folder, absolute or `~/…`; empty means `backups/` next to the database |
-| `backupKeep` | `14` | backups kept: 7, 14 or 30; older ones are deleted |
+| `backupKeep` | `14` | backups kept, 1 to 100; older ones are deleted |
 | `stateFields`, `sections`, `trackerSyncMarkers`, `planDir`, `resumeHeading` | | markdown conventions the importer reads |
 
 ## Import from a markdown ticket folder

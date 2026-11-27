@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { HORIZONS } from "./horizon.ts";
+import { intervalError, isInterval, KEEP_RANGE } from "./intervals.ts";
 import { HubError, nowIso } from "./util.ts";
 
 export type Config = {
@@ -265,15 +266,8 @@ const CHOICES: Partial<Record<keyof Config, string[]>> = {
   openSlackIn: ["browser", "app"],
   openLinearIn: ["browser", "app"],
   theme: ["system", "light", "dark"],
-  syncEvery: ["15m", "30m", "1h", "2h", "4h"],
-  fetchEvery: ["1m", "5m", "15m", "30m"],
-  awayAfter: ["5m", "10m", "15m", "30m"],
-  awayEvery: ["15m", "30m", "1h", "2h"],
-  watchFor: ["1h", "3h", "6h"],
   progressStyle: ["ring", "half", "bar"],
   horizon: HORIZONS,
-  backupEvery: ["1h", "6h", "12h", "1d", "7d"],
-  backupKeep: ["7", "14", "30"],
 };
 
 type Key = keyof Config;
@@ -311,6 +305,13 @@ function shapeError(key: string, expected: unknown, value: unknown): string | un
 function semanticError(key: Key, value: unknown): string | undefined {
   const choices = CHOICES[key];
   if (choices !== undefined && !choices.includes(String(value))) return `${key} must be one of ${choices.join(", ")}`;
+  if (isInterval(key)) return intervalError(key, value);
+  if (
+    key === "backupKeep" &&
+    !(Number.isInteger(value) && Number(value) >= KEEP_RANGE[0] && Number(value) <= KEEP_RANGE[1])
+  ) {
+    return `backupKeep is a count from ${KEEP_RANGE[0]} to ${KEEP_RANGE[1]}`;
+  }
   if (key === "slackWorkspaces") {
     const names = value as string[];
     const bad = names.find((n) => !WORKSPACE.test(n));
