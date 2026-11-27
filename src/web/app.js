@@ -275,11 +275,27 @@ function foldToday() {
   }
 }
 
+function applyWorkspace() {
+  const ws = stored("hub.ws", null);
+  for (const li of app.querySelectorAll("li[data-ws]"))
+    li.classList.toggle("ws-hidden", ws !== null && li.dataset.ws !== ws);
+  app.querySelector(".ws-on")?.remove();
+  if (ws === null) return;
+  const chip = document.createElement("button");
+  chip.type = "button";
+  chip.className = "src ws-on";
+  chip.dataset.wsFilter = ws;
+  chip.title = "Show every workspace";
+  chip.textContent = `Slack: ${ws} ×`;
+  app.querySelector(".sources")?.prepend(chip);
+}
+
 function afterRender(first, shown) {
   foldGroups();
   foldSections();
   markCleared();
   applyTab(shown);
+  applyWorkspace();
   foldToday();
   const keys = needKeys();
   const section = app.querySelector("[data-needs-count]");
@@ -795,6 +811,11 @@ document.addEventListener("click", async (e) => {
     store(`hub.tab.${b.closest("[data-tabs]")?.dataset.tabs}`, b.dataset.tab);
     applyTab();
     foldToday();
+    return;
+  }
+  if (b?.dataset.wsFilter !== undefined) {
+    store("hub.ws", stored("hub.ws", null) === b.dataset.wsFilter ? null : b.dataset.wsFilter);
+    applyWorkspace();
     return;
   }
   if (b?.closest("summary")) e.preventDefault();

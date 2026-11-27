@@ -88,6 +88,7 @@ type Need = {
   today?: boolean;
   section?: string;
   panel?: string;
+  ws?: string;
 };
 
 const NO_TEXT = "(no text)";
@@ -409,11 +410,20 @@ function workspace(ctx: Ctx, url: string | null): string | null {
   return ctx.config.slackWorkspaces.length === 0 ? null : workspaceOf(url);
 }
 
-function sourceLine(parts: (string | null)[]): string {
+type Part = string | { html: string } | null;
+
+function sourceLine(parts: Part[]): string {
   return parts
-    .filter((p): p is string => p !== null && p !== "")
-    .map(esc)
+    .filter((p) => p !== null && p !== "")
+    .map((p) => (typeof p === "string" ? esc(p) : (p as { html: string }).html))
     .join(" · ");
+}
+
+function wsFilter(name: string | null): Part {
+  if (name === null) return null;
+  return {
+    html: `<button type="button" class="ws-filter" data-ws-filter="${esc(name)}" title="Show only ${esc(name)} in Slack rows">${esc(name)}</button>`,
+  };
 }
 
 function needs(ctx: Ctx, tickets: Ticket[]): Need[] {
@@ -624,10 +634,11 @@ function itemNeed(ctx: Ctx, i: ItemRow): Need {
   const folded = i.kind === "alert" ? folds(ctx.db, i) : null;
   const url = folded?.url ?? i.url ?? (/^https?:/.test(i.ref) ? i.ref : null);
   const drafts = itemDrafts(ctx, i, dim === null);
+  const ws = i.source === "slack" ? workspace(ctx, url) : null;
   const source = [
     githubRef(url) ?? i.source,
     folded === null ? null : `×${folded.count}, last ${when(ctx, folded.last)}`,
-    i.source === "slack" ? workspace(ctx, url) : null,
+    wsFilter(ws),
     i.author,
     i.state,
     i.detail,
@@ -655,6 +666,7 @@ function itemNeed(ctx: Ctx, i: ItemRow): Need {
     later: dim === null ? { act: "item-snooze", data: { id: i.id } } : null,
     ...((i.kind === "review_request" || i.kind === "pr") && i.ignored === null ? { ignore: i.id } : {}),
     ...(i.needs_me === 0 ? { fyi: true } : {}),
+    ...(ws === null ? {} : { ws }),
   };
 }
 
@@ -662,6 +674,7 @@ function waitNeed(ctx: Ctx, w: WaitRow): Need {
   const now = nowIso(ctx.now);
   const closed = w.closed_at !== null;
   const pinged = !closed && w.ping_after !== null && w.ping_after > now;
+  const ws = workspace(ctx, w.url);
   return {
     key: `wait-${w.id}`,
     id: { shown: `wait ${w.id}`, token: `wait ${w.id}` },
@@ -670,7 +683,7 @@ function waitNeed(ctx: Ctx, w: WaitRow): Need {
     verb: "Ping",
     tone: "orange",
     title: linker(ctx)(w.url, w.who, "need-title"),
-    sub: sourceLine([workspace(ctx, w.url), pinged ? `next ${when(ctx, w.ping_after ?? now)}` : "no reply yet"]),
+    sub: sourceLine([wsFilter(ws), pinged ? `next ${when(ctx, w.ping_after ?? now)}` : "no reply yet"]),
     ask: "",
     ticket: w.ticket_id,
     href: w.url,
@@ -678,6 +691,7 @@ function waitNeed(ctx: Ctx, w: WaitRow): Need {
     ok: { label: "Answered", data: { act: "wait-close", id: w.id } },
     undo: closed ? { act: "wait-reopen", id: w.id } : null,
     later: closed ? null : { act: "wait-pinged", data: { id: w.id } },
+    ...(ws === null ? {} : { ws }),
   };
 }
 
@@ -708,7 +722,8 @@ function needRow(ctx: Ctx, n: Need, pinned: boolean, showVerb: boolean | "inline
   const ask = n.ask === "" ? "" : `<div class="n-ask">${n.ask}</div>`;
   const body = n.body === undefined ? "" : `<div class="n-body md">${markdown(ctx, n.body)}</div>`;
   const more = folds && body + (n.drafts ?? "") !== "" ? `<div class="n-more">${body}${n.drafts ?? ""}</div>` : "";
-  return `<li class="${cls}" data-key="${esc(n.key)}"${href}${panel}${fold}>
+  const ws = n.ws === undefined ? "" : ` data-ws="${esc(n.ws)}"`;
+  return `<li class="${cls}" data-key="${esc(n.key)}"${href}${panel}${fold}${ws}>
 ${caret}
 ${showVerb === true ? `<span class="verb">${esc(n.verb)}</span>` : ""}
 ${main}
