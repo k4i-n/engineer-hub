@@ -14,6 +14,7 @@ import { one, openDb, SCHEMA_VERSION, type SourceRow } from "./db.ts";
 import { type Fetcher, isOn, Runner } from "./fetch.ts";
 import { FETCHERS } from "./fetchers/index.ts";
 import { resolveChannels, workspaceFetchers } from "./fetchers/slack.ts";
+import { filesRoot } from "./files.ts";
 import { type System, system } from "./keys.ts";
 import { handleRpc } from "./mcp.ts";
 import { loadToken, tokenPath } from "./token.ts";
@@ -146,7 +147,8 @@ export function serve(options: ServeOptions): Promise<Server> {
   let child: ChildProcess | null = null;
   let port = options.port;
 
-  const ctx = (): Ctx => ({ db, config: loadConfig(db), now: options.now() });
+  const files = filesRoot(options.dbPath);
+  const ctx = (): Ctx => ({ db, config: loadConfig(db), now: options.now(), files });
   const broadcast = () => {
     for (const client of clients) client.write("event: change\ndata: \n\n");
   };

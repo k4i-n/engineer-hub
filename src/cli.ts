@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { type Args, COMMAND_KEYS, params, ROUTES } from "./api.ts";
@@ -8,6 +9,7 @@ import type { Ctx, Result } from "./commands.ts";
 import * as commands from "./commands.ts";
 import { DEFAULTS, dbPath, loadConfig } from "./config.ts";
 import { openDb } from "./db.ts";
+import { filesRoot } from "./files.ts";
 import { gate, type StopInput } from "./gate.ts";
 import { itemByRef } from "./items.ts";
 import { type PostToolInput, record } from "./record.ts";
@@ -32,7 +34,7 @@ read:   ticket <id> | board [regex] | next | gates | changed --since <YYYY-MM-DD
         search <query> [-n 10] | events <id> [-n 20] [--full] | notes <id> | note-show <id> <title>
         drafts [id] | draft-show <id> <label> | day [date] [--full] | lint | config [key]
         items [--needs-me] [--source <s>] [--ticket <id>] [--all] | waits [--due] | sources | brief
-        steps <id>
+        steps <id> | files <id>
 write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent] [--ref <url>]
         note <id> <title> (--file <path> | --stdin) [--kind detail] | note-rm <id> <title> | note-mv <id> <title> <new title>
         draft <id | item url> <label> (--file <path> | --stdin) [--channel <c>] [--send-at <when>] [--item <url>]
@@ -61,6 +63,7 @@ write:  set <id> <field> <value> | log <id> <text> [--kind log] [--source agent]
         plan drop <n> <why> (each plan command takes --date <d>, default today)
         move <id> <dir> | rename <id> <new id> | merge <id> <into id> | ticket-delete <id>
         order <id> <place | -> | gate <id> (yes | no)
+        file add <id> <src> [--as <path>] [--move] | file rm <id> <path>
         config <key> <json>
 backup: backup | backups | restore <name>
 import: import --root <dir> [--apply]
@@ -98,6 +101,7 @@ const OPTIONS = {
   section: { type: "string" },
   as: { type: "string" },
   start: { type: "boolean" },
+  move: { type: "boolean" },
   hook: { type: "boolean" },
   due: { type: "boolean" },
   cursor: { type: "string" },
@@ -144,6 +148,7 @@ type Values = {
   section?: string;
   as?: string;
   start?: boolean;
+  move?: boolean;
   hook?: boolean;
   due?: boolean;
   cursor?: string;
@@ -383,6 +388,16 @@ const COMMANDS: Record<string, Handler> = {
   },
   brief: () => c("brief"),
   steps: (a) => c("steps", { id: arg(a, 0, "steps <id>") }),
+  files: (a) => c("files", { id: arg(a, 0, "files <id>") }),
+  file: (a, v) => {
+    const usage = "file add <id> <src> [--as <path>] [--move] | file rm <id> <path>";
+    const sub = arg(a, 0, usage);
+    if (sub === "add") {
+      return c("file_add", { id: arg(a, 1, usage), src: resolve(arg(a, 2, usage)), as: v.as, move: v.move === true });
+    }
+    if (sub === "rm") return c("file_remove", { id: arg(a, 1, usage), path: arg(a, 2, usage) });
+    throw new HubError(`usage: hub ${usage}`);
+  },
   step: (a, v) => {
     const usage =
       "step add <id> <title> [--at <n>] | step start <id> <n> | step done <id> <n> [--evidence <url>] | step edit <id> <n> <title> | step undo <id> <n> | step rm <id> <n>";
@@ -534,9 +549,10 @@ function readToken(file: string, base: string): string {
 }
 
 function local(values: Values, io: Io, work: (ctx: Ctx) => Result): Result {
-  const db = openDb(dbPath(values.db, io.env));
+  const path = dbPath(values.db, io.env);
+  const db = openDb(path);
   try {
-    return work({ db, config: loadConfig(db), now: io.now() });
+    return work({ db, config: loadConfig(db), now: io.now(), files: filesRoot(path) });
   } finally {
     db.close();
   }
@@ -677,7 +693,7 @@ function recordHook(values: Values, io: Io): number {
     if (!existsSync(path)) return 0;
     const db = openDb(path);
     try {
-      const result = record({ db, config: loadConfig(db), now: io.now() }, input, branchOf);
+      const result = record({ db, config: loadConfig(db), now: io.now(), files: filesRoot(path) }, input, branchOf);
       if (result !== "") io.stdout(result);
     } finally {
       db.close();

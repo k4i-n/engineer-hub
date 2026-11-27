@@ -58,7 +58,7 @@ function sys(platform: NodeJS.Platform = "darwin", env: NodeJS.ProcessEnv = {}):
   };
 }
 
-const ctx = (): Ctx => ({ db, config: loadConfig(db), now: new Date(clock) });
+const ctx = (): Ctx => ({ db, config: loadConfig(db), now: new Date(clock), files: "" });
 
 function arrive(...rows: Record<string, unknown>[]): void {
   items.put(ctx(), rows.map((r) => JSON.stringify({ source: "slack", needs_me: true, ...r })).join("\n"));

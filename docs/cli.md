@@ -6,7 +6,7 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 
 | Read | Prints |
 |---|---|
-| `hub ticket <id>` | state with the state of each attached PR (`#140 approved`), tracker fields, step progress and the steps being done, the last 3 events, open drafts, open items and waits, note titles (under 25 lines) |
+| `hub ticket <id>` | state with the state of each attached PR (`#140 approved`), tracker fields, step progress and the steps being done, the last 3 events, open drafts, open items and waits, note titles, and the file count with the ticket's folder (under 25 lines) |
 | `hub board [regex]` | open tickets grouped by dir, one line each; `PR` shows the attached PRs with their state (`#140 approved, #141 checks failing`), else the `prs` text |
 | `hub next` | the next action of each ticket in progress, then to do, in your order, then by tracker priority |
 | `hub gates` | tickets waiting on a human decision |
@@ -18,6 +18,7 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 | `hub waits [--due]` | questions asked of someone; `--due` lists the ones to ping now |
 | `hub sources` | each source's last sync, cursor and error |
 | `hub steps <id>` | the ticket's steps (`[ ]` todo, `[>]` doing, `[x]` done), with their evidence |
+| `hub files <id>` | the ticket's folder (absolute path), then each file in it with size and modified time |
 | `hub brief` | what a sync needs to judge new messages: sources and cursors, open tickets, unsent drafts, drafts sent with wording pending, waits, tracked items (each section capped at 40 lines) |
 | `hub day [date] [--full]` | the rev, the RESUME block and the Today lines of a day plan (today, else the latest), each line with its live state; `--full` gives the whole plan with the lines under `## Today`. Today's plan ends with `## From hub`, generated from the database: my open PRs with their state, open waits with their ping time, drafts set to send later, and open gates |
 | `hub lint` | open tickets missing status, next or owner, over a limit, with a gate that is not a question (no `?`) or that offers a choice (`A or B?`: a gate is a yes/no question; options go in the ticket), or with a title that starts with the ticket's id; exit 1 if any |
@@ -26,9 +27,9 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 | Write | Does |
 |---|---|
 | `hub set <id> <field> <value>` | field is title, status, repo, worktree, branch, gate, next, owner, priority (Urgent, High, Medium or Low; empty clears it, and a Linear ticket's priority follows Linear) or updated (when the ticket last moved, `YYYY-MM-DD` or `YYYY-MM-DD HH:MM`, not in the future: dates backfilled history; any other set stamps now) |
-| `hub merge <id> <into id>` | moves the ticket's timeline, notes, drafts, steps (numbered after the other ticket's), items and waits into the other ticket and deletes it; a clashing note title or draft label gets ` (from <id>)`, and a later write to the old id names the one it went into. Backs up first as `…-before-merge.db`; not an MCP tool |
-| `hub ticket-delete <id>` | deletes the ticket with its timeline, notes, drafts, steps and waits; its items stay, unattached. Backs up first as `…-before-delete.db` (`hub restore` brings it back); not an MCP tool |
-| `hub rename <id> <new id>` | changes the ticket's id (a `NEW-` ticket to its tracker id once filed); its timeline, notes, drafts, steps, items, waits and pins follow, and a later write to the old id fails naming the new one |
+| `hub merge <id> <into id>` | moves the ticket's timeline, notes, drafts, steps (numbered after the other ticket's), items, waits and files into the other ticket and deletes it; a clashing note title, draft label or file name gets ` (from <id>)`, and a later write to the old id names the one it went into. Backs up first as `…-before-merge.db`; not an MCP tool |
+| `hub ticket-delete <id>` | deletes the ticket with its timeline, notes, drafts, steps, waits and files; its items stay, unattached. Backs up first as `…-before-delete.db` (`hub restore` brings it back); not an MCP tool |
+| `hub rename <id> <new id>` | changes the ticket's id (a `NEW-` ticket to its tracker id once filed); its timeline, notes, drafts, steps, items, waits, pins and files folder follow, and a later write to the old id fails naming the new one |
 | `hub log <id> <text> [--kind log] [--source agent] [--ref <url>]` | adds an event stamped in the configured timezone |
 | `hub note <id> <title> (--file <path> \| --stdin) [--kind detail]` | adds or replaces a note |
 | `hub draft <id> <label> (--file \| --stdin) [--channel <c>] [--send-at <when>] [--item <url>] [--internal]` | adds or replaces a draft; `--send-at` takes `30m`, `4h`, `tomorrow`, `12:00`, `tomorrow 12:00` or `2026-11-20 12:00`. `--item` names the PR, review request or message it answers (kept when left out, `""` clears it); that row on the dashboard shows the draft with Copy and Sent while it is open; any other unsent draft is a Send row under Reply. `--internal` marks text an agent uses itself (a PR body): it shows on the ticket page only and is kept on a later save without the flag (API and MCP `internal: false` clears it). A new draft whose first line is `Title: …`, or whose channel names a PR or branch, is internal without the flag. When a PR attached to the ticket has that title, the draft is marked posted with the PR's url and body; `hub posted` on such a draft with no wording takes the PR's body. With no ticket, `<id>` is the item's url or ref; every draft command then takes that url in place of the ticket id. A PR review also takes `--verdict approve\|request_changes\|comment` and `--comments <file>`, a JSON list of `{"path", "line", "body"}` that replaces the draft's comments (`[]` clears them, `--verdict ""` clears the verdict); `hub draft-show` prints them after the body. Hub never posts the review |
@@ -40,6 +41,7 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 | `hub step add <id> <title> [--at <n>]`, `hub step start <id> <n>`, `hub step done <id> <n> [--evidence <url>]` | adds a step (at the end, or at place n with the rest moving down), marks one doing when work on it begins (several can be doing; one waiting on review or merge is still doing), marks one done (from todo or doing) and logs each |
 | `hub step edit <id> <n> <title>`, `hub step undo <id> <n>`, `hub step rm <id> <n>` | changes a step's title, marks a done step not done or a doing step not started (logged; both go back to todo), removes a step (the rest move up, so steps stay 1 to n) |
 | `hub note-mv <id> <title> <new title>`, `hub note-rm <id> <title>` | renames or removes a note |
+| `hub file add <id> <src> [--as <path>] [--move]`, `hub file rm <id> <path>` | copies (or moves) a file or folder into the ticket's folder, under its own name or `--as` a path inside it, refusing one that exists; removes a file or folder from it. Both are logged; edits are not |
 | `hub draft-mv <id> <label> <new label>`, `hub draft-rm <id> <label>` | renames a draft, or removes one never sent (a sent draft stays as the record) |
 | `hub item put --stdin` | stores items read from a source, one JSON object per line ([format](sources.md#items-from-connectors)) |
 | `hub item close <item>...`, `hub item snooze <item> [--for 1d|tomorrow]`, `hub item attach <item> <id>`, `hub item detach <item>` | marks items handled, hides one for a while (a change brings it back), attaches one to a ticket, takes one off its ticket (a later fetch does not match it back by id; attach does); `<item>` is the `#` number or the ref |
@@ -59,6 +61,10 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 | `hub restore <name>` | backs up the current database as `…-before-restore.db`, then replaces it with the named backup while hub keeps running; a backup made in the same second as another gets `-2`, `-3` |
 | `hub order <id> <place \| ->` | puts the ticket at a place in its dir (1 is the top); tickets above it keep their places and the rest shift down; `-` takes it out of the order. Ordered tickets come first in `hub board`, `hub next` and the dashboard, as `#1`, `#2`…, then the rest by tracker priority |
 | `hub config <key> <json>` | stores a config value, checked against the default's type |
+
+## Ticket files
+
+Each ticket owns a folder of real files, `files/<id>/` next to the database (`~/.hub/files/ENG-42/`): plans, images, scripts, CSV, JSON, delivered HTML reports, in any subfolders. Agents read and edit them in place with their own file tools; hub never passes file content through the API or MCP. `files` (MCP) or `hub files` gives the absolute folder path. A rename moves the folder, a merge moves its files into the other ticket's, a delete removes it (after the backup), and a ticket moved to done keeps it. Names starting with `.` are left out of the list. For version history, run `git init` in the `files` folder.
 
 ## Limits
 
