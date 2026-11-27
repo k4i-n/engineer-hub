@@ -145,7 +145,18 @@ export type PlanLineRow = {
 };
 
 export const LIMITED_FIELDS = ["status", "repo", "gate", "next", "owner"] as const;
-export const SETTABLE_FIELDS = ["title", "status", "repo", "worktree", "branch", "gate", "next", "owner"] as const;
+export const SETTABLE_FIELDS = [
+  "title",
+  "status",
+  "repo",
+  "worktree",
+  "branch",
+  "gate",
+  "next",
+  "owner",
+  "priority",
+] as const;
+export const PRIORITIES = ["Urgent", "High", "Medium", "Low"] as const;
 
 function ftsTable(table: string, fts: string, key: string, columns: string[]): string {
   const cols = columns.join(", ");

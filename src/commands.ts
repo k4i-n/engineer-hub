@@ -15,6 +15,7 @@ import {
   LIMITED_FIELDS,
   type NoteRow,
   one,
+  PRIORITIES,
   SETTABLE_FIELDS,
   type StepRow,
   type Ticket,
@@ -654,16 +655,25 @@ export function lint(ctx: Ctx): Result {
   return { text: findings.join("\n") || "ok", json: findings, exitCode: findings.length > 0 ? 1 : 0 };
 }
 
+function priorityLabel(value: string): string | null {
+  if (!value.trim()) return null;
+  const label = PRIORITIES.find((p) => p.toLowerCase() === value.trim().toLowerCase());
+  if (!label) throw new HubError(`priority must be one of ${PRIORITIES.join(", ")} or empty, not ${value}`);
+  return label;
+}
+
 export function set(ctx: Ctx, id: string, field: string, value: string): Result {
   oneOf("field", field, SETTABLE_FIELDS);
   if (field === "title" && !value.trim()) throw new HubError("title is empty");
   checkLimit(field, value, ctx.config.limits);
   getTicket(ctx.db, id);
   const updated = today(ctx.now, ctx.config.timezone);
+  const column = field === "priority" ? "tracker_priority" : field;
+  const stored = field === "priority" ? priorityLabel(value) : value;
   ctx.db
-    .prepare(`UPDATE ticket SET ${field} = ?, updated = ?, updated_at = ? WHERE id = ?`)
-    .run(value, updated, nowIso(ctx.now), id);
-  return { text: `${id} ${field} set`, json: { id, field, value, updated } };
+    .prepare(`UPDATE ticket SET ${column} = ?, updated = ?, updated_at = ? WHERE id = ?`)
+    .run(stored, updated, nowIso(ctx.now), id);
+  return { text: `${id} ${field} set`, json: { id, field, value: stored, updated } };
 }
 
 function judged(ctx: Ctx, ref: string): void {

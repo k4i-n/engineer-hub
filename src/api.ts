@@ -119,8 +119,12 @@ export const PATH_ABOUT: Record<string, string> = {
 const planDay: Field = { type: "string", about: "YYYY-MM-DD (default today)" };
 const later: Field = { type: "string", about: "30m, 4h, 2d or tomorrow (default 1d)" };
 
+const FIELD_ABOUT: Partial<Record<(typeof SETTABLE_FIELDS)[number], string>> = {
+  priority: "Urgent, High, Medium or Low; empty clears it",
+};
+
 const TICKET_FIELDS: Fields = Object.fromEntries([
-  ...SETTABLE_FIELDS.map((f) => [f, { type: "string", about: `${f}, one line` } satisfies Field]),
+  ...SETTABLE_FIELDS.map((f) => [f, { type: "string", about: FIELD_ABOUT[f] ?? `${f}, one line` } satisfies Field]),
   ["dir", { type: "string", about: "move to this folder (taskDirs or unfiled)" } satisfies Field],
 ]);
 
