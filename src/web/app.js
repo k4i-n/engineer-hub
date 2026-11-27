@@ -319,6 +319,7 @@ let dragging = null;
 let refreshAfterDrag = false;
 
 async function refresh() {
+  if (app.querySelector("[data-still]")) return;
   if (dragging) {
     refreshAfterDrag = true;
     return;

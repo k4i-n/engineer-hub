@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1281,7 +1281,7 @@ describe("serve", () => {
     assert.match(html, /<span class="need-sub"><span class="sub-text">grafana/);
     assert.match(
       index.headers.get("content-security-policy") ?? "",
-      /img-src data: https:\/\/avatars\.githubusercontent\.com /,
+      /img-src 'self' data: https:\/\/avatars\.githubusercontent\.com /,
     );
   });
 
@@ -1802,7 +1802,7 @@ describe("send later", () => {
     assert.doesNotMatch(page, /tracker ↗/);
     assert.doesNotMatch(page, /<dd><span class="muted">–<\/span><\/dd>/);
     assert.doesNotMatch(page, /<dt>Approve\?<\/dt>/);
-    assert.match(page, /<p class="none-line">No steps, items, waits or drafts<\/p>/);
+    assert.match(page, /<p class="none-line">No steps, items, waits, drafts or files<\/p>/);
     assert.doesNotMatch(page, /class="(steps-sec|items-sec|waits-sec|drafts)"/);
     assert.match(page, /<details data-key="note-Design" open>/);
     assert.match(page, /data-copy="## Problem\nExports loop.">[\s\S]*?Copy markdown/);
@@ -1811,7 +1811,7 @@ describe("send later", () => {
     await hub(["step", "add", "ENG-90", "write the spec"]);
     await hub(["note", "ENG-90", "Notes", "--stdin"], "x");
     const more = await (await fetch(`${server.url}/t/ENG-90?part=1`)).text();
-    assert.match(more, /<p class="none-line">No items, waits or drafts<\/p>/);
+    assert.match(more, /<p class="none-line">No items, waits, drafts or files<\/p>/);
     assert.match(more, /<details data-key="note-Design">/);
     const tracked = await (await fetch(`${server.url}/t/ENG-42?part=1`)).text();
     assert.match(
@@ -2262,5 +2262,70 @@ describe("today plan lines", () => {
     );
     const past = await (await fetch(`${server.url}/?part=1&day=2026-11-13`)).text();
     assert.doesNotMatch(/<section class="today">[\s\S]*?<\/section>/.exec(past)?.[0] ?? "", /from-hub/);
+  });
+});
+
+describe("ticket files on the dashboard", () => {
+  test("the ticket page lists files, and each opens as rendered markdown, a sandboxed frame, an image or raw", async () => {
+    await hub(["ticket-new", "ENG-1", "Plan"]);
+    const folder = join(dir, "files", "ENG-1");
+    mkdirSync(join(folder, "img"), { recursive: true });
+    writeFileSync(join(folder, "plan.md"), "# Plan\n\n- **ship** it");
+    writeFileSync(join(folder, "report.html"), "<script>document.title = 'r'</script><p>done</p>");
+    writeFileSync(join(folder, "img", "shot one.png"), "png");
+    writeFileSync(join(folder, "rows.csv"), "a,b");
+    writeFileSync(join(folder, "tool.bin"), "x");
+
+    const ticket = await (await fetch(`${server.url}/t/ENG-1`)).text();
+    assert.match(ticket, /data-fold="Files" aria-expanded="true">Files<\/button><\/h2><span class="count">5<\/span>/);
+    assert.match(ticket, /href="\/t\/ENG-1\/files\/plan\.md">plan\.md<\/a>/);
+    assert.match(ticket, /href="\/t\/ENG-1\/files\/img\/shot%20one\.png">img\/shot one\.png<\/a>/);
+    assert.match(ticket, /href="\/t\/ENG-1\/raw\/rows\.csv" target="_blank" rel="noreferrer">rows\.csv<\/a>/);
+    assert.ok(ticket.includes(`data-copy="${folder}"`));
+
+    const md = await fetch(`${server.url}/t/ENG-1/files/plan.md`);
+    const mdHtml = await md.text();
+    assert.match(mdHtml, /<main class="file-view" data-still><section class="file-doc md">/);
+    assert.match(mdHtml, /<strong>ship<\/strong>/);
+    assert.match(md.headers.get("content-security-policy") ?? "", /img-src 'self'.*frame-src 'self'/);
+
+    const view = await (await fetch(`${server.url}/t/ENG-1/files/report.html`)).text();
+    assert.match(view, /<iframe class="file-frame" sandbox="allow-scripts" src="\/t\/ENG-1\/raw\/report\.html"/);
+    const raw = await fetch(`${server.url}/t/ENG-1/raw/report.html`);
+    assert.equal(raw.headers.get("content-type"), "text/html; charset=utf-8");
+    assert.equal(raw.headers.get("content-security-policy"), "sandbox allow-scripts; frame-ancestors 'self'");
+    assert.match(await raw.text(), /<p>done<\/p>/);
+
+    const image = await (await fetch(`${server.url}/t/ENG-1/files/img/shot%20one.png`)).text();
+    assert.match(image, /<img class="file-img" src="\/t\/ENG-1\/raw\/img\/shot%20one\.png"/);
+    assert.equal(
+      (await fetch(`${server.url}/t/ENG-1/raw/img/shot%20one.png`)).headers.get("content-type"),
+      "image/png",
+    );
+
+    const csv = await fetch(`${server.url}/t/ENG-1/files/rows.csv`, { redirect: "manual" });
+    assert.equal(csv.status, 302);
+    assert.equal(csv.headers.get("location"), "/t/ENG-1/raw/rows.csv");
+    const bin = await fetch(`${server.url}/t/ENG-1/raw/tool.bin`);
+    assert.equal(bin.headers.get("content-disposition"), "attachment; filename*=UTF-8''tool.bin");
+
+    for (const bad of [
+      "/t/ENG-1/raw/nope.md",
+      "/t/ENG-1/raw/%2E%2E/%2E%2E/hub.db",
+      "/t/ENG-9/raw/plan.md",
+      "/t/ENG-1/files/img",
+    ])
+      assert.equal((await fetch(`${server.url}${bad}`)).status, 404, bad);
+  });
+
+  test("a file found by search opens its file view", async () => {
+    await hub(["ticket-new", "ENG-1", "Plan"]);
+    mkdirSync(join(dir, "files", "ENG-1"), { recursive: true });
+    writeFileSync(join(dir, "files", "ENG-1", "plan.md"), "per-move clock");
+    const found = (await (await call("GET", "/find?q=clock")).json()) as { kind: string; href: string }[];
+    assert.deepEqual(
+      found.map((f) => [f.kind, f.href]),
+      [["File", "/t/ENG-1/files/plan.md"]],
+    );
   });
 });

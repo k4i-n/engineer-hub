@@ -3,23 +3,33 @@ import { timingSafeEqual } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { dirname, join, resolve } from "node:path";
+import { dirname, extname, join, resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { type Args, checkFields, findRoute, openapi, queryArgs, runRoute } from "./api.ts";
 import { Away, awayState, webhookCommand } from "./away.ts";
 import { type Backup, backup, backupDir, checkRestorable, listBackups, replaceDb } from "./backup.ts";
 import type { Ctx, Result } from "./commands.ts";
 import { loadConfig, type SlackChannel, slackSources } from "./config.ts";
-import { one, openDb, SCHEMA_VERSION, type SourceRow } from "./db.ts";
+import { getTicket, one, openDb, SCHEMA_VERSION, type SourceRow } from "./db.ts";
 import { type Fetcher, isOn, Runner } from "./fetch.ts";
 import { FETCHERS } from "./fetchers/index.ts";
 import { resolveChannels, workspaceFetchers } from "./fetchers/slack.ts";
-import { filesRoot, reindex } from "./files.ts";
+import { fileHref, filesRoot, insideFolder, reindex, show } from "./files.ts";
 import { type System, system } from "./keys.ts";
 import { handleRpc } from "./mcp.ts";
 import { loadToken, tokenPath } from "./token.ts";
 import { afterDuration, HubError, nowIso } from "./util.ts";
-import { BRAND, type Fetching, indexBody, type Live, page, type SyncState, settingsBody, ticketBody } from "./views.ts";
+import {
+  BRAND,
+  type Fetching,
+  fileBody,
+  indexBody,
+  type Live,
+  page,
+  type SyncState,
+  settingsBody,
+  ticketBody,
+} from "./views.ts";
 
 export type ServeOptions = {
   dbPath: string;
@@ -74,9 +84,57 @@ function send(
     "x-content-type-options": "nosniff",
     "referrer-policy": "no-referrer",
     "content-security-policy":
-      "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src data: https://avatars.githubusercontent.com https://*.slack-edge.com https://secure.gravatar.com; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+      "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://avatars.githubusercontent.com https://*.slack-edge.com https://secure.gravatar.com; frame-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
   });
   res.end(body);
+}
+
+const RAW_TYPES: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".svg": "image/svg+xml",
+  ".pdf": "application/pdf",
+  ".html": "text/html; charset=utf-8",
+  ".htm": "text/html; charset=utf-8",
+};
+const PLAIN = new Set([
+  ".md",
+  ".markdown",
+  ".txt",
+  ".csv",
+  ".json",
+  ".log",
+  ".py",
+  ".sh",
+  ".ts",
+  ".js",
+  ".sql",
+  ".yaml",
+  ".yml",
+]);
+
+function sendRaw(res: ServerResponse, full: string, path: string): void {
+  const ext = extname(path).toLowerCase();
+  const plain = PLAIN.has(ext);
+  const type = RAW_TYPES[ext] ?? (plain ? "text/plain; charset=utf-8" : "application/octet-stream");
+  const html = show(path) === "html";
+  const headers: Record<string, string> = {
+    "content-type": type,
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    "referrer-policy": "no-referrer",
+  };
+  if (html) headers["content-security-policy"] = "sandbox allow-scripts; frame-ancestors 'self'";
+  else if (ext !== ".pdf")
+    headers["content-security-policy"] = "default-src 'none'; style-src 'unsafe-inline'; sandbox";
+  if (RAW_TYPES[ext] === undefined && !plain) {
+    headers["content-disposition"] = `attachment; filename*=UTF-8''${encodeURIComponent(path.split("/").at(-1) ?? "")}`;
+  }
+  res.writeHead(200, headers);
+  res.end(readFileSync(full));
 }
 
 function readText(req: IncomingMessage): Promise<string> {
@@ -427,6 +485,30 @@ export function serve(options: ServeOptions): Promise<Server> {
     restore,
   };
 
+  function serveFile(res: ServerResponse, rawId: string, raw: boolean, rawPath: string, part: boolean): void {
+    const c = ctx();
+    try {
+      const id = decodeURIComponent(rawId);
+      const path = rawPath.split("/").map(decodeURIComponent).join("/");
+      getTicket(c.db, id);
+      const full = insideFolder(c.files, id, path);
+      if (statSync(full).isDirectory()) throw new HubError(`${path} is a folder`);
+      if (raw) {
+        sendRaw(res, full, path);
+        return;
+      }
+      if (show(path) === "raw") {
+        res.writeHead(302, { location: fileHref(id, path, true) }).end();
+        return;
+      }
+      const body = fileBody(c, id, path, live(c));
+      send(res, 200, "text/html", part ? body : page(c, `${path} · ${id} · ${BRAND}`, body, token));
+    } catch (error) {
+      if (!(error instanceof HubError) && !(error instanceof URIError)) throw error;
+      send(res, 404, "text/plain", error.message);
+    }
+  }
+
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const host = req.headers.host ?? "";
     if (host !== `127.0.0.1:${port}` && host !== `localhost:${port}`) {
@@ -450,6 +532,11 @@ export function serve(options: ServeOptions): Promise<Server> {
     const asset = STATIC[url.pathname];
     if (req.method === "GET" && asset !== undefined) {
       send(res, 200, asset.type, asset.body);
+      return;
+    }
+    const file = /^\/t\/([^/]+)\/(files|raw)\/(.+)$/.exec(url.pathname);
+    if (req.method === "GET" && file !== null) {
+      serveFile(res, file[1] ?? "", file[2] === "raw", file[3] ?? "", part);
       return;
     }
     if (
