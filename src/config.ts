@@ -57,7 +57,7 @@ export type Config = {
 
 export type Layout = { top: string[]; left: string[]; right: string[] };
 
-export type SlackChannel = { id: string; name: string; team?: string };
+export type SlackChannel = { id: string; name: string; team?: string; where?: string };
 
 export const SLACK_CHANNEL_KEYS = [
   "slackAlertChannels",
@@ -82,10 +82,16 @@ export function isChannelKey(key: string): key is SlackChannelKey {
 
 export function sameChannel(a: SlackChannel, b: SlackChannel): boolean {
   if (a.id !== "" && b.id !== "") return a.id === b.id;
-  return a.name !== "" && a.name === b.name;
+  const apart = (x: string | undefined, y: string | undefined) => x !== undefined && y !== undefined && x !== y;
+  return a.name !== "" && a.name === b.name && !apart(a.where, b.where) && !apart(a.team, b.team);
 }
 
 function channelOf(value: unknown): SlackChannel | null {
+  const [, where, rest] = typeof value === "string" ? (/^\s*([a-z][a-z0-9-]*):(.+)$/.exec(value) ?? []) : [];
+  if (where !== undefined && rest !== undefined) {
+    const c = channelOf(rest);
+    return c === null ? null : { ...c, where };
+  }
   const text = typeof value === "string" ? value.trim().replace(/^#/, "") : "";
   const given =
     typeof value === "string"
@@ -112,7 +118,7 @@ export function channelList(key: string, value: unknown): SlackChannel[] {
     const c = channelOf(v);
     if (c === null)
       throw new HubError(
-        `${key} has ${JSON.stringify(v)}, which is not a Slack channel name or id, e.g. ["alerts-prod"] or ["C01ABCDEF"]`,
+        `${key} has ${JSON.stringify(v)}, which is not a Slack channel name or id, e.g. ["alerts-prod"], ["C01ABCDEF"] or ["acme:#alerts-prod"]`,
       );
     if (!list.some((o) => sameChannel(o, c))) list.push(c);
   }

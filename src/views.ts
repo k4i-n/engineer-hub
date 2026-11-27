@@ -1793,11 +1793,24 @@ function toggle(key: string, on: boolean): string {
 
 function channelInput(key: SlackChannelKey, list: SlackChannel[], teams: Map<string, string> | null): string {
   const shared = (c: SlackChannel) => list.filter((o) => o.name === c.name).length > 1;
-  const value = list.map((c) => (c.name === "" || shared(c) ? c.id : `#${c.name}`)).join(", ");
+  const whereOf = (c: SlackChannel) => (teams === null || c.team === undefined ? null : (teams.get(c.team) ?? null));
+  const typed = (c: SlackChannel) => {
+    if (c.name === "") return c.id;
+    if (!shared(c)) return `#${c.name}`;
+    const where = whereOf(c);
+    return where === null ? c.id : `${where}:#${c.name}`;
+  };
+  const value = list.map(typed).join(", ");
   const chips = list
     .map((c) => {
-      const where = teams === null || c.team === undefined ? null : (teams.get(c.team) ?? null);
-      return `<span class="chip tone-grey">${sourceLine([c.name === "" ? "?" : `#${c.name}`, c.id === "" ? "?" : c.id, where])}</span>`;
+      const where = whereOf(c);
+      const text = sourceLine([c.name === "" ? "?" : `#${c.name}`, c.id === "" ? "?" : c.id, where]);
+      if (teams === null || where !== null) return `<span class="chip tone-grey">${text}</span>`;
+      const why =
+        c.team === undefined
+          ? "Not read: not tied to a workspace. Save the list again, or write workspace:#name."
+          : "Not read: its workspace is not one hub reads.";
+      return `<span class="chip tone-red" title="${esc(why)}">${text}</span>`;
     })
     .join("");
   return `<input class="text" data-config-input="${key}" data-list value="${esc(value)}" spellcheck="false"><div class="set-chips">${chips}</div>`;

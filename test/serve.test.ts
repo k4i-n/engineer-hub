@@ -1172,7 +1172,12 @@ describe("serve", () => {
     assert.match(await ticket(), /beta · (next|no reply yet)/);
     const page = await settings();
     assert.ok(page.includes('<span class="chip tone-grey">#ops · C70 · beta</span>'));
-    assert.ok(page.includes('data-config-input="slackAlertChannels" data-list value="C07, C70"'));
+    assert.ok(page.includes('data-config-input="slackAlertChannels" data-list value="C07, beta:#ops"'));
+    assert.ok(
+      page.includes(
+        '<span class="chip tone-red" title="Not read: not tied to a workspace. Save the list again, or write workspace:#name.">#ops · C07</span>',
+      ),
+    );
     assert.ok(!/<div class="set-row off" inert><span class="set-label">Alert channels/.test(page));
     assert.match(page, /data-act="slack-add" data-ask="Slack workspace name, e.g. acme"/);
     assert.match(page, /data-act="source-remove" data-name="slack-beta" data-confirm="Remove Slack beta\?"/);

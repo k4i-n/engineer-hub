@@ -44,7 +44,7 @@ security add-generic-password -U -s engineer-hub -a slack-beta -w   # that works
 hub slack remove beta                                               # the key stays where you stored it
 ```
 
-Items from every workspace are `source: slack`; each sync rechecks only the items and waits whose permalink is on its own workspace. A channel typed into a list below is looked up in each workspace in turn and kept with the first one that has it, so each workspace searches only its own channels.
+Items from every workspace are `source: slack`; each sync rechecks only the items and waits whose permalink is on its own workspace. A channel typed into a list below is looked up in every workspace and kept with the one that has it, so each workspace searches only its own channels; a name two workspaces have is refused until you write which one, as `beta:#general`. In Settings a channel not tied to a workspace hub reads shows red with the reason, and a listed channel a fetch cannot find is named in that source's warning.
 
 To watch alert channels, list them in Settings → Sources → Alert channels, or:
 
