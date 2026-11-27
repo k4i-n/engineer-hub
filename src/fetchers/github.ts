@@ -1,4 +1,5 @@
 import type { Ctx, Review } from "../commands.ts";
+import { githubQuery } from "../config.ts";
 import { all, type ItemRow } from "../db.ts";
 import type { Check, Fetched, Fetcher } from "../fetch.ts";
 import { lastLine, type System } from "../keys.ts";
@@ -137,8 +138,8 @@ async function fetchGithub(sys: System, ctx: Ctx, cursor: string | null): Promis
   const since = cursor ?? new Date(ctx.now.getTime() - FIRST_LOOK_MS).toISOString().replace(/\.\d{3}Z$/, "Z");
   const searched = await graphql<Searched>(sys, [
     `query=${SEARCH}`,
-    `requested=${ctx.config.githubReviewQuery}`,
-    `mine=${ctx.config.githubPrQuery} updated:>=${since}`,
+    `requested=${githubQuery(ctx.config, "githubReviewQuery")}`,
+    `mine=${githubQuery(ctx.config, "githubPrQuery")} updated:>=${since}`,
   ]);
   const requested = searched.requested.nodes.filter((pr) => pr.url !== undefined);
   const out: unknown[] = requested.map((pr) => ({

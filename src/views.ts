@@ -6,8 +6,11 @@ import {
   BLOCKS,
   type Config,
   DEFAULT_LAYOUT,
+  DEFAULTS,
+  type GithubQueryKey,
   type Layout,
   REPO,
+  repoTerms,
   type SlackChannel,
   type SlackChannelKey,
   sectionId,
@@ -1779,6 +1782,19 @@ function channelInput(key: SlackChannelKey, list: SlackChannel[], teams: Map<str
   return `<input class="text" data-config-input="${key}" data-list value="${esc(value)}" spellcheck="false"><div class="set-chips">${chips}</div>`;
 }
 
+function customQueryRow(c: Config, label: string, key: GithubQueryKey): string {
+  if (c[key] === DEFAULTS[key]) return "";
+  const move =
+    repoTerms(c[key]).length === 0
+      ? ""
+      : button("Move -repo: to Skip repos", { act: "skip-from-query", key }, { cls: "chip-btn" });
+  return row(
+    label,
+    `<span class="src-state">custom search</span><code class="src-script">${esc(c[key])}</code>${move}`,
+    c.fetch.github !== true,
+  );
+}
+
 function row(label: string, control: string, off = false): string {
   return `<div class="set-row${off ? " off" : ""}"${off ? " inert" : ""}><span class="set-label">${esc(label)}</span><div class="set-control">${control}</div></div>`;
 }
@@ -1972,15 +1988,12 @@ ${section(
   sourceRows(ctx, fetching) +
     addSourceRow() +
     row(
-      "Review requests",
-      `<input class="text" data-config-input="githubReviewQuery" value="${esc(c.githubReviewQuery)}" spellcheck="false">`,
+      "Skip repos",
+      `<input class="text" data-config-input="skipRepos" data-list value="${esc(c.skipRepos.join(", "))}" placeholder="owner/repo" spellcheck="false">`,
       c.fetch.github !== true,
     ) +
-    row(
-      "My PRs",
-      `<input class="text" data-config-input="githubPrQuery" value="${esc(c.githubPrQuery)}" spellcheck="false">`,
-      c.fetch.github !== true,
-    ) +
+    customQueryRow(c, "Review requests", "githubReviewQuery") +
+    customQueryRow(c, "My PRs", "githubPrQuery") +
     row("Alert channels", channelInput("slackAlertChannels", c.slackAlertChannels, teams), !slackOn) +
     row("Ignore channels", channelInput("slackIgnoreChannels", c.slackIgnoreChannels, teams), !slackOn) +
     row("Group channels", channelInput("slackGroupChannels", c.slackGroupChannels, teams), !slackOn) +

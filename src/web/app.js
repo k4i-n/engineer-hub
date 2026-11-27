@@ -432,6 +432,7 @@ const ROUTES = {
   sync: (d) => ["POST", "/sync", { what: d.what }],
   backup: () => ["POST", "/backups", {}],
   "away-test": () => ["POST", "/away/test", {}],
+  "skip-from-query": (d) => ["POST", `/config/${e(d.key)}/skip-repos`, {}],
   "away-remove": () => ["POST", "/away/remove", {}],
 };
 

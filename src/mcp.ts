@@ -33,6 +33,7 @@ const NOT_TOOLS = [
   "item_answer",
   "item_unanswer",
   "restore",
+  "skip_repos_from_query",
   "source_remove",
   "source_set",
   "ticket_delete",

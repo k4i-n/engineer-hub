@@ -404,7 +404,11 @@ describe("github", () => {
     assert.match(needs, /pull\/7/);
     assert.doesNotMatch(needs, /noisy/);
     const settings = await (await fetch(`${server.url}/settings`)).text();
-    assert.ok(settings.includes(`data-config-input="githubReviewQuery" value="${narrow}"`));
+    assert.match(
+      settings,
+      /Review requests<\/span><div class="set-control"><span class="src-state">custom search<\/span><code class="src-script">is:pr is:open review-requested:@me archived:false draft:false -repo:acme\/noisy<\/code><button[^>]*data-act="skip-from-query" data-key="githubReviewQuery">/,
+    );
+    assert.doesNotMatch(settings, /data-config-input="github/);
     assert.match(
       settings,
       /GitHub<\/span>[\s\S]*?<div class="src-info"><span class="src-status tone-green"><span class="dot"><\/span>Synced just now<\/span><span class="src-how">gh, signed in<\/span><\/div>/,
@@ -425,7 +429,64 @@ describe("github", () => {
     const query = calls.find((c) => c[1] === "api") ?? [];
     assert.ok(query.some((a) => a.startsWith(`mine=${narrow} updated:>=`)));
     const settings = await (await fetch(`${server.url}/settings`)).text();
-    assert.ok(settings.includes(`data-config-input="githubPrQuery" value="${narrow}"`));
+    assert.ok(settings.includes(`<code class="src-script">${narrow}</code>`));
+  });
+
+  test("Skip repos is added to both searches as -repo: terms and hides stored items from those repos", async () => {
+    const noisy = "https://github.com/acme/noisy/pull/1";
+    answers.gh = graphql([PR(noisy), PR("https://github.com/acme/web/pull/7")], []);
+    await hub("fetch", "github");
+    assert.match(
+      await hub("config", "skipRepos", '["acme/noisy","acme/old"]'),
+      /skipRepos = \["acme\/noisy","acme\/old"\]/,
+    );
+    assert.doesNotMatch(await hub("items", "--needs-me"), /noisy/);
+    await hub("config", "skipRepos", "[]");
+    assert.match(await hub("items", "--needs-me"), /noisy\/pull\/1/);
+    await hub("config", "skipRepos", '["acme/noisy","acme/old"]');
+    calls = [];
+    answers.gh = graphql([PR("https://github.com/acme/web/pull/7")], []);
+    await hub("fetch", "github");
+    const sent = calls.filter((c) => c[1] === "api").at(-1) ?? [];
+    assert.ok(
+      sent.includes(
+        "requested=is:pr is:open review-requested:@me archived:false draft:false -repo:acme/noisy -repo:acme/old",
+      ),
+    );
+    assert.ok(sent.some((a) => a.startsWith("mine=is:pr author:@me -repo:acme/noisy -repo:acme/old updated:>=")));
+    const settings = await (await fetch(`${server.url}/settings?part=1`)).text();
+    assert.match(settings, /data-config-input="skipRepos" data-list value="acme\/noisy, acme\/old"/);
+    assert.doesNotMatch(settings, /custom search/);
+    await assert.rejects(hub("config", "skipRepos", '["noisy"]'), /a repo is owner\/name/);
+    await assert.rejects(hub("config", "skipRepos", '["a/b","A/b"]'), /lists a repo twice/);
+  });
+
+  test("a custom search's -repo: terms move into Skip repos; the search goes back to its default", async () => {
+    await hub("config", "skipRepos", '["acme/old"]');
+    await hub(
+      "config",
+      "githubReviewQuery",
+      '"is:pr is:open review-requested:@me archived:false draft:false -repo:acme/noisy"',
+    );
+    await hub("config", "githubPrQuery", '"is:pr author:@me org:acme -repo:acme/old"');
+    const move = (key: string) =>
+      fetch(`${server.url}/api/v1/config/${key}/skip-repos`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+        body: "{}",
+      });
+    assert.equal((await move("githubReviewQuery")).status, 200);
+    assert.equal((await move("githubPrQuery")).status, 200);
+    assert.equal(await hub("config", "skipRepos"), 'skipRepos = ["acme/old","acme/noisy"]');
+    assert.equal(
+      await hub("config", "githubReviewQuery"),
+      'githubReviewQuery = "is:pr is:open review-requested:@me archived:false draft:false"',
+    );
+    assert.equal(await hub("config", "githubPrQuery"), 'githubPrQuery = "is:pr author:@me org:acme"');
+    const settings = await (await fetch(`${server.url}/settings?part=1`)).text();
+    assert.doesNotMatch(settings, /Review requests<\/span>/);
+    assert.match(settings, /<code class="src-script">is:pr author:@me org:acme<\/code><\/div>/);
+    assert.equal((await move("githubPrQuery")).status, 400);
   });
 
   test("an ignored PR stays out whatever changes, dimmed in its card's All tab with Undo and in hub items --all, until unignored", async () => {
@@ -474,7 +535,7 @@ describe("github", () => {
     assert.doesNotMatch(needs, /noisy/);
     assert.match(needs, /web\/pull\/7/);
     assert.match(await hub("items", "--all"), /noisy\/pull\/5 \| ignored$/m);
-    await assert.rejects(hub("item", "unignore", mine), /left out by -repo: in githubPrQuery/);
+    await assert.rejects(hub("item", "unignore", mine), /left out by Skip repos or -repo: in githubPrQuery/);
     await hub("config", "githubReviewQuery", '"is:pr is:open review-requested:@me"');
     assert.match(await hub("items", "--needs-me"), /noisy\/pull\/2/);
     answers.gh = graphql([PR(noisy), PR("https://github.com/acme/noisy/pull/2")], []);

@@ -36,6 +36,7 @@ export type Config = {
   fetchEvery: string;
   githubReviewQuery: string;
   githubPrQuery: string;
+  skipRepos: string[];
   issueRepo: string;
   slackAlertChannels: SlackChannel[];
   slackIgnoreChannels: SlackChannel[];
@@ -118,6 +119,31 @@ export function channelList(key: string, value: unknown): SlackChannel[] {
 }
 
 export const REPO = /^[\w.-]+\/[\w.-]+$/;
+
+export type GithubQueryKey = "githubReviewQuery" | "githubPrQuery";
+export const GITHUB_QUERY_KEYS: GithubQueryKey[] = ["githubReviewQuery", "githubPrQuery"];
+const REPO_TERM = /(?:^|\s)-repo:(\S+)/g;
+
+export function githubQuery(config: Config, key: GithubQueryKey): string {
+  return [config[key], ...config.skipRepos.map((r) => `-repo:${r}`)].join(" ");
+}
+
+export function repoTerms(query: string): string[] {
+  return [...query.matchAll(REPO_TERM)].map((m) => m[1] ?? "");
+}
+
+export function moveRepoTerms(db: DatabaseSync, key: GithubQueryKey, now: Date): string[] {
+  const config = loadConfig(db);
+  const moved = repoTerms(config[key]);
+  if (moved.length === 0) throw new HubError(`${key} has no -repo: terms`);
+  const known = new Set(config.skipRepos.map((r) => r.toLowerCase()));
+  const skip = [...config.skipRepos, ...moved.filter((r) => !known.has(r.toLowerCase()))];
+  setConfig(db, "skipRepos", JSON.stringify(skip), now);
+  const rest = config[key].replace(REPO_TERM, "").trim();
+  if (rest === DEFAULTS[key]) db.prepare("DELETE FROM config WHERE key = ?").run(key);
+  else setConfig(db, key, JSON.stringify(rest), now);
+  return moved;
+}
 
 const SECTION_ID = /^section-[\p{L}\p{N}-]{1,60}$/u;
 
@@ -213,6 +239,7 @@ export const DEFAULTS: Config = {
   fetchEvery: "1m",
   githubReviewQuery: "is:pr is:open review-requested:@me archived:false draft:false",
   githubPrQuery: "is:pr author:@me",
+  skipRepos: [],
   issueRepo: "",
   slackAlertChannels: [],
   slackIgnoreChannels: [],
@@ -340,6 +367,12 @@ function semanticError(key: Key, value: unknown): string | undefined {
   }
   if (key === "githubPrQuery" && String(value).trim() === "") {
     return 'githubPrQuery is a GitHub search, e.g. "is:pr author:@me -repo:acme/noisy"';
+  }
+  if (key === "skipRepos") {
+    const repos = value as string[];
+    const bad = repos.find((r) => !REPO.test(r));
+    if (bad !== undefined) return `skipRepos has ${bad}: a repo is owner/name, e.g. acme/noisy`;
+    if (new Set(repos.map((r) => r.toLowerCase())).size !== repos.length) return "skipRepos lists a repo twice";
   }
   if (key === "issueRepo" && String(value) !== "" && !REPO.test(String(value))) {
     return 'issueRepo is a GitHub repo as owner/name, or "" to use only the ticket\'s repo';
