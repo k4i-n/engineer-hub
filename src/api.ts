@@ -3,8 +3,11 @@ import type { Ctx, Result } from "./commands.ts";
 import * as commands from "./commands.ts";
 import {
   channelList,
+  GITHUB_QUERY_KEYS,
+  type GithubQueryKey,
   isChannelKey,
   loadConfig,
+  moveRepoTerms,
   type SlackChannel,
   type SlackChannelKey,
   sameChannel,
@@ -55,7 +58,7 @@ export type Route = {
 export const MAX_COUNT = 200;
 
 export const COMMAND_KEYS = ["syncCommand", "judgeCommand"];
-const GITHUB_QUERY_KEYS = ["githubReviewQuery", "githubPrQuery"];
+const REPO_KEYS: string[] = [...GITHUB_QUERY_KEYS, "skipRepos"];
 
 async function channelsToStore(ctx: Ctx, key: SlackChannelKey, value: unknown, hooks: Hooks): Promise<SlackChannel[]> {
   const given = channelList(key, value).map((c) => ctx.config[key].find((o) => sameChannel(o, c)) ?? c);
@@ -867,8 +870,22 @@ export const ROUTES: Route[] = [
       if (COMMAND_KEYS.includes(k)) throw new HubError(`${k} is set from the terminal: hub config ${k}`);
       const value = isChannelKey(k) ? await channelsToStore(ctx, k, a.value, hooks) : a.value;
       const result = commands.config(ctx, k, JSON.stringify(value));
-      if (GITHUB_QUERY_KEYS.includes(k)) items.applyExcludedRepos({ ...ctx, config: loadConfig(ctx.db) });
+      if (REPO_KEYS.includes(k)) items.applyExcludedRepos({ ...ctx, config: loadConfig(ctx.db) });
       return result;
+    },
+  },
+  {
+    name: "skip_repos_from_query",
+    method: "POST",
+    path: "/config/{key}/skip-repos",
+    about:
+      "Move the -repo: terms of a GitHub search key into skipRepos; the search goes back to its default when nothing else was changed.",
+    run: (ctx, a) => {
+      const k = str(a, "key");
+      if (!(GITHUB_QUERY_KEYS as string[]).includes(k)) throw new HubError(`${k} is not a GitHub search key`);
+      const moved = moveRepoTerms(ctx.db, k as GithubQueryKey, ctx.now);
+      items.applyExcludedRepos({ ...ctx, config: loadConfig(ctx.db) });
+      return { text: `skipRepos += ${moved.join(", ")}`, json: { moved } };
     },
   },
   {

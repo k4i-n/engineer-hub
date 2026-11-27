@@ -1,6 +1,6 @@
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import type { Ctx, Result } from "./commands.ts";
-import { type Config, MAX_ASK, REVIEW_ASK } from "./config.ts";
+import { type Config, type GithubQueryKey, githubQuery, MAX_ASK, REVIEW_ASK, repoTerms } from "./config.ts";
 import { all, type DraftRow, getTicket, type ItemRow, one, transaction } from "./db.ts";
 import { SOURCE_NAME } from "./sources.ts";
 import { cut, HubError, laterTime, linkKind, linkSource, nowIso, nowTs } from "./util.ts";
@@ -120,19 +120,16 @@ function repoOf(i: { source: string; kind: string; url: string | null; ref: stri
   return /github\.com\/([^/]+\/[^/]+)\/pull\/\d+/.exec(i.url ?? i.ref)?.[1] ?? null;
 }
 
-const QUERY_KEY: Record<string, "githubReviewQuery" | "githubPrQuery"> = {
+const QUERY_KEY: Record<string, GithubQueryKey> = {
   review_request: "githubReviewQuery",
   pr: "githubPrQuery",
 };
 
-function excludedRepos(query: string): string[] {
-  return [...query.matchAll(/(?:^|\s)-repo:(\S+)/g)].map((m) => (m[1] ?? "").toLowerCase());
-}
-
 function repoExcluded(config: Config, i: { source: string; kind: string; url: string | null; ref: string }): boolean {
   const repo = repoOf(i);
   const key = QUERY_KEY[i.kind];
-  return repo !== null && key !== undefined && excludedRepos(config[key]).includes(repo.toLowerCase());
+  if (repo === null || key === undefined) return false;
+  return repoTerms(githubQuery(config, key)).some((r) => r.toLowerCase() === repo.toLowerCase());
 }
 
 export function applyExcludedRepos(ctx: Ctx): void {
@@ -403,7 +400,7 @@ export function unignore(ctx: Ctx, key: string): Result {
   const item = findItem(ctx.db, key);
   if (item.ignored === null) throw new HubError(`#${item.id} is not ignored`);
   if (item.ignored === "repo")
-    throw new HubError(`#${item.id} is left out by -repo: in ${QUERY_KEY[item.kind] ?? "its search"}`);
+    throw new HubError(`#${item.id} is left out by Skip repos or -repo: in ${QUERY_KEY[item.kind] ?? "its search"}`);
   ctx.db.prepare("UPDATE item SET ignored = NULL, closed_at = NULL, snoozed_until = NULL WHERE id = ?").run(item.id);
   return { text: `#${item.id} shown again`, json: { id: item.id } };
 }
