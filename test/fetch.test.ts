@@ -768,6 +768,68 @@ describe("linear", () => {
     assert.equal([...page.matchAll(/<div class="n-body md">/g)].length, 1);
   });
 
+  test("a reply on a waited comment thread is one row: the thread item answers the wait, no message item", async () => {
+    await hub("config", "fetch", '{"github":false,"linear":true}');
+    answers.security = () => ({ code: 0, stdout: "lin_api_x\n", stderr: "" });
+    await hub("wait", "ENG-42", "yui", "https://linear.app/acme/issue/ENG-42/sync-sessions#comment-1");
+    const later = new Date(Date.now() + 60_000).toISOString();
+    const issue = { identifier: "ENG-42", title: "t", url: "https://linear.app/acme/issue/ENG-42" };
+    const reply = "https://linear.app/acme/issue/ENG-42#comment-5";
+    httpAnswer = () => ({
+      status: 200,
+      body: JSON.stringify({
+        data: {
+          issues: { nodes: [] },
+          notifications: {
+            nodes: [
+              {
+                type: "issueCommentMention",
+                createdAt: later,
+                issue,
+                comment: { url: reply, body: "yes, rotate it" },
+                actor: { name: "Yui Sato" },
+              },
+            ],
+          },
+          comments: {
+            nodes: [
+              {
+                url: "https://linear.app/acme/issue/ENG-42#comment-4",
+                body: "looking",
+                createdAt: later,
+                user: { name: "Ana" },
+                issue,
+                parent: { url: "https://linear.app/acme/issue/ENG-42#comment-1" },
+              },
+              {
+                url: reply,
+                body: "yes, rotate it",
+                createdAt: new Date(Date.now() + 120_000).toISOString(),
+                user: { name: "Yui Sato" },
+                issue,
+                parent: { url: "https://linear.app/acme/issue/ENG-42#comment-1" },
+              },
+              {
+                url: "https://linear.app/acme/issue/ENG-42#comment-6",
+                body: "unrelated",
+                createdAt: later,
+                user: { name: "Ana" },
+                issue,
+                parent: { url: "https://linear.app/acme/issue/ENG-42#comment-3" },
+              },
+            ],
+          },
+        },
+      }),
+    });
+    await hub("fetch", "linear");
+    const needs = await hub("items", "--needs-me", "--source", "linear");
+    assert.match(needs, /linear\/thread \| needs you \| Yui Sato answered: yes, rotate it \| answered \| ENG-42/);
+    assert.doesNotMatch(needs, /linear\/message .*(rotate it|looking)/);
+    assert.match(needs, /linear\/message \| needs you \| ENG-42 Ana commented: unrelated/);
+    assert.match(await hub("waits"), /no open waits/);
+  });
+
   test("new comments from others on my issues and tickets are Reply items on the ticket timeline", async () => {
     await hub("config", "fetch", '{"github":false,"linear":true}');
     answers.security = () => ({ code: 0, stdout: "lin_api_x\n", stderr: "" });
