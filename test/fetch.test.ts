@@ -768,6 +768,68 @@ describe("linear", () => {
     assert.equal([...page.matchAll(/<div class="n-body md">/g)].length, 1);
   });
 
+  test("a reply on a waited comment thread is one row: the thread item answers the wait, no message item", async () => {
+    await hub("config", "fetch", '{"github":false,"linear":true}');
+    answers.security = () => ({ code: 0, stdout: "lin_api_x\n", stderr: "" });
+    await hub("wait", "ENG-42", "yui", "https://linear.app/acme/issue/ENG-42/sync-sessions#comment-1");
+    const later = new Date(Date.now() + 60_000).toISOString();
+    const issue = { identifier: "ENG-42", title: "t", url: "https://linear.app/acme/issue/ENG-42" };
+    const reply = "https://linear.app/acme/issue/ENG-42#comment-5";
+    httpAnswer = () => ({
+      status: 200,
+      body: JSON.stringify({
+        data: {
+          issues: { nodes: [] },
+          notifications: {
+            nodes: [
+              {
+                type: "issueCommentMention",
+                createdAt: later,
+                issue,
+                comment: { url: reply, body: "yes, rotate it" },
+                actor: { name: "Yui Sato" },
+              },
+            ],
+          },
+          comments: {
+            nodes: [
+              {
+                url: "https://linear.app/acme/issue/ENG-42#comment-4",
+                body: "looking",
+                createdAt: later,
+                user: { name: "Ana" },
+                issue,
+                parent: { url: "https://linear.app/acme/issue/ENG-42#comment-1" },
+              },
+              {
+                url: reply,
+                body: "yes, rotate it",
+                createdAt: new Date(Date.now() + 120_000).toISOString(),
+                user: { name: "Yui Sato" },
+                issue,
+                parent: { url: "https://linear.app/acme/issue/ENG-42#comment-1" },
+              },
+              {
+                url: "https://linear.app/acme/issue/ENG-42#comment-6",
+                body: "unrelated",
+                createdAt: later,
+                user: { name: "Ana" },
+                issue,
+                parent: { url: "https://linear.app/acme/issue/ENG-42#comment-3" },
+              },
+            ],
+          },
+        },
+      }),
+    });
+    await hub("fetch", "linear");
+    const needs = await hub("items", "--needs-me", "--source", "linear");
+    assert.match(needs, /linear\/thread \| needs you \| Yui Sato answered: yes, rotate it \| answered \| ENG-42/);
+    assert.doesNotMatch(needs, /linear\/message .*(rotate it|looking)/);
+    assert.match(needs, /linear\/message \| needs you \| ENG-42 Ana commented: unrelated/);
+    assert.match(await hub("waits"), /no open waits/);
+  });
+
   test("new comments from others on my issues and tickets are Reply items on the ticket timeline", async () => {
     await hub("config", "fetch", '{"github":false,"linear":true}');
     answers.security = () => ({ code: 0, stdout: "lin_api_x\n", stderr: "" });
@@ -1029,6 +1091,87 @@ describe("slack", () => {
       await hub("sources"),
       /slack \| last sync .* \| cursor \d{10}\.\d{6} \| warning: missing reactions:read: names, DMs, group mentions or reactions are left out/,
     );
+  });
+
+  test("a reply in a waited thread is one row: the thread item, not also a message item", async () => {
+    await hub("config", "fetch", '{"github":false,"slack":true}');
+    answers.security = (args) =>
+      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+    const thread = ts(3600);
+    const other = ts(3000);
+    await hub("wait", "ENG-42", "ken", permalink(thread));
+    const asked = Math.floor(Date.now() / 1000);
+    const reply = `${asked + 30}.000200`;
+    const aside = `${asked + 40}.000300`;
+    const early = `${asked + 20}.000400`;
+    await fetch(`${server.url}/api/v1/items`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        items: [
+          {
+            source: "slack",
+            kind: "message",
+            url: `${permalink(early)}?thread_ts=${thread}&cid=C01`,
+            title: "#web · ken: one sec",
+            needs_me: true,
+            state: "reply",
+          },
+        ],
+      }),
+    });
+    const mine = (t: string) => ({
+      ts: ts(50, t === thread ? "000500" : "000600"),
+      text: "can you confirm?",
+      permalink: `${permalink(ts(50, t === thread ? "000500" : "000600"))}?thread_ts=${t}&cid=C01`,
+      user: ME,
+      username: "khai",
+      channel: { id: "C01", name: "web" },
+    });
+    const ok = (body: unknown) => ({ status: 200, body: JSON.stringify({ ok: true, ...(body as object) }) });
+    httpAnswer = (url) => {
+      const u = new URL(url);
+      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, ...WORKSPACE });
+      if (u.pathname === "/api/search.messages") {
+        const q = u.searchParams.get("query") ?? "";
+        return ok({ messages: { matches: q.startsWith("from:") ? [mine(thread), mine(other)] : [] } });
+      }
+      if (u.pathname === "/api/users.info") return ok({ user: { id: "U3", profile: { display_name: "Ken" } } });
+      if (u.pathname === "/api/users.list") return ok({ members: [{ id: "U3", profile: { display_name: "Ken" } }] });
+      if (u.pathname === "/api/usergroups.list") return ok({ usergroups: [] });
+      if (u.pathname === "/api/conversations.replies") {
+        const t = u.searchParams.get("ts");
+        if (t === thread)
+          return ok({
+            messages: [
+              { ts: thread, text: "q", user: ME },
+              { ts: reply, text: "the key is shared with keeper", user: "U3" },
+            ],
+          });
+        if (t === other)
+          return ok({
+            messages: [
+              { ts: other, text: "q2", user: ME },
+              { ts: aside, text: "done", user: "U3" },
+            ],
+          });
+        return ok({ messages: [] });
+      }
+      return { status: 404, body: "" };
+    };
+    await hub("fetch", "slack");
+    const needs = await hub("items", "--needs-me", "--source", "slack");
+    assert.match(
+      needs,
+      /slack\/thread \| needs you \| Ken answered: the key is shared with keeper \| answered \| ENG-42/,
+    );
+    assert.doesNotMatch(needs, new RegExp(`p${reply.replace(".", "")}`));
+    assert.doesNotMatch(needs, /one sec/);
+    assert.match(
+      needs,
+      new RegExp(`slack/message \\| needs you \\| .*done \\| reply \\| ${permalink(aside).replace(/[.?]/g, "\\$&")}`),
+    );
+    assert.match(await hub("items", "--all", "--source", "slack"), /one sec \| in thread/);
   });
 
   test("a sync checks only the waits of its own workspace and keeps the workspace's team id", async () => {

@@ -1,5 +1,5 @@
 import type { Ctx } from "../commands.ts";
-import { all, one } from "../db.ts";
+import { all, one, type WaitRow } from "../db.ts";
 import type { Fetched, Fetcher } from "../fetch.ts";
 import { type KeySpec, keyedCall, type System } from "../keys.ts";
 import { clip, cut, HubError } from "../util.ts";
@@ -29,7 +29,7 @@ const QUERY = `query($since: DateTimeOrDuration!, $comments: CommentFilter!) {
     }
   }
   comments(filter: $comments, first: 50) {
-    nodes { url body user { name } issue { identifier title url } }
+    nodes { url body createdAt user { name } issue { identifier title url } parent { url } }
   }
 }`;
 
@@ -50,7 +50,14 @@ type Note = {
   comment?: { url: string; body: string } | null;
   actor?: { name: string } | null;
 };
-type Comment = { url: string; body: string; user?: { name: string } | null; issue?: Issue | null };
+type Comment = {
+  url: string;
+  body: string;
+  createdAt?: string;
+  user?: { name: string } | null;
+  issue?: Issue | null;
+  parent?: { url: string } | null;
+};
 type Answer = {
   data?: { issues: { nodes: Issue[] }; notifications: { nodes: Note[] }; comments: { nodes: Comment[] } } | null;
   errors?: { message: string }[];
@@ -74,6 +81,37 @@ function ticketIssues(ctx: Ctx): object[] {
     byTeam.set(team, [...(byTeam.get(team) ?? []), Number(number)]);
   }
   return [...byTeam].map(([key, numbers]) => ({ team: { key: { eq: key } }, number: { in: numbers } }));
+}
+
+function commentId(url: string | undefined): string | null {
+  return /linear\.app\/.*#comment-([\w-]+)$/.exec(url ?? "")?.[1] ?? null;
+}
+
+function isWho(name: string, who: string): boolean {
+  const n = name.toLowerCase();
+  const w = who.toLowerCase().replace(/^@/, "");
+  return n.includes(w) || w.includes(n.split(" ")[0] ?? n);
+}
+
+function trackedThreads(ctx: Ctx): Map<string, WaitRow> {
+  const waits = all<WaitRow>(ctx.db, "SELECT * FROM wait WHERE closed_at IS NULL AND url LIKE '%linear.app/%'");
+  return new Map(waits.flatMap((w) => (commentId(w.url) === null ? [] : [[commentId(w.url) as string, w]])));
+}
+
+function threadReply(w: WaitRow, c: Comment): Record<string, unknown> {
+  const who = c.user?.name ?? "someone";
+  const said = isWho(who, w.who) ? "answered" : "replied";
+  return {
+    source: "linear",
+    kind: "thread",
+    url: w.url,
+    title: cut(`${who} ${said}: ${c.body.replaceAll("\n", " ")}`, 200),
+    body: body(c.body),
+    author: who,
+    ticket: w.ticket_id,
+    state: said,
+    needs_me: true,
+  };
 }
 
 async function fetchLinear(sys: System, ctx: Ctx, cursor: string | null): Promise<Fetched> {
@@ -119,8 +157,19 @@ async function fetchLinear(sys: System, ctx: Ctx, cursor: string | null): Promis
     });
   }
   const mentioned = new Set(answer.data.notifications.nodes.map((n) => n.comment?.url));
+  const tracked = trackedThreads(ctx);
+  const latest = new Map<WaitRow, Comment>();
+  const folded = new Set<string>();
   for (const c of answer.data.comments.nodes) {
-    if (c.issue == null || mentioned.has(c.url)) continue;
+    const w = tracked.get(commentId(c.parent?.url) ?? "");
+    if (w === undefined || (c.createdAt ?? "") <= (w.reopened_at ?? w.asked_at)) continue;
+    folded.add(c.url);
+    const seen = latest.get(w);
+    if (seen === undefined || (seen.createdAt ?? "") < (c.createdAt ?? "")) latest.set(w, c);
+  }
+  const replies = [...latest].map(([w, c]) => threadReply(w, c));
+  for (const c of answer.data.comments.nodes) {
+    if (c.issue == null || mentioned.has(c.url) || folded.has(c.url)) continue;
     const slack = SLACK_SYNC.exec(c.body)?.[1];
     if (slack !== undefined) {
       out.push({ source: "slack", kind: "thread", url: slack, title: `${c.issue.identifier} ${c.issue.title}` });
@@ -150,7 +199,9 @@ async function fetchLinear(sys: System, ctx: Ctx, cursor: string | null): Promis
       url: i.url,
       updated: i.updatedAt ?? null,
     }));
-  return { items: out, cursor: started, tracker };
+  const items = [...out.filter((i) => !folded.has((i as { ref?: string }).ref ?? "")), ...replies];
+  const answered = replies.filter((r) => r.state === "answered").map((r) => r.url as string);
+  return { items, cursor: started, tracker, answered };
 }
 
 const SLACK_SYNC = /^This comment thread is synced to a corresponding \[thread in Slack\]\((https:\/\/[^)\s]+)\)/;

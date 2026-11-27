@@ -654,6 +654,7 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null, spec: Ke
   }
 
   const answered: string[] = [];
+  const tracked: { channel: string; ts: string; after: number }[] = [];
   const waits = all<WaitRow>(ctx.db, "SELECT * FROM wait WHERE closed_at IS NULL");
   for (const w of waits) {
     const thread = threadOf(w.url);
@@ -695,6 +696,7 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null, spec: Ke
       state = "replied";
     }
     if (title === null) continue;
+    tracked.push({ ...thread, after: Number(askedAt) });
     if (state === "answered") answered.push(w.url);
     out.push({
       source: "slack",
@@ -717,8 +719,23 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null, spec: Ke
     unknown.length === 0 ? "" : `no channel ${unknown.join(", ")}`,
   ].filter((n) => n !== "");
   const next = held.size === 0 ? newest.toFixed(6) : since;
+  const inTracked = (url: unknown): boolean => {
+    const thread = typeof url === "string" ? threadOf(url) : null;
+    const at = typeof url === "string" ? messageOf(url) : null;
+    if (thread === null || at === null) return false;
+    return tracked.some((t) => t.channel === thread.channel && t.ts === thread.ts && Number(at.ts) > t.after);
+  };
+  const folded = all<ItemRow>(
+    ctx.db,
+    `SELECT * FROM item WHERE source = 'slack' AND kind = 'message' AND needs_me = 1 AND closed_at IS NULL
+       AND instr(url, ?) = 1`,
+    `https://${host}/`,
+  )
+    .filter((i) => inTracked(i.url))
+    .map((i) => ({ source: "slack", kind: "message", url: i.url, state: "in thread", needs_me: false }));
+  const shown = out.filter((i) => !(i.kind === "message" && i.state !== "sent" && inTracked(i.url)));
   return {
-    items: out,
+    items: [...shown, ...folded],
     cursor: next,
     answered,
     warning: notes.length === 0 ? null : notes.join("; "),
