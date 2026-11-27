@@ -57,8 +57,8 @@ Every read takes `--json`. Errors are one line on stderr with exit 1; an unknown
 | `hub plan edit <n> [text] [--ref <refs>] [--time HH:MM]`, `hub plan move <n> <to>` | changes line n (its place in `hub day`), or moves it; `--ref ""` or `--time ""` clears |
 | `hub plan done <n>`, `hub plan undo <n>`, `hub plan drop <n> <why>` | ticks or unticks a line without refs (on a line with refs it is refused and names the action that ticks it, e.g. `step_done ENG-7 2`), drops a line that slipped or was cancelled (struck through with the reason, never carried over; `undo` brings it back) |
 | `hub ticket-new <id> <title> [--dir todo]`, `hub move <id> <dir>` | creates a ticket, moves it between dirs (a move drops its place in the order) |
-| `hub backup`, `hub backups` | backs up the database now, lists the backups newest first |
-| `hub restore <name>` | backs up the current database as `…-before-restore.db`, then replaces it with the named backup while hub keeps running; a backup made in the same second as another gets `-2`, `-3` |
+| `hub backup`, `hub backups` | backs up the database and the files folder now (`hub-….db` with `hub-….files` beside it), lists the backups newest first |
+| `hub restore <name>` | backs up the current database and files as `…-before-restore.db`, then replaces both with the named backup while hub keeps running (a backup from before ticket files leaves the files as they are); a backup made in the same second as another gets `-2`, `-3` |
 | `hub order <id> <place \| ->` | puts the ticket at a place in its dir (1 is the top); tickets above it keep their places and the rest shift down; `-` takes it out of the order. Ordered tickets come first in `hub board`, `hub next` and the dashboard, as `#1`, `#2`…, then the rest by tracker priority |
 | `hub config <key> <json>` | stores a config value, checked against the default's type |
 

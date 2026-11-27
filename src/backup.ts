@@ -1,4 +1,4 @@
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -33,14 +33,23 @@ export function listBackups(dir: string): Backup[] {
     .sort((a, b) => b.name.localeCompare(a.name));
 }
 
-export function backup(db: DatabaseSync, dir: string, now: Date, keep: number, suffix = ""): Backup {
+export function filesOf(backupPath: string): string {
+  return backupPath.replace(/\.db$/, ".files");
+}
+
+export function backup(db: DatabaseSync, dir: string, files: string, now: Date, keep: number, suffix = ""): Backup {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   let name = `hub-${stamp(now)}${suffix}.db`;
   for (let n = 2; existsSync(join(dir, name)); n++) name = `hub-${stamp(now)}${suffix}-${n}.db`;
   const path = join(dir, name);
   db.prepare("VACUUM INTO ?").run(path);
   chmodSync(path, 0o600);
-  for (const old of listBackups(dir).slice(keep)) rmSync(old.path);
+  if (existsSync(files)) cpSync(files, filesOf(path), { recursive: true, preserveTimestamps: true });
+  else mkdirSync(filesOf(path), { mode: 0o700 });
+  for (const old of listBackups(dir).slice(keep)) {
+    rmSync(old.path);
+    rmSync(filesOf(old.path), { recursive: true, force: true });
+  }
   return { name, path, size: statSync(path).size, at: now.toISOString() };
 }
 
@@ -69,8 +78,11 @@ export function checkRestorable(dir: string, name: string): string {
   return path;
 }
 
-export function replaceDb(dbPath: string, source: string): void {
+export function replaceDb(dbPath: string, files: string, source: string): void {
   for (const extra of ["-wal", "-shm"]) rmSync(`${dbPath}${extra}`, { force: true });
   copyFileSync(source, dbPath);
   chmodSync(dbPath, 0o600);
+  if (!existsSync(filesOf(source))) return;
+  rmSync(files, { recursive: true, force: true });
+  cpSync(filesOf(source), files, { recursive: true, preserveTimestamps: true });
 }
