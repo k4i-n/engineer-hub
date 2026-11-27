@@ -357,11 +357,15 @@ async function refresh() {
 }
 
 function fail(text) {
+  toast(text, "toast", 7000);
+}
+
+function toast(text, className, ms) {
   const el = document.createElement("div");
-  el.className = "toast";
+  el.className = className;
   el.textContent = text;
   toasts.append(el);
-  setTimeout(() => el.remove(), 7000);
+  setTimeout(() => el.remove(), ms);
 }
 
 function closeMenus(except) {
@@ -1011,6 +1015,14 @@ document.addEventListener("keydown", (e) => {
   else if (["e", "s", "y", "n", "p"].includes(e.key) && li) {
     const b = li.querySelector(`button[data-hotkey="${e.key}"]:not(:disabled)`);
     if (b) act(b);
+  } else if ((e.key === "c" || e.key === "C") && li) {
+    const token =
+      li.querySelector(`button[data-hotkey="${e.key}"]`)?.dataset.copy ?? (e.key === "c" ? li.dataset.id : undefined);
+    if (token === undefined) return;
+    navigator.clipboard.writeText(token).then(
+      () => toast(`Copied ${token}`, "toast ok", 2000),
+      () => fail("copy failed"),
+    );
   } else if (e.key === "u") {
     const b = li?.querySelector('button[data-hotkey="u"]');
     if (b) act(b);

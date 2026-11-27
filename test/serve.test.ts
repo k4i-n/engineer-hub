@@ -374,7 +374,7 @@ describe("serve", () => {
     await hub(["ticket-new", "ENG-8", "Second todo", "--dir", "todo"]);
     await hub(["move", "ENG-42", "done"]);
     const html = await (await fetch(`${server.url}/?part=1`)).text();
-    assert.match(html, /data-key="t-ENG-7" data-href="\/t\/ENG-7" draggable="true" data-id="ENG-7" data-dir="todo"/);
+    assert.match(html, /data-key="t-ENG-7" data-id="ENG-7" data-href="\/t\/ENG-7" draggable="true" data-dir="todo"/);
     assert.doesNotMatch(html, /data-key="t-ENG-42"[^>]*draggable/);
     await call("GET", "/brief");
     const drop = await fetch(`${server.url}/api/v1/tickets/ENG-7/order`, {
@@ -490,12 +490,14 @@ describe("serve", () => {
     const home = await (await fetch(`${server.url}/?part=1`)).text();
     const rowOf = (key: string) => new RegExp(`data-key="${key}"[\\s\\S]*?</li>`).exec(home)?.[0] ?? "";
     assert.match(rowOf(`item-${id}`), new RegExp(`<span class="row-id">#${id}</span>`));
-    assert.match(rowOf(`item-${id}`), new RegExp(`data-copy="item ${id}"`));
-    assert.match(rowOf("gate-ENG-7"), /data-copy="gate ENG-7"/);
-    assert.match(rowOf("send-ENG-7-ask ops"), /data-copy="ENG-7\/ask ops"/);
+    assert.match(rowOf(`item-${id}`), new RegExp(`data-copy="item ${id}" data-hotkey="c"`));
+    assert.match(rowOf("gate-ENG-7"), /data-copy="gate ENG-7" data-hotkey="c"/);
+    assert.match(rowOf("send-ENG-7-ask ops"), /data-copy="ENG-7\/ask ops" data-hotkey="c"/);
     const page = await (await fetch(`${server.url}/t/ENG-7?part=1`)).text();
     assert.match(page, new RegExp(`<span class="row-id">wait ${wait}</span>`));
-    assert.match(page, /data-copy="ENG-7#1"/);
+    assert.match(page, /data-copy="ENG-7#1" data-hotkey="c"/);
+    const settings = await (await fetch(`${server.url}/settings?part=1`)).text();
+    assert.match(settings, /<kbd>c \/ C<\/kbd>/);
     const first = async (q: string) =>
       ((await (await call("GET", `/find?q=${encodeURIComponent(q)}`)).json()) as { kind: string; title: string }[])[0];
     const byWait = await first(`wait ${wait}`);

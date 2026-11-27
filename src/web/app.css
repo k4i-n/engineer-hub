@@ -2092,6 +2092,10 @@ kbd {
   box-shadow: 0 8px 24px rgb(0 0 0 / 22%);
   animation: rise 0.18s ease-out;
 }
+.toast.ok {
+  background: var(--text);
+  color: var(--panel);
+}
 @keyframes rise {
   from {
     transform: translateY(8px);
