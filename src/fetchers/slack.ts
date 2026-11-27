@@ -521,7 +521,7 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null, spec: Ke
   const lists = {} as Record<SlackChannelKey, SlackChannel[]>;
   const unknown: string[] = [];
   const inTeam = (c: SlackChannel) => c.team === undefined || c.team === auth.team_id;
-  const alone = ctx.config.slackWorkspaces.length === 0;
+  const alone = ctx.config.slackWorkspaces.length === 1;
   for (const key of SLACK_CHANNEL_KEYS) {
     const r = await resolveWith(dir, ctx.config[key].filter(inTeam), auth.team_id);
     lists[key] = r.channels;
@@ -783,8 +783,6 @@ function slackFetcher(name: string): Fetcher {
   };
 }
 
-export const slack = slackFetcher("slack");
-
 export function workspaceFetchers(ctx: Ctx): Fetcher[] {
-  return slackSources(ctx.config).slice(1).map(slackFetcher);
+  return slackSources(ctx.config).map(slackFetcher);
 }

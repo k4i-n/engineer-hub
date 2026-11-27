@@ -1,10 +1,10 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
-import { DEFAULTS, REVIEW_ASK } from "./config.ts";
+import { DEFAULTS, REVIEW_ASK, WORKSPACE } from "./config.ts";
 import { HubError, nowIso, nowTs } from "./util.ts";
 
-export const SCHEMA_VERSION = "29";
+export const SCHEMA_VERSION = "30";
 
 export type Ticket = {
   id: string;
@@ -299,6 +299,7 @@ UPDATE item SET review_ask = 1 WHERE kind = 'review_request'
 DELETE FROM config WHERE key = 'reviewAsk';`,
   },
   "28": { to: "29", sql: ITEM_FOLD },
+  "29": { to: "30", sql: slackAsPeer },
 };
 
 function hasColumn(db: DatabaseSync, table: string, column: string): boolean {
@@ -313,6 +314,37 @@ function logRemoved(db: DatabaseSync, column: string, where: string): void {
     `INSERT INTO event(ticket_id, ts, kind, text, source, created_at)
      SELECT id, ?, 'log', '${column} (removed): ' || ${column}, 'import', ? FROM ticket WHERE ${where}`,
   ).run(ts, nowIso(now));
+}
+
+function configValue<T>(db: DatabaseSync, key: string, fallback: T): T {
+  const raw = one<{ value: string }>(db, "SELECT value FROM config WHERE key = ?", key)?.value;
+  return raw === undefined ? fallback : (JSON.parse(raw) as T);
+}
+
+function slackAsPeer(db: DatabaseSync): string {
+  const named = configValue<string[]>(db, "slackWorkspaces", []);
+  const fetch = configValue<Record<string, boolean>>(db, "fetch", {});
+  const used = fetch.slack !== undefined || one(db, "SELECT 1 FROM source WHERE name = 'slack'") !== undefined;
+  if (!used) return "";
+  const hosts = all<{ key: string }>(db, "SELECT key FROM meta WHERE key LIKE 'slack-team:%'").map(
+    (r) => r.key.slice("slack-team:".length).split(".")[0] ?? "",
+  );
+  const left = [...new Set(hosts)].filter((h) => WORKSPACE.test(h) && !named.includes(h));
+  const name = left.length === 1 ? (left[0] as string) : null;
+  const { slack: on, ...rest } = fetch;
+  const at = nowIso(new Date());
+  const set = db.prepare(
+    "INSERT INTO config(key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+  );
+  if (name === null) {
+    db.prepare("DELETE FROM source WHERE name = 'slack'").run();
+  } else {
+    set.run("slackWorkspaces", JSON.stringify([name, ...named]), at);
+    rest[`slack-${name}`] = on === true;
+    db.prepare("UPDATE source SET name = ? WHERE name = 'slack'").run(`slack-${name}`);
+  }
+  if (on !== undefined) set.run("fetch", JSON.stringify(rest), at);
+  return "";
 }
 
 function dropPrs(db: DatabaseSync): string {

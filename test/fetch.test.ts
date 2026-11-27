@@ -8,7 +8,7 @@ import { type Io, run } from "../src/cli.ts";
 import { DEFAULT_LAYOUT } from "../src/config.ts";
 import { github } from "../src/fetchers/github.ts";
 import { linear } from "../src/fetchers/linear.ts";
-import { slack, threadOf } from "../src/fetchers/slack.ts";
+import { threadOf } from "../src/fetchers/slack.ts";
 import type { Ran, System } from "../src/keys.ts";
 import { type Server, serve } from "../src/serve.ts";
 import { teamOf } from "../src/slackteam.ts";
@@ -100,7 +100,7 @@ beforeEach(async () => {
     port: 0,
     now: () => new Date(),
     env: {},
-    fetchers: [github, linear, slack],
+    fetchers: [github, linear],
     system: fake(),
     fetchCheckMs: 3_600_000,
   });
@@ -635,7 +635,7 @@ describe("github", () => {
       port: 0,
       now: () => new Date(),
       env: {},
-      fetchers: [github, linear, slack],
+      fetchers: [github, linear],
       system: fake(),
       fetchCheckMs: 20,
     });
@@ -974,13 +974,17 @@ describe("linear", () => {
 });
 
 describe("slack", () => {
+  beforeEach(async () => {
+    await hub("slack", "add", "acme");
+  });
+
   const ME = "U0ME";
   const WORKSPACE = { url: "https://acme.slack.com/", team_id: "T0ACME" };
   const BETA = { url: "https://beta.slack.com/", team_id: "T0BETA" };
   const twoKeys = (args: string[]) =>
     args.includes("slack-beta")
       ? { code: 0, stdout: "xoxp-2\n", stderr: "" }
-      : args.includes("slack")
+      : args.includes("slack-acme")
         ? { code: 0, stdout: "xoxp-1\n", stderr: "" }
         : { code: 44, stdout: "", stderr: "" };
   const fromBeta = () => JSON.parse(calls.at(-1)?.[3] ?? "{}").Authorization === "Bearer xoxp-2";
@@ -1004,9 +1008,9 @@ describe("slack", () => {
   });
 
   test("mentions need you, sent messages wait for judging, and a reply in a waited thread closes the wait as its author", async () => {
-    await hub("config", "fetch", '{"github":false,"slack":true}');
+    await hub("config", "fetch", '{"github":false,"slack-acme":true}');
     answers.security = (args) =>
-      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+      args.includes("slack-acme") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
     const thread = ts(3600);
     await hub("wait", "ENG-42", "product", permalink(thread), "--ping-after", "1d");
     const asked = Date.now() / 1000;
@@ -1074,7 +1078,7 @@ describe("slack", () => {
       }
       return { status: 404, body: "" };
     };
-    assert.match(await hub("fetch", "slack"), /^slack: items: 3 new, 0 changed, 0 unchanged; closed #1$/);
+    assert.match(await hub("fetch", "slack-acme"), /^slack-acme: items: 3 new, 0 changed, 0 unchanged; closed #1$/);
     assert.match(queries[0] ?? "", new RegExp(`^<@${ME}> after:\\d{4}-\\d{2}-\\d{2}$`));
     assert.match(queries[1] ?? "", new RegExp(`^from:<@${ME}> after:`));
     const needs = await hub("items", "--needs-me", "--source", "slack");
@@ -1089,14 +1093,14 @@ describe("slack", () => {
     assert.equal(auth.Authorization, "Bearer xoxp-1");
     assert.match(
       await hub("sources"),
-      /slack \| last sync .* \| cursor \d{10}\.\d{6} \| warning: missing reactions:read: names, DMs, group mentions or reactions are left out/,
+      /slack-acme \| last sync .* \| cursor \d{10}\.\d{6} \| warning: missing reactions:read: names, DMs, group mentions or reactions are left out/,
     );
   });
 
   test("a reply in a waited thread is one row: the thread item, not also a message item", async () => {
-    await hub("config", "fetch", '{"github":false,"slack":true}');
+    await hub("config", "fetch", '{"github":false,"slack-acme":true}');
     answers.security = (args) =>
-      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+      args.includes("slack-acme") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
     const thread = ts(3600);
     const other = ts(3000);
     await hub("wait", "ENG-42", "ken", permalink(thread));
@@ -1159,7 +1163,7 @@ describe("slack", () => {
       }
       return { status: 404, body: "" };
     };
-    await hub("fetch", "slack");
+    await hub("fetch", "slack-acme");
     const needs = await hub("items", "--needs-me", "--source", "slack");
     assert.match(
       needs,
@@ -1175,9 +1179,9 @@ describe("slack", () => {
   });
 
   test("a sync checks only the waits of its own workspace and keeps the workspace's team id", async () => {
-    await hub("config", "fetch", '{"github":false,"slack":true}');
+    await hub("config", "fetch", '{"github":false,"slack-acme":true}');
     answers.security = (args) =>
-      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+      args.includes("slack-acme") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
     await hub("wait", "ENG-42", "ken", "https://other.slack.com/archives/C09/p1763350000123456");
     const asked: string[] = [];
     const ok = (body: unknown) => ({ status: 200, body: JSON.stringify({ ok: true, ...(body as object) }) });
@@ -1191,7 +1195,7 @@ describe("slack", () => {
       }
       return { status: 404, body: "" };
     };
-    assert.doesNotMatch(await hub("fetch", "slack"), /channel_not_found/);
+    assert.doesNotMatch(await hub("fetch", "slack-acme"), /channel_not_found/);
     assert.deepEqual(asked, []);
     assert.match(await hub("waits"), /ken/);
     const db = new DatabaseSync(dbFile);
@@ -1201,7 +1205,7 @@ describe("slack", () => {
 
   test("hub slack add makes a workspace its own source with its own key, and remove takes it away", async () => {
     assert.match(await hub("slack", "add", "beta"), /source slack-beta is on and reads the key slack-beta/);
-    assert.match(await hub("config", "slackWorkspaces"), /\["beta"\]/);
+    assert.match(await hub("config", "slackWorkspaces"), /\["acme","beta"\]/);
     assert.match(await hub("config", "fetch"), /"slack-beta":true/);
     await assert.rejects(hub("slack", "add", "Beta!"), /lowercase letters, digits and -/);
     await assert.rejects(hub("source", "add", "slack-x", "--every", "5m", "--", "x"), /slack-\* are taken/);
@@ -1209,14 +1213,14 @@ describe("slack", () => {
     assert.ok(settings.includes('<span class="set-label">Slack beta</span>'));
     assert.match(settings, /-a slack-beta -w/);
     assert.match(await hub("slack", "remove", "beta"), /removed/);
-    assert.match(await hub("config", "slackWorkspaces"), /\[\]/);
+    assert.match(await hub("config", "slackWorkspaces"), /\["acme"\]/);
     assert.doesNotMatch(await hub("config", "fetch"), /slack-beta/);
-    await assert.rejects(hub("slack", "remove", "beta"), /no Slack workspace beta \(none added\)/);
+    await assert.rejects(hub("slack", "remove", "beta"), /no Slack workspace beta \(acme\)/);
   });
 
   test("a workspace syncs with its own key, its own channels and its own waits", async () => {
     await hub("slack", "add", "beta");
-    await hub("config", "fetch", '{"github":false,"slack":true,"slack-beta":true}');
+    await hub("config", "fetch", '{"github":false,"slack-acme":true,"slack-beta":true}');
     answers.security = twoKeys;
     const db = new DatabaseSync(dbFile);
     db.prepare("INSERT OR REPLACE INTO config(key, value, updated_at) VALUES (?, ?, ?)").run(
@@ -1323,9 +1327,9 @@ describe("slack", () => {
   });
 
   test("a wait on a Slack user closes on their reply; someone else's reply shows and keeps it open", async () => {
-    await hub("config", "fetch", '{"github":false,"slack":true}');
+    await hub("config", "fetch", '{"github":false,"slack-acme":true}');
     answers.security = (args) =>
-      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+      args.includes("slack-acme") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
     const thread = ts(3600);
     await hub("wait", "ENG-42", "maciej", permalink(thread));
     const asked = Math.floor(Date.now() / 1000);
@@ -1355,14 +1359,14 @@ describe("slack", () => {
       if (u.pathname === "/api/reactions.get") return ok({ message: { user: ME, reactions: [] } });
       return { status: 404, body: "" };
     };
-    assert.doesNotMatch(await hub("fetch", "slack"), /closed/);
+    assert.doesNotMatch(await hub("fetch", "slack-acme"), /closed/);
     assert.match(
       await hub("items", "--needs-me", "--source", "slack"),
       /slack\/thread \| needs you \| Dmitry replied: I think Maciej knows \| replied \| ENG-42/,
     );
     assert.match(await hub("waits"), /maciej/);
     replies = [side, answer];
-    assert.match(await hub("fetch", "slack"), /closed #1/);
+    assert.match(await hub("fetch", "slack-acme"), /closed #1/);
     assert.match(
       await hub("items", "--needs-me", "--source", "slack"),
       /slack\/thread \| needs you \| Maciej Nowak answered: yes, ship it \| answered \| ENG-42/,
@@ -1371,9 +1375,9 @@ describe("slack", () => {
   });
 
   test("a reopened wait closes only on a reply after the reopen, and its old reaction no longer answers it", async () => {
-    await hub("config", "fetch", '{"github":false,"slack":true}');
+    await hub("config", "fetch", '{"github":false,"slack-acme":true}');
     answers.security = (args) =>
-      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+      args.includes("slack-acme") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
     const thread = ts(3600);
     await hub("wait", "ENG-42", "product", permalink(thread));
     const db = new DatabaseSync(dbFile);
@@ -1396,21 +1400,21 @@ describe("slack", () => {
       const oldest = Number(u.searchParams.get("oldest"));
       return ok({ messages: [{ ts: thread, text: "q", user: ME }, ...replies.filter((m) => Number(m.ts) > oldest)] });
     };
-    assert.match(await hub("fetch", "slack"), /closed #1/);
+    assert.match(await hub("fetch", "slack-acme"), /closed #1/);
     await hub("wait", "reopen", "1");
     const reopened = Date.now() / 1000;
-    assert.doesNotMatch(await hub("fetch", "slack"), /closed/);
+    assert.doesNotMatch(await hub("fetch", "slack-acme"), /closed/);
     assert.ok(Number(oldests.at(-1)) >= Math.floor(reopened) - 1);
     assert.match(await hub("waits"), /product/);
     replies = [first, { ts: `${Math.floor(Date.now() / 1000) + 60}.000300`, text: "yes, ship it", user: "U3" }];
-    assert.match(await hub("fetch", "slack"), /closed #1/);
+    assert.match(await hub("fetch", "slack-acme"), /closed #1/);
     assert.match(await hub("items", "--needs-me", "--source", "slack"), /Ken answered: yes, ship it \| answered/);
   });
 
   test("with every scope, ids read as names, DMs are named, a ✅ from me closes a mention and a reaction answers a wait", async () => {
-    await hub("config", "fetch", '{"github":false,"slack":true}');
+    await hub("config", "fetch", '{"github":false,"slack-acme":true}');
     answers.security = (args) =>
-      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+      args.includes("slack-acme") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
     const asked = ts(600);
     await hub("wait", "ENG-42", "Ken", `https://acme.slack.com/archives/C01/p${asked.replace(".", "")}`);
     const dm = ts(100);
@@ -1489,7 +1493,7 @@ describe("slack", () => {
       if (u.pathname === "/api/conversations.replies") return ok({ messages: [{ ts: asked, text: "q", user: ME }] });
       return { status: 404, body: "" };
     };
-    assert.match(await hub("fetch", "slack"), /items: 5 new/);
+    assert.match(await hub("fetch", "slack-acme"), /items: 5 new/);
     const needs = await hub("items", "--needs-me", "--source", "slack");
     assert.match(needs, /DM · Ana Sato: @Khai see the doc & #releases for @oncall, @here \| reacted :eyes:/);
     assert.match(needs, /group DM @ana, @ken · Ken: lunch\? \| mention/);
@@ -1507,10 +1511,10 @@ describe("slack", () => {
   });
 
   test("messages in alert channels are alerts that need you until my ✅, even a mention, and my thread reply keeps them open", async () => {
-    await hub("config", "fetch", '{"github":false,"slack":true}');
+    await hub("config", "fetch", '{"github":false,"slack-acme":true}');
     await hub("config", "slackAlertChannels", '["#alerts-prod","oncall"]');
     answers.security = (args) =>
-      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+      args.includes("slack-acme") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
     const bot = ts(300);
     const pinged = ts(200);
     const fixed = ts(100);
@@ -1576,7 +1580,7 @@ describe("slack", () => {
       }
       return { status: 404, body: "" };
     };
-    assert.match(await hub("fetch", "slack"), /items: 4 new/);
+    assert.match(await hub("fetch", "slack-acme"), /items: 4 new/);
     assert.ok(queries.some((q) => /^in:#alerts-prod after:\d{4}-\d{2}-\d{2}$/.test(q)));
     assert.ok(queries.some((q) => /^in:#oncall after:/.test(q)));
     const needs = await hub("items", "--needs-me", "--source", "slack");
@@ -1597,9 +1601,9 @@ describe("slack", () => {
   });
 
   test("channels typed by name are stored with their id, follow a rename, and ignored ones bring nothing", async () => {
-    await hub("config", "fetch", '{"github":false,"slack":true}');
+    await hub("config", "fetch", '{"github":false,"slack-acme":true}');
     answers.security = (args) =>
-      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+      args.includes("slack-acme") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
     const names: Record<string, string> = { C07: "alerts-prod", C09: "random", C10: "eng" };
     const queries: string[] = [];
     const ok = (body: unknown) => ({ status: 200, body: JSON.stringify({ ok: true, ...(body as object) }) });
@@ -1651,7 +1655,7 @@ describe("slack", () => {
 
     names.C07 = "alerts-new";
     names.C09 = "watercooler";
-    assert.match(await hub("fetch", "slack"), /items: 2 new/);
+    assert.match(await hub("fetch", "slack-acme"), /items: 2 new/);
     assert.match(await hub("config", "slackAlertChannels"), /\[\{"id":"C07","name":"alerts-new","team":"T0ACME"\}\]/);
     assert.match(await hub("config", "slackIgnoreChannels"), /\[\{"id":"C09","name":"watercooler","team":"T0ACME"\}\]/);
     assert.ok(queries.some((q) => q.startsWith("in:#alerts-new after:")));
@@ -1666,7 +1670,7 @@ describe("slack", () => {
 
   test("a channel is given by id or name, trimmed; an id is looked up first, then as a name; a failed lookup is refused", async () => {
     answers.security = (args) =>
-      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+      args.includes("slack-acme") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
     const names: Record<string, string> = { C10: "eng", C99: "c42", C07: "alerts-prod" };
     httpAnswer = (url) => {
       const u = new URL(url);
@@ -1698,7 +1702,7 @@ describe("slack", () => {
   });
 
   test("a listed channel the fetch cannot find is named in the source warning", async () => {
-    await hub("config", "fetch", '{"github":false,"slack":true}');
+    await hub("config", "fetch", '{"github":false,"slack-acme":true}');
     const db = new DatabaseSync(dbFile);
     db.prepare("INSERT OR REPLACE INTO config(key, value, updated_at) VALUES (?, ?, ?)").run(
       "slackWatchChannels",
@@ -1707,7 +1711,7 @@ describe("slack", () => {
     );
     db.close();
     answers.security = (args) =>
-      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+      args.includes("slack-acme") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
     const ok = (body: unknown) => ({ status: 200, body: JSON.stringify({ ok: true, ...(body as object) }) });
     httpAnswer = (url) => {
       const u = new URL(url);
@@ -1718,15 +1722,15 @@ describe("slack", () => {
       if (u.pathname === "/api/search.messages") return ok({ messages: { matches: [] } });
       return { status: 404, body: "" };
     };
-    await hub("fetch", "slack");
-    assert.match(await hub("sources"), /slack \| .*warning: .*no channel C55 \(slackWatchChannels\)/);
+    await hub("fetch", "slack-acme");
+    assert.match(await hub("sources"), /slack-acme \| .*warning: .*no channel C55 \(slackWatchChannels\)/);
   });
 
   test("every message in a watch channel needs me, with or without a mention, except my own", async () => {
-    await hub("config", "fetch", '{"github":false,"slack":true}');
+    await hub("config", "fetch", '{"github":false,"slack-acme":true}');
     await hub("config", "slackWatchChannels", '[{"id":"C10","name":"eng"}]');
     answers.security = (args) =>
-      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+      args.includes("slack-acme") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
     const [plain, mentioned, mine] = [ts(300), ts(200), ts(100)];
     const said = (t: string, text: string, user = "U2") => ({
       ts: t,
@@ -1752,7 +1756,7 @@ describe("slack", () => {
       }
       return ok({ messages: { matches: [] } });
     };
-    assert.match(await hub("fetch", "slack"), /items: 2 new/);
+    assert.match(await hub("fetch", "slack-acme"), /items: 2 new/);
     assert.ok(queries.some((q) => /^in:#eng after:\d{4}-\d{2}-\d{2}$/.test(q)));
     const needs = await hub("items", "--needs-me", "--source", "slack");
     assert.match(needs, /slack\/message \| needs you \| #eng · ana: build is slow today \| channel/);
@@ -1761,10 +1765,10 @@ describe("slack", () => {
   });
 
   test("a bot message with no text is named by its block or attachment text, else (no text)", async () => {
-    await hub("config", "fetch", '{"github":false,"slack":true}');
+    await hub("config", "fetch", '{"github":false,"slack-acme":true}');
     await hub("config", "slackAlertChannels", '["#tech_platform"]');
     answers.security = (args) =>
-      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+      args.includes("slack-acme") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
     const channel = { id: "C09", name: "tech_platform" };
     const at = (t: string) => `https://acme.slack.com/archives/C09/p${t.replace(".", "")}`;
     const [blocks, second, bare] = [ts(300), ts(200), ts(100)];
@@ -1799,7 +1803,7 @@ describe("slack", () => {
         },
       });
     };
-    assert.match(await hub("fetch", "slack"), /items: 3 new/);
+    assert.match(await hub("fetch", "slack-acme"), /items: 3 new/);
     const list = await hub("items", "--source", "slack");
     assert.match(list, /#tech_platform · Linear: ENG-9 moved to \*Done\* by Ana \|/);
     assert.match(list, /#tech_platform · Linear: ENG-10 created \|/);
@@ -1807,9 +1811,9 @@ describe("slack", () => {
   });
 
   test("my later reply in a mention's thread takes it off my list, in this fetch or a later one", async () => {
-    await hub("config", "fetch", '{"github":false,"slack":true}');
+    await hub("config", "fetch", '{"github":false,"slack-acme":true}');
     answers.security = (args) =>
-      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+      args.includes("slack-acme") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
     const top = ts(600);
     const parent = ts(900);
     const inThread = ts(500);
@@ -1849,7 +1853,7 @@ describe("slack", () => {
       if (u.pathname === "/api/reactions.get") return { status: 200, body: JSON.stringify({ ok: true, message: {} }) };
       return { status: 404, body: "" };
     };
-    await hub("fetch", "slack");
+    await hub("fetch", "slack-acme");
     const needs = await hub("items", "--needs-me", "--source", "slack");
     assert.doesNotMatch(needs, /on call\?/);
     assert.match(needs, /#ops · ana: @U0ME can you review\? \| mention/);
@@ -1857,15 +1861,15 @@ describe("slack", () => {
 
     sent = [reply(ts(5), other, "approved")];
     mentions = [];
-    assert.match(await hub("fetch", "slack"), /items: 1 new, 1 changed/);
+    assert.match(await hub("fetch", "slack-acme"), /items: 1 new, 1 changed/);
     assert.doesNotMatch(await hub("items", "--needs-me", "--source", "slack"), /can you review\?/);
     assert.match(await hub("items", "--source", "slack"), /can you review\? \| replied/);
   });
 
   test("DMs and replies in threads I posted in need me without a mention, until my later reply", async () => {
-    await hub("config", "fetch", '{"github":false,"slack":true}');
+    await hub("config", "fetch", '{"github":false,"slack-acme":true}');
     answers.security = (args) =>
-      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+      args.includes("slack-acme") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
     const link = (channel: string, t: string, thread?: string) =>
       `https://acme.slack.com/archives/${channel}/p${t.replace(".", "")}${thread ? `?thread_ts=${thread}&cid=${channel}` : ""}`;
     const ops = { id: "C01", name: "ops" };
@@ -1934,7 +1938,7 @@ describe("slack", () => {
       if (u.pathname === "/api/reactions.get") return ok({ message: { reactions: [] } });
       return { status: 404, body: "" };
     };
-    assert.match(await hub("fetch", "slack"), /items: 6 new/);
+    assert.match(await hub("fetch", "slack-acme"), /items: 6 new/);
     assert.ok(queries.some((q) => new RegExp(`^to:<@${ME}> after:\\d{4}-\\d{2}-\\d{2}$`).test(q)));
     const needs = await hub("items", "--needs-me", "--source", "slack");
     assert.match(needs, /slack\/message \| needs you \| DM · Ana: can we talk\? \| dm/);
@@ -1950,7 +1954,7 @@ describe("slack", () => {
     toMe = [];
     mentions = [];
     inOps = [];
-    assert.match(await hub("fetch", "slack"), /items: 1 new, 1 changed/);
+    assert.match(await hub("fetch", "slack-acme"), /items: 1 new, 1 changed/);
     const later = await hub("items", "--needs-me", "--source", "slack");
     assert.doesNotMatch(later, /thanks, merged/);
     assert.match(later, /DM · Ana: can we talk\? \| dm/);
@@ -1958,10 +1962,10 @@ describe("slack", () => {
   });
 
   test("a mention of a group I am in needs me only in a group channel, named by the group, and a direct mention wins on the same message", async () => {
-    await hub("config", "fetch", '{"github":false,"slack":true}');
+    await hub("config", "fetch", '{"github":false,"slack-acme":true}');
     await hub("config", "slackGroupChannels", '[{"id":"C01","name":"ops"}]');
     answers.security = (args) =>
-      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+      args.includes("slack-acme") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
     const both = ts(100);
     const group = ts(90);
     const other = ts(80);
@@ -2012,7 +2016,7 @@ describe("slack", () => {
       if (u.pathname === "/api/reactions.get") return ok({ message: { reactions: [] } });
       return { status: 404, body: "" };
     };
-    assert.match(await hub("fetch", "slack"), /items: 2 new/);
+    assert.match(await hub("fetch", "slack-acme"), /items: 2 new/);
     assert.ok(queries.some((q) => /^<!subteam\^S1> after:\d{4}-\d{2}-\d{2}$/.test(q)));
     assert.ok(!queries.some((q) => q.startsWith("<!subteam^S2>")));
     const needs = await hub("items", "--needs-me", "--source", "slack");
@@ -2023,16 +2027,16 @@ describe("slack", () => {
 
     await hub("config", "slackGroupChannels", "[]");
     queries.length = 0;
-    await hub("fetch", "slack");
+    await hub("fetch", "slack-acme");
     assert.ok(queries.length > 0);
     assert.ok(!queries.some((q) => q.startsWith("<!subteam^")));
   });
 
   test("a scope Slack refuses leaves its details out and becomes a warning, not an error", async () => {
-    await hub("config", "fetch", '{"github":false,"slack":true}');
+    await hub("config", "fetch", '{"github":false,"slack-acme":true}');
     await hub("config", "slackGroupChannels", '[{"id":"C01","name":"ops"}]');
     answers.security = (args) =>
-      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+      args.includes("slack-acme") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
     const at = ts(100);
     const refused = (needed: string) => ({
       status: 200,
@@ -2063,22 +2067,22 @@ describe("slack", () => {
       if (u.pathname === "/api/usergroups.list") return refused("usergroups:read");
       return { status: 404, body: "" };
     };
-    assert.match(await hub("fetch", "slack"), /items: 1 new/);
+    assert.match(await hub("fetch", "slack-acme"), /items: 1 new/);
     assert.match(await hub("items", "--needs-me", "--source", "slack"), /DM · U2: @U9 ping \| mention/);
     assert.match(
       await hub("sources"),
       /warning: missing im:read, reactions:read, usergroups:read, users:read: names, DMs, group mentions or reactions are left out/,
     );
     const page = await (await fetch(`${server.url}/settings?part=1`)).text();
-    assert.match(page, /<span class="src src-warn" title="[^"]*missing im:read[^"]*"><i><\/i>Slack<\/span>/);
+    assert.match(page, /<span class="src src-warn" title="[^"]*missing im:read[^"]*"><i><\/i>Slack acme<\/span>/);
     assert.match(page, /tone-text-amber">missing im:read, reactions:read, usergroups:read, users:read/);
     assert.match(page, /--allow &#39;GET \/api\/reactions\.get&#39;/);
   });
 
   test("a DM whose sender lookup fails is held with the cursor and checked again next sync", async () => {
-    await hub("config", "fetch", '{"github":false,"slack":true}');
+    await hub("config", "fetch", '{"github":false,"slack-acme":true}');
     answers.security = (args) =>
-      args.includes("slack") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+      args.includes("slack-acme") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
     const link = (channel: string, t: string) => `https://acme.slack.com/archives/${channel}/p${t.replace(".", "")}`;
     const dm = (t: string, user: string, text: string, channel: string) => ({
       ts: t,
@@ -2106,16 +2110,16 @@ describe("slack", () => {
       if (u.pathname === "/api/usergroups.list") return ok({ usergroups: [] });
       return { status: 404, body: "" };
     };
-    assert.match(await hub("fetch", "slack"), /nothing new/);
+    assert.match(await hub("fetch", "slack-acme"), /nothing new/);
     const sources = await hub("sources");
     assert.match(sources, /warning: failed users\.info slack\.com answered 429; 3 DMs from unchecked senders wait/);
     assert.doesNotMatch(sources, /missing users:read/);
-    const cursor = /slack \| last sync .* \| cursor (\d+(?:\.\d+)?)/.exec(sources)?.[1];
+    const cursor = /slack-acme \| last sync .* \| cursor (\d+(?:\.\d+)?)/.exec(sources)?.[1];
     assert.ok(cursor !== undefined && Number(cursor) < Number(ts(100)));
 
     lookup = (id) =>
       ok({ user: { id, is_bot: id === "U7", profile: { display_name: id === "U2" ? "Ana" : "incident" } } });
-    assert.match(await hub("fetch", "slack"), /items: 1 new/);
+    assert.match(await hub("fetch", "slack-acme"), /items: 1 new/);
     const all = await hub("items", "--source", "slack");
     assert.match(all, /DM · Ana: can we talk\? \| dm/);
     assert.doesNotMatch(all, /incident/);
@@ -2125,7 +2129,7 @@ describe("slack", () => {
   test("a Slack error answer is the source error", async () => {
     answers.security = () => ({ code: 0, stdout: "xoxp-1\n", stderr: "" });
     httpAnswer = () => ({ status: 200, body: JSON.stringify({ ok: false, error: "missing_scope" }) });
-    assert.match(await hub("fetch", "slack"), /^slack: slack auth.test: missing_scope$/);
+    assert.match(await hub("fetch", "slack-acme"), /^slack-acme: slack auth.test: missing_scope$/);
   });
 });
 

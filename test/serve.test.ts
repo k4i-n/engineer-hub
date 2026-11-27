@@ -351,7 +351,7 @@ describe("serve", () => {
   test("settings show the database and save config through the same checks as the CLI", async () => {
     const html = await (await fetch(`${server.url}/settings`)).text();
     assert.ok(html.includes(dbFile));
-    assert.match(html, /Schema<\/span><div class="set-control">v29/);
+    assert.match(html, /Schema<\/span><div class="set-control">v30/);
     const titles = [...html.matchAll(/<h2><button type="button" class="fold" data-fold="([^"]+)"/g)].map((m) => m[1]);
     assert.deepEqual(titles, ["Sources", "Agent", "Away", "Database", "Behavior", "Dashboard", "Keyboard"]);
     assert.equal(html.match(/<div class="col">/g)?.length, 1);
@@ -1154,6 +1154,7 @@ describe("serve", () => {
     const ticket = async () => (await fetch(`${server.url}/t/ENG-7?part=1`)).text();
     assert.doesNotMatch(await ticket(), /beta · (next|no reply yet)/);
 
+    await hub(["slack", "add", "acme"]);
     await hub(["slack", "add", "beta"]);
     const db = new DatabaseSync(dbFile);
     saveTeam(db, { host: "beta.slack.com", id: "T0BETA" });
@@ -1184,7 +1185,8 @@ describe("serve", () => {
     assert.ok(!/<div class="set-row off" inert><span class="set-label">Alert channels/.test(page));
     assert.match(page, /data-act="slack-add" data-ask="Slack workspace name, e.g. acme"/);
     assert.match(page, /data-act="source-remove" data-name="slack-beta" data-confirm="Remove Slack beta\?"/);
-    assert.doesNotMatch(page, /data-act="source-remove" data-name="slack"/);
+    assert.match(page, /data-act="source-remove" data-name="slack-acme" data-confirm="Remove Slack acme\?"/);
+    assert.doesNotMatch(page, /data-name="slack"/);
   });
 
   test("Settings adds and removes a Slack workspace like hub slack add and remove", async () => {
