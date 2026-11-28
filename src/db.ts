@@ -101,6 +101,19 @@ export type ItemRow = {
   ask_at: string | null;
   review_ask: number;
 };
+const FINISHED_STATES = ["merged", "closed", "done"];
+const ASKING_KINDS = ["message", "thread", "review_request", "mail", "alert"];
+const quoted = (list: string[]) => list.map((v) => `'${v}'`).join(", ");
+
+export const UNFINISHED_ITEM = `closed_at IS NULL AND ignored IS NULL AND coalesce(state, '') NOT IN (${quoted(FINISHED_STATES)})
+  AND (needs_me = 1 OR kind NOT IN (${quoted(ASKING_KINDS)}))`;
+
+export function itemFinished(i: ItemRow): boolean {
+  if (i.closed_at !== null || i.ignored !== null) return true;
+  if (FINISHED_STATES.includes(i.state ?? "")) return true;
+  return i.needs_me === 0 && ASKING_KINDS.includes(i.kind);
+}
+
 export type WaitRow = {
   id: number;
   ticket_id: string;

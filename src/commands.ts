@@ -20,6 +20,7 @@ import {
   type StepRow,
   type Ticket,
   transaction,
+  UNFINISHED_ITEM,
   type WaitRow,
 } from "./db.ts";
 import * as files from "./files.ts";
@@ -169,7 +170,7 @@ export function ticket(ctx: Ctx, id: string): Result {
   );
   const itemCounts = one<{ open: number; needsMe: number }>(
     ctx.db,
-    "SELECT count(*) AS open, coalesce(sum(needs_me), 0) AS needsMe FROM item WHERE ticket_id = ? AND closed_at IS NULL",
+    `SELECT count(*) AS open, coalesce(sum(needs_me), 0) AS needsMe FROM item WHERE ticket_id = ? AND ${UNFINISHED_ITEM}`,
     id,
   ) ?? { open: 0, needsMe: 0 };
   const steps = progress(ctx.db, id);
