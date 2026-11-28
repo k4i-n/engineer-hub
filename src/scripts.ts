@@ -90,6 +90,7 @@ export function scriptFetcher(row: ScriptRow): Fetcher {
     fetch: async (sys, ctx, cursor) => {
       const started = ctx.now.toISOString();
       const r = await sys.run(program, args, { timeoutMs: SCRIPT_TIMEOUT_MS, env: { HUB_SINCE: cursor ?? "" } });
+      if (r.timedOut) throw new HubError(`timed out after ${SCRIPT_TIMEOUT_MS / 60_000}m`);
       if (r.code !== 0) throw new HubError(`exit ${r.code}: ${lastLine(r.stderr) || "no output on stderr"}`);
       const items = r.stdout
         .split("\n")
