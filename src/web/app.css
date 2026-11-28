@@ -180,7 +180,7 @@ a:hover {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
 }
 .src {
@@ -1721,8 +1721,10 @@ button.n-caret {
 }
 .search {
   position: relative;
-  flex: 0 1 640px;
+  flex: 1 1 240px;
+  min-width: 200px;
   max-width: 640px;
+  margin-left: auto;
 }
 .search input {
   width: 100%;
