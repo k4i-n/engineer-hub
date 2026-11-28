@@ -203,6 +203,11 @@ function foldGroups() {
   for (const g of app.querySelectorAll("details.ngroup")) g.open = !closed.has(g.dataset.group);
 }
 
+function foldFolders() {
+  const open = new Set(stored("hub.openFolders", []));
+  for (const d of app.querySelectorAll("li.folder > details")) d.open = open.has(d.dataset.key);
+}
+
 function sectionKey(key) {
   const page = location.pathname.split("/")[1] || "home";
   return `${page}:${key}`;
@@ -293,6 +298,7 @@ function applyWorkspace() {
 function afterRender(first, shown) {
   foldGroups();
   foldSections();
+  foldFolders();
   markCleared();
   applyTab(shown);
   applyWorkspace();
@@ -970,7 +976,15 @@ document.addEventListener(
   "toggle",
   (e) => {
     const g = e.target;
-    if (!(g instanceof HTMLDetailsElement) || !g.classList.contains("ngroup")) return;
+    if (!(g instanceof HTMLDetailsElement)) return;
+    if (g.parentElement?.classList.contains("folder")) {
+      const open = new Set(stored("hub.openFolders", []));
+      if (g.open) open.add(g.dataset.key);
+      else open.delete(g.dataset.key);
+      store("hub.openFolders", [...open]);
+      return;
+    }
+    if (!g.classList.contains("ngroup")) return;
     const closed = new Set(stored("hub.closedGroups", []));
     if (g.open) closed.delete(g.dataset.group);
     else closed.add(g.dataset.group);
