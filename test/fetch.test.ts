@@ -1179,6 +1179,52 @@ describe("slack", () => {
     assert.match(await hub("items", "--all", "--source", "slack"), /one sec \| in thread/);
   });
 
+  test("an answered wait's thread row stops needing you once you reply in the thread after the answer", async () => {
+    await hub("config", "fetch", '{"github":false,"slack-acme":true}');
+    answers.security = (args) =>
+      args.includes("slack-acme") ? { code: 0, stdout: "xoxp-1\n", stderr: "" } : { code: 44, stdout: "", stderr: "" };
+    const thread = ts(3600);
+    await hub("wait", "ENG-42", "ken", permalink(thread));
+    const asked = Math.floor(Date.now() / 1000);
+    const mine = (t: string) => ({
+      ts: t,
+      text: "thanks",
+      permalink: `${permalink(t)}?thread_ts=${thread}&cid=C01`,
+      user: ME,
+      username: "khai",
+      channel: { id: "C01", name: "web" },
+    });
+    let sent = [mine(ts(50, "000500"))];
+    const ok = (body: unknown) => ({ status: 200, body: JSON.stringify({ ok: true, ...(body as object) }) });
+    httpAnswer = (url) => {
+      const u = new URL(url);
+      if (u.pathname === "/api/auth.test") return ok({ user_id: ME, ...WORKSPACE });
+      if (u.pathname === "/api/search.messages") {
+        const q = u.searchParams.get("query") ?? "";
+        return ok({ messages: { matches: q.startsWith("from:") ? sent : [] } });
+      }
+      if (u.pathname === "/api/users.info") return ok({ user: { id: "U3", profile: { display_name: "Ken" } } });
+      if (u.pathname === "/api/users.list") return ok({ members: [{ id: "U3", profile: { display_name: "Ken" } }] });
+      if (u.pathname === "/api/usergroups.list") return ok({ usergroups: [] });
+      if (u.pathname === "/api/conversations.replies")
+        return ok({
+          messages: [
+            { ts: thread, text: "q", user: ME },
+            { ts: `${asked + 30}.000200`, text: "yes, ship it", user: "U3" },
+          ],
+        });
+      return { status: 404, body: "" };
+    };
+    await hub("fetch", "slack-acme");
+    await hub("fetch", "slack-acme");
+    assert.match(await hub("items", "--needs-me", "--source", "slack"), /slack\/thread \| needs you \| Ken answered/);
+
+    sent = [...sent, mine(`${asked + 120}.000700`)];
+    await hub("fetch", "slack-acme");
+    assert.doesNotMatch(await hub("items", "--needs-me", "--source", "slack"), /Ken answered/);
+    assert.match(await hub("items", "--source", "slack"), /slack\/thread \| Ken answered: yes, ship it \| replied/);
+  });
+
   test("a sync checks only the waits of its own workspace and keeps the workspace's team id", async () => {
     await hub("config", "fetch", '{"github":false,"slack-acme":true}');
     answers.security = (args) =>

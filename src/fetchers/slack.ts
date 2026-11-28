@@ -645,15 +645,21 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null, spec: Ke
 
   const open = all<ItemRow>(
     ctx.db,
-    `SELECT * FROM item WHERE source = 'slack' AND kind IN ('message', 'alert') AND needs_me = 1 AND closed_at IS NULL
+    `SELECT * FROM item WHERE source = 'slack' AND kind IN ('message', 'alert', 'thread') AND needs_me = 1 AND closed_at IS NULL
        AND ignored IS NULL AND instr(url, ?) = 1 ORDER BY first_seen DESC LIMIT ?`,
     `https://${host}/`,
     RECHECK,
   );
   const toCheck = new Map<string, Record<string, unknown>>();
-  for (const i of open) if (i.url) toCheck.set(i.url, { source: "slack", kind: i.kind, url: i.url });
+  const answeredAt = new Map<string, number>();
+  for (const i of open) {
+    if (!i.url) continue;
+    toCheck.set(i.url, { source: "slack", kind: i.kind, url: i.url });
+    if (i.kind === "thread") answeredAt.set(i.url, Date.parse(i.changed_at) / 1000);
+  }
   for (const item of out) if (item.needs_me === true) toCheck.set(item.url as string, item);
   for (const [url, item] of toCheck) {
+    if (item.kind === "thread") continue;
     const at = messageOf(url);
     if (at === null) continue;
     const got = await dir.reactions(at.channel, at.ts);
@@ -674,9 +680,8 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null, spec: Ke
     const thread = threadOf(url);
     const at = messageOf(url);
     if (thread === null || at === null) continue;
-    const replied = replies.some(
-      (r) => r.channel === thread.channel && r.at > Number(at.ts) && (r.dm || r.ts === thread.ts),
-    );
+    const after = answeredAt.get(url) ?? Number(at.ts);
+    const replied = replies.some((r) => r.channel === thread.channel && r.at > after && (r.dm || r.ts === thread.ts));
     if (!replied) continue;
     if (!out.includes(item)) out.push(item);
     item.state = "replied";

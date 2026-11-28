@@ -1108,11 +1108,11 @@ function reviewIsDraft(ctx: Ctx, d: DraftRow, verdict: string | null): boolean {
   return verdict !== null && d.verdict === verdict && draftComments(ctx.db, d.id).length === 0;
 }
 
-function openReviewRequest(ctx: Ctx, item: string | null): ItemRow | undefined {
+function openAnsweredItem(ctx: Ctx, item: string | null): ItemRow | undefined {
   if (item === null) return undefined;
   return one<ItemRow>(
     ctx.db,
-    `SELECT * FROM item WHERE kind = 'review_request' AND closed_at IS NULL AND ignored IS NULL AND (ref = ?1 OR url = ?1)`,
+    `SELECT * FROM item WHERE kind NOT IN ('pr', 'alert') AND closed_at IS NULL AND ignored IS NULL AND (ref = ?1 OR url = ?1)`,
     item,
   );
 }
@@ -1128,7 +1128,7 @@ export function posted(ctx: Ctx, id: string, label: string, options: PostedOptio
   const answer = options.answer ?? existing.answer;
   const status = answer === null ? "posted" : "answered";
   const at = options.at ?? existing.posted_at ?? nowTs(ctx.now, ctx.config.timezone);
-  const request = openReviewRequest(ctx, existing.item);
+  const answered = openAnsweredItem(ctx, existing.item);
   const fromPr = existing.sent_text === null && prBody(existing.body, existing.channel) === 1;
   const sentText = options.sentText ?? (fromPr ? prText(ctx, options.sentRef ?? existing.item) : null);
   transaction(ctx.db, () => {
@@ -1145,12 +1145,12 @@ export function posted(ctx: Ctx, id: string, label: string, options: PostedOptio
         answer,
         sentText,
         options.sentRef,
-        request?.id ?? null,
+        answered?.id ?? null,
         nowIso(ctx.now),
         existing.id,
       );
-    if (request !== undefined)
-      ctx.db.prepare("UPDATE item SET closed_at = ? WHERE id = ?").run(nowIso(ctx.now), request.id);
+    if (answered !== undefined)
+      ctx.db.prepare("UPDATE item SET closed_at = ? WHERE id = ?").run(nowIso(ctx.now), answered.id);
     if (options.sentRef !== null) judged(ctx, options.sentRef);
     touch(ctx, existing.ticket_id);
   });

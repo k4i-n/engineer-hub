@@ -1678,6 +1678,28 @@ describe("drafts on items", () => {
     assert.match((await hub("draft", "not-a-ticket", "x", "--stdin")).err, /no ticket not-a-ticket/);
   });
 
+  test("Sent on a reply draft closes the Slack item it answers until Not sent, but never a PR row", async () => {
+    await imported();
+    const thread = "https://acme.slack.com/archives/C1/p1763350000000100?thread_ts=1763350000.000100";
+    const pr = "https://github.com/acme/web/pull/7";
+    stdin = [
+      JSON.stringify({ source: "slack", kind: "thread", url: thread, title: "ana answered: yes", needs_me: true }),
+      JSON.stringify({ source: "github", kind: "pr", url: pr, title: "Cap exports", state: "open", needs_me: true }),
+    ].join("\n");
+    await ok("item", "put", "--stdin");
+    stdin = "thanks, shipping it";
+    await ok("draft", "ENG-7", "reply", "--stdin", "--item", thread);
+    await ok("draft", "ENG-7", "pr body", "--stdin", "--item", pr);
+
+    await ok("posted", "ENG-7", "reply");
+    assert.doesNotMatch(await ok("items", "--needs-me"), /ana answered/);
+    await ok("unposted", "ENG-7", "reply");
+    assert.match(await ok("items", "--needs-me"), /ana answered/);
+
+    await ok("posted", "ENG-7", "pr body");
+    assert.match(await ok("items", "--needs-me"), /Cap exports/);
+  });
+
   test("a ticket draft keeps its item until cleared, and the item finds it unless two drafts share a label", async () => {
     await imported();
     await request();
