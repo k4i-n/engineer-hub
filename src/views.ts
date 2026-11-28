@@ -26,6 +26,7 @@ import {
   type EventRow,
   getTicket,
   type ItemRow,
+  itemFinished,
   type NoteRow,
   one,
   type SourceRow,
@@ -1045,7 +1046,7 @@ function ticketRow(ctx: Ctx, t: Ticket, done = false, needing: Need[] = []): str
   const waiting =
     one<{ n: number }>(ctx.db, "SELECT count(*) AS n FROM wait WHERE ticket_id = ? AND closed_at IS NULL", t.id)?.n ??
     0;
-  const threads = items.filter((i) => i.kind === "thread").length;
+  const threads = items.filter((i) => i.kind === "thread" && !itemFinished(i)).length;
   const chips = [
     prChips(
       ctx,
@@ -1674,10 +1675,8 @@ export function ticketBody(ctx: Ctx, id: string, live: Live): string {
   const link = linker(ctx);
   const t = getTicket(ctx.db, id);
   const steps = all<StepRow>(ctx.db, "SELECT * FROM step WHERE ticket_id = ? ORDER BY n", id);
-  const items = all<ItemRow>(
-    ctx.db,
-    "SELECT * FROM item WHERE ticket_id = ? ORDER BY closed_at IS NOT NULL, needs_me DESC, id DESC",
-    id,
+  const items = all<ItemRow>(ctx.db, "SELECT * FROM item WHERE ticket_id = ? ORDER BY needs_me DESC, id DESC", id).sort(
+    (a, b) => Number(itemFinished(a)) - Number(itemFinished(b)),
   );
   const waits = all<WaitRow>(
     ctx.db,
@@ -1716,7 +1715,7 @@ export function ticketBody(ctx: Ctx, id: string, live: Live): string {
   const fields = `${field(ctx, "Status", t.status)}${field(ctx, "Next", t.next, "blue")}${asks(t.gate) ? field(ctx, "Approve?", t.gate, "amber") : field(ctx, "Rule", t.gate)}${field(ctx, "Repo", [t.repo, t.branch].filter(Boolean).join(" · "))}${field(ctx, "Owner", t.owner)}`;
   const state = fields === "" ? empty() : `<dl class="state">${fields}</dl>`;
   const openSteps = steps.filter((s) => s.done_at === null).length;
-  const openItems = items.filter((i) => i.closed_at === null).length;
+  const openItems = items.filter((i) => !itemFinished(i)).length;
   const openWaits = waits.filter((w) => w.closed_at === null).length;
   const { tabs: timelineTabs, work } = eventTabs("timeline", events);
   const timelinePanel = (list: EventRow[], name: string, on: boolean) =>
@@ -1732,7 +1731,7 @@ export function ticketBody(ctx: Ctx, id: string, live: Live): string {
   const pinned = pins(ctx.db);
   const itemRows = items.map((i) => {
     const n = itemNeed(ctx, i);
-    const panel = i.closed_at === null ? {} : { panel: "all" };
+    const panel = itemFinished(i) ? { panel: "all" } : {};
     return needRow(ctx, { ...n, ticket: null, detach: { id: i.id, ticket: t.id }, ...panel }, pinned.has(n.key));
   });
   const waitRows = waits.map((w) => {

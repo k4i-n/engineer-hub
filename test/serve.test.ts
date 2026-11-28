@@ -2287,6 +2287,38 @@ describe("today plan lines", () => {
   });
 });
 
+describe("ticket items open and all", () => {
+  test("finished items count under All only: merged or closed PRs, done reviews, handled Slack messages", async () => {
+    const gh = "https://github.com/acme/web/pull/";
+    const items = [
+      { source: "github", kind: "pr", url: `${gh}1`, title: "open pr", state: "in review" },
+      { source: "github", kind: "pr", url: `${gh}2`, title: "merged pr", state: "merged" },
+      { source: "github", kind: "pr", url: `${gh}3`, title: "closed pr", state: "closed" },
+      { source: "github", kind: "review_request", url: `${gh}4`, title: "reviewed", state: "done" },
+      {
+        source: "slack",
+        kind: "message",
+        url: "https://acme.slack.com/archives/C1/p1",
+        title: "handled",
+        state: "replied",
+      },
+      { source: "slack", kind: "thread", url: "https://acme.slack.com/archives/C1/p2", title: "asks", needs_me: true },
+      { source: "file", kind: "doc", ref: "spec", title: "spec doc" },
+    ];
+    await hub(["item", "put", "--stdin"], items.map((i) => JSON.stringify({ ticket: "ENG-7", ...i })).join("\n"));
+    const page = await (await fetch(`${server.url}/t/ENG-7?part=1`)).text();
+    assert.match(
+      page,
+      /data-tabs="items"><button[^>]*data-tab="open"[^>]*>Open <b>3<\/b><\/button><button[^>]*data-tab="all"[^>]*>All <b>7<\/b>/,
+    );
+    const rows = page.split('<li class="need').slice(1);
+    const onlyAll = (title: string) => /^[^>]*data-tab-panel="all"/.test(rows.find((r) => r.includes(title)) ?? "");
+    for (const title of ["merged pr", "closed pr", "reviewed", "handled"]) assert.ok(onlyAll(title), title);
+    for (const title of ["open pr", "asks", "spec doc"]) assert.ok(!onlyAll(title), title);
+    assert.match(await hub(["ticket", "ENG-7"]), /items: 3 open, 1 need you/);
+  });
+});
+
 describe("ticket files on the dashboard", () => {
   test("the file list is a folder tree: files first with README on top, then each folder folded with its totals", async () => {
     await hub(["ticket-new", "ENG-1", "Plan"]);
