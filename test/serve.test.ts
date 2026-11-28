@@ -2288,6 +2288,31 @@ describe("today plan lines", () => {
 });
 
 describe("ticket files on the dashboard", () => {
+  test("the file list is a folder tree: files first with README on top, then each folder folded with its totals", async () => {
+    await hub(["ticket-new", "ENG-1", "Plan"]);
+    const folder = join(dir, "files", "ENG-1");
+    mkdirSync(join(folder, "out", "P0"), { recursive: true });
+    writeFileSync(join(folder, "notes.md"), "n");
+    writeFileSync(join(folder, "README.md"), "r");
+    writeFileSync(join(folder, "out", "a.md"), "aa");
+    writeFileSync(join(folder, "out", "P0", "b.md"), "bbb");
+
+    const ticket = await (await fetch(`${server.url}/t/ENG-1?part=1`)).text();
+    const names = [
+      ...ticket.matchAll(/<span class="f-path">([^<]+)<\/span>|class="f-path" href="[^"]+">([^<]+)<\/a>/g),
+    ].map((m) => m[1] ?? m[2]);
+    assert.deepEqual(names, ["README.md", "notes.md", "out/", "a.md", "P0/", "b.md"]);
+    assert.match(
+      ticket,
+      /data-key="folder-ENG-1\/out"><summary class="file"><span class="f-path">out\/<\/span><span class="f-count">2 files<\/span><span class="f-size">5 B<\/span>/,
+    );
+    assert.match(
+      ticket,
+      /data-key="folder-ENG-1\/out\/P0">[\s\S]*?href="\/t\/ENG-1\/files\/out\/P0\/b\.md">b\.md<\/a>/,
+    );
+    assert.doesNotMatch(ticket, /<details data-key="folder-[^"]*" open/);
+  });
+
   test("the ticket page lists files, and each opens as rendered markdown, a sandboxed frame, an image or raw", async () => {
     await hub(["ticket-new", "ENG-1", "Plan"]);
     const folder = join(dir, "files", "ENG-1");
@@ -2301,7 +2326,10 @@ describe("ticket files on the dashboard", () => {
     const ticket = await (await fetch(`${server.url}/t/ENG-1`)).text();
     assert.match(ticket, /data-fold="Files" aria-expanded="true">Files<\/button><\/h2><span class="count">5<\/span>/);
     assert.match(ticket, /href="\/t\/ENG-1\/files\/plan\.md">plan\.md<\/a>/);
-    assert.match(ticket, /href="\/t\/ENG-1\/files\/img\/shot%20one\.png">img\/shot one\.png<\/a>/);
+    assert.match(
+      ticket,
+      /<li class="folder"><details data-key="folder-ENG-1\/img"><summary class="file"><span class="f-path">img\/<\/span><span class="f-count">1 file<\/span><span class="f-size">3 B<\/span>[\s\S]*?href="\/t\/ENG-1\/files\/img\/shot%20one\.png">shot one\.png<\/a>/,
+    );
     assert.match(ticket, /href="\/t\/ENG-1\/raw\/rows\.csv" target="_blank" rel="noreferrer">rows\.csv<\/a>/);
     assert.ok(ticket.includes(`data-copy="${folder}"`));
 
