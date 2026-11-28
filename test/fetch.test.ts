@@ -2330,6 +2330,8 @@ describe("script sources", () => {
     answers["cf-items"] = () => ({ code: 3, stdout: "", stderr: "warming up\nunauthorized: check the key\n" });
     assert.match(await hub("fetch", "cf"), /^cf: exit 3: unauthorized: check the key$/);
     assert.match(await hub("sources"), /cf \| last sync .* \| error: exit 3: unauthorized: check the key/);
+    answers["cf-items"] = () => ({ code: 1, stdout: "", stderr: "", timedOut: true });
+    assert.match(await hub("fetch", "cf"), /^cf: timed out after 2m$/);
   });
 
   test("names of built-ins are taken, an interval and a program are required, and the API cannot add one", async () => {

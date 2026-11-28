@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { HubError } from "./util.ts";
 
-export type Ran = { code: number; stdout: string; stderr: string };
+export type Ran = { code: number; stdout: string; stderr: string; timedOut?: true };
 export type Run = (
   program: string,
   args: string[],
@@ -26,7 +26,11 @@ export const run: Run = (program, args, options = {}) =>
     });
     let stdout = "";
     let stderr = "";
-    const timer = setTimeout(() => child.kill("SIGTERM"), options.timeoutMs ?? RUN_TIMEOUT_MS);
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+    }, options.timeoutMs ?? RUN_TIMEOUT_MS);
     child.stdout.on("data", (chunk: Buffer) => {
       if (stdout.length < MAX_OUTPUT) stdout += chunk.toString("utf8");
     });
@@ -39,7 +43,7 @@ export const run: Run = (program, args, options = {}) =>
     });
     child.on("close", (code) => {
       clearTimeout(timer);
-      resolve({ code: code ?? 1, stdout, stderr });
+      resolve({ code: code ?? 1, stdout, stderr, ...(timedOut ? { timedOut: true } : {}) });
     });
     child.stdin.end(options.input ?? "");
   });

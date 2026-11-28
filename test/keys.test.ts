@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, test } from "node:test";
-import { findWay, type KeySpec, keyedCall, type Ran, type System } from "../src/keys.ts";
+import { findWay, type KeySpec, keyedCall, type Ran, run, type System } from "../src/keys.ts";
 
 let calls: string[][] = [];
 let answers: Record<string, (args: string[], input: string) => Ran> = {};
@@ -75,5 +75,17 @@ describe("keys", () => {
     delete answers.security;
     assert.deepEqual(await findWay(fake("linux", { HUB_LINEAR_KEY: "k" }), "linear"), { kind: "hub", key: "k" });
     assert.deepEqual(await findWay(fake("linux"), "linear"), { kind: "missing" });
+  });
+});
+
+describe("run", () => {
+  test("a process past its time limit is stopped and marked timed out", async () => {
+    const r = await run(process.execPath, ["-e", "setTimeout(() => {}, 10000)"], { timeoutMs: 200 });
+    assert.deepEqual(r, { code: 1, stdout: "", stderr: "", timedOut: true });
+  });
+
+  test("a process that finishes in time keeps its exit code and is not marked", async () => {
+    const r = await run(process.execPath, ["-e", "process.stdout.write('ok'); process.exit(3)"], { timeoutMs: 5000 });
+    assert.deepEqual(r, { code: 3, stdout: "ok", stderr: "" });
   });
 });
