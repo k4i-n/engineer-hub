@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import { type Io, run } from "../src/cli.ts";
@@ -411,7 +411,7 @@ describe("github", () => {
     assert.doesNotMatch(settings, /data-config-input="github/);
     assert.match(
       settings,
-      /GitHub<\/span>[\s\S]*?<div class="src-info"><span class="src-status tone-green"><span class="dot"><\/span>Synced just now<\/span><span class="src-how">gh, signed in<\/span><\/div>/,
+      /GitHub<\/span><div class="set-control src-grid"><button[^>]*role="switch"[^>]*><span class="knob"><\/span><\/button><span class="src-status tone-green"><span class="dot"><\/span>Synced just now<\/span><div class="src-actions"><button[^>]*data-act="source-fetch" data-name="github">Fetch now<\/button><\/div><span class="src-how">gh, signed in<\/span><\/div>/,
     );
     const empty = await fetch(`${server.url}/api/v1/config/githubReviewQuery`, {
       method: "PUT",
@@ -955,6 +955,18 @@ describe("linear", () => {
     assert.match(
       settings,
       /sealcall add linear --host api.linear.app --header &#39;Authorization: \{key\}&#39; --allow &#39;POST \/graphql&#39;/,
+    );
+    assert.match(
+      settings,
+      /<details class="replace-fold" data-key="setup-key-linear"><summary class="chip-btn">Set up<\/summary>/,
+    );
+    assert.match(settings, /data-act="source-fetch" data-name="linear" disabled>Fetch now/);
+    await hub("config", "fetch", '{"github":true,"linear":true}');
+    const on = await (await fetch(`${server.url}/settings?part=1`)).text();
+    assert.doesNotMatch(on, /setup-key-linear/);
+    assert.match(
+      on,
+      /<div class="md code-block"><pre><code>security add-generic-password -U -s engineer-hub -a linear -w/,
     );
   });
 
@@ -2354,6 +2366,16 @@ describe("script sources", () => {
     await hub("source", "add", "echo", "--every", "1m", "--", process.execPath, script, "a b", "$(id)");
     await hub("fetch", "echo");
     assert.match(await hub("items", "--source", "echo"), /echo\/other \| a b\|\$\(id\) \| since-none/);
+    const settings = await (await fetch(`${server.url}/settings?part=1`)).text();
+    assert.ok(
+      settings.includes(
+        `<code class="src-script" title="${process.execPath} ${script} a b $(id)">${basename(process.execPath)} echo-items.mjs a b $(id)</code>`,
+      ),
+    );
+    assert.match(
+      settings,
+      /<label class="src-field">Every<input class="text src-every" data-source="echo" data-field="every" value="1m"/,
+    );
     const cursor = (await hub("sources")).match(/echo \| last sync .* \| cursor (\S+)/)?.[1] ?? "";
     await hub("fetch", "echo");
     assert.match(await hub("items", "--source", "echo"), new RegExp(`since-${cursor.replaceAll(".", "\\.")}`));

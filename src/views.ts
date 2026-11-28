@@ -191,9 +191,8 @@ function codeBlock(text: string): string {
   return `<div class="md code-block"><pre><code>${esc(text)}</code></pre></div>`;
 }
 
-function replaceFold(key: string, commands: string[]): string {
-  if (commands.length === 0) return "";
-  return `<details class="replace-fold" data-key="replace-${esc(key)}"><summary class="chip-btn">Replace</summary>${commands.map(codeBlock).join("")}</details>`;
+function fold(key: string, label: string, commands: string[]): string {
+  return `<details class="replace-fold" data-key="${esc(key)}"><summary class="chip-btn">${esc(label)}</summary>${commands.map(codeBlock).join("")}</details>`;
 }
 
 function button(
@@ -1951,7 +1950,7 @@ function size(bytes: number): string {
 export type Fetching = {
   name: string;
   on: boolean;
-  script: string | null;
+  argv: string[] | null;
   every: string | null;
   section: string | null;
   how: string | null;
@@ -1979,36 +1978,52 @@ function fetchStatus(ctx: Ctx, f: Fetching): string {
   return status("grey", f.on ? "Not synced yet" : "Off");
 }
 
-function scriptControls(f: Fetching): string {
+function shortCommand(argv: string[]): string {
+  return argv.map((a) => (a.startsWith("/") ? a.slice(a.lastIndexOf("/") + 1) : a)).join(" ");
+}
+
+function sourceSwitch(ctx: Ctx, f: Fetching): string {
+  const data =
+    f.argv !== null
+      ? `data-act="source-set" data-name="${esc(f.name)}" data-on="${f.on ? "0" : "1"}"`
+      : `data-config="fetch" data-value="${esc(JSON.stringify({ ...ctx.config.fetch, [f.name]: !f.on }))}"`;
+  return `<button type="button" role="switch" aria-checked="${f.on}" class="switch${f.on ? " on" : ""}" ${data}><span class="knob"></span></button>`;
+}
+
+function sourceActions(f: Fetching): string {
+  const removable = f.argv !== null || f.name.startsWith("slack-");
+  const remove = removable
+    ? button("Remove", { act: "source-remove", name: f.name, confirm: `Remove ${sourceLabel(f.name)}?` })
+    : "";
+  return `<div class="src-actions">${button("Fetch now", { act: "source-fetch", name: f.name }, { disabled: !f.on })}${remove}</div>`;
+}
+
+function sourceDetail(f: Fetching): string {
+  if (f.argv !== null) {
+    return `<code class="src-script" title="${esc(f.argv.join(" "))}">${esc(shortCommand(f.argv))}</code>`;
+  }
+  return f.how === null ? "" : `<span class="src-how">${esc(f.how)}</span>`;
+}
+
+function scriptFields(f: Fetching): string {
+  if (f.argv === null) return "";
   const off = f.on ? "" : " disabled";
-  return `<input class="text src-every" data-source="${esc(f.name)}" data-field="every" value="${esc(f.every ?? "")}" aria-label="Every" spellcheck="false"${off}><input class="text src-section" data-source="${esc(f.name)}" data-field="section" value="${esc(f.section ?? "")}" placeholder="Section" aria-label="Section" spellcheck="false"${off}>${button("Fetch now", { act: "source-fetch", name: f.name }, { disabled: !f.on })}${button("Remove", { act: "source-remove", name: f.name, confirm: `Remove ${f.name}?` })}`;
+  return `<div class="src-fields"><label class="src-field">Every<input class="text src-every" data-source="${esc(f.name)}" data-field="every" value="${esc(f.every ?? "")}" spellcheck="false"${off}></label><label class="src-field">Section<input class="text src-section" data-source="${esc(f.name)}" data-field="section" value="${esc(f.section ?? "")}" spellcheck="false"${off}></label></div>`;
+}
+
+function sourceFixes(f: Fetching): string {
+  if (f.fixes.length === 0) return "";
+  if (!f.on) return fold(`setup-key-${f.name}`, "Set up", f.fixes);
+  if (f.ok !== false && f.error === null && f.warning === null)
+    return fold(`replace-key-${f.name}`, "Replace", f.fixes);
+  return f.fixes.map(codeBlock).join("");
 }
 
 function sourceRows(ctx: Ctx, list: Fetching[]): string {
-  const next = (name: string, on: boolean) => JSON.stringify({ ...ctx.config.fetch, [name]: on });
   return list
     .map((f) => {
-      const swtch =
-        f.script !== null
-          ? `<button type="button" role="switch" aria-checked="${f.on}" class="switch${f.on ? " on" : ""}" data-act="source-set" data-name="${esc(f.name)}" data-on="${f.on ? "0" : "1"}"><span class="knob"></span></button>`
-          : `<button type="button" role="switch" aria-checked="${f.on}" class="switch${f.on ? " on" : ""}" data-config="fetch" data-value="${esc(next(f.name, !f.on))}"><span class="knob"></span></button>`;
-      const script = f.script === null ? "" : `<code class="src-script">${esc(f.script)}</code>`;
-      const how = f.how === null || f.script !== null ? "" : `<span class="src-how">${esc(f.how)}</span>`;
       const warning = f.warning === null ? "" : `<span class="src-how tone-text-amber">${esc(f.warning)}</span>`;
-      const fixes =
-        f.script === null && f.ok === true && f.error === null && f.warning === null
-          ? replaceFold(`key-${f.name}`, f.fixes)
-          : f.fixes.map(codeBlock).join("");
-      const controls =
-        f.script !== null
-          ? scriptControls(f)
-          : f.name.startsWith("slack-")
-            ? button("Remove", { act: "source-remove", name: f.name, confirm: `Remove ${sourceLabel(f.name)}?` })
-            : "";
-      return row(
-        sourceLabel(f.name),
-        `${swtch}<div class="src-info">${fetchStatus(ctx, f)}${script}${how}${warning}</div>${controls}${fixes}`,
-      );
+      return `<div class="set-row src-row"><span class="set-label">${esc(sourceLabel(f.name))}</span><div class="set-control src-grid">${sourceSwitch(ctx, f)}${fetchStatus(ctx, f)}${sourceActions(f)}${sourceDetail(f)}${warning}${scriptFields(f)}${sourceFixes(f)}</div></div>`;
     })
     .join("");
 }
@@ -2053,7 +2068,7 @@ function awayRows(ctx: Ctx, away: AwayView): string {
       "Webhook",
       `<span class="src-state">${esc(stored)}</span>${button("Test", { act: "away-test" })}${
         away.hasUrl === true
-          ? `${button("Remove", { act: "away-remove", confirm: "Remove the webhook URL?" })}${replaceFold("webhook", [away.command])}`
+          ? `${button("Remove", { act: "away-remove", confirm: "Remove the webhook URL?" })}${fold("replace-webhook", "Replace", [away.command])}`
           : codeBlock(away.command)
       }`,
     ) +
@@ -2121,7 +2136,7 @@ ${section(
     row("Ignore channels", channelInput("slackIgnoreChannels", c.slackIgnoreChannels, teams), !slackOn) +
     row("Group channels", channelInput("slackGroupChannels", c.slackGroupChannels, teams), !slackOn) +
     row("Watch channels", channelInput("slackWatchChannels", c.slackWatchChannels, teams), !slackOn) +
-    row("Every", intervalSlider("fetchEvery", c.fetchEvery), !fetching.some((f) => f.script === null && f.on)),
+    row("Every", intervalSlider("fetchEvery", c.fetchEvery), !fetching.some((f) => f.argv === null && f.on)),
   "set-sec",
 )}
 ${section(

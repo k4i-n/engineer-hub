@@ -170,7 +170,7 @@ function fetching(c: Ctx, runner: Runner): Fetching[] {
     return {
       name: f.name,
       on: isOn(c, f),
-      script: f.argv === undefined ? null : f.argv.join(" "),
+      argv: f.argv ?? null,
       every: f.every ?? null,
       section: f.section ?? null,
       how: state?.check?.how ?? null,
