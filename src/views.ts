@@ -2023,7 +2023,7 @@ function sourceRows(ctx: Ctx, list: Fetching[]): string {
   return list
     .map((f) => {
       const warning = f.warning === null ? "" : `<span class="src-how tone-text-amber">${esc(f.warning)}</span>`;
-      return `<div class="set-row src-row"><span class="set-label">${esc(sourceLabel(f.name))}</span><div class="set-control src-grid">${sourceSwitch(ctx, f)}${fetchStatus(ctx, f)}${sourceActions(f)}${sourceDetail(f)}${warning}${scriptFields(f)}${sourceFixes(f)}</div></div>`;
+      return `<div class="set-row"><span class="set-label">${esc(sourceLabel(f.name))}</span><div class="set-control src-grid">${sourceSwitch(ctx, f)}${fetchStatus(ctx, f)}${sourceActions(f)}${sourceDetail(f)}${warning}${scriptFields(f)}${sourceFixes(f)}</div></div>`;
     })
     .join("");
 }

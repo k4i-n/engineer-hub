@@ -1892,7 +1892,7 @@ button.n-caret {
 }
 .set-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 16px;
   padding: 10px 0;
   border-top: 1px solid var(--line);
@@ -1907,6 +1907,7 @@ button.n-caret {
 .set-label {
   width: 130px;
   flex: none;
+  line-height: 36px;
   color: var(--muted);
 }
 .set-control {
@@ -1915,6 +1916,7 @@ button.n-caret {
   gap: 8px;
   flex: 1;
   min-width: 0;
+  min-height: 36px;
   flex-wrap: wrap;
 }
 .seg {
@@ -1989,15 +1991,10 @@ textarea.text {
   width: 100%;
   resize: vertical;
 }
-.set-row.src-row {
-  align-items: flex-start;
-}
-.src-row .set-label {
-  line-height: 28px;
-}
 .set-control.src-grid {
   display: grid;
   grid-template-columns: 40px minmax(0, 1fr) auto;
+  grid-template-rows: 36px;
   column-gap: 12px;
   row-gap: 4px;
   align-items: center;
@@ -2678,6 +2675,13 @@ kbd {
   }
   .set-label {
     width: auto;
+    line-height: inherit;
+  }
+  .set-control {
+    min-height: 0;
+  }
+  .set-control.src-grid {
+    grid-template-rows: none;
   }
   .src-grid > .src-actions {
     grid-column: 2 / -1;
