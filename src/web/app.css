@@ -1308,6 +1308,7 @@ button.busy::after {
   min-width: 0;
   overflow-wrap: anywhere;
 }
+.f-count,
 .f-size,
 .file .ts {
   color: var(--muted);
@@ -1689,6 +1690,34 @@ button.n-caret {
 .need.open :is(.need-title, .need-sub) {
   white-space: normal;
   overflow-wrap: anywhere;
+}
+.folder > details {
+  padding: 0;
+  border-top: 0;
+}
+.folder > details > summary {
+  list-style: none;
+  font-weight: inherit;
+}
+.folder > details > summary::-webkit-details-marker {
+  display: none;
+}
+.folder > details > summary > .f-path::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin: 0 8px 2px 1px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: rotate(-45deg);
+  transition: transform 0.15s;
+}
+.folder > details[open] > summary > .f-path::before {
+  transform: rotate(45deg);
+}
+.folder > details > .files {
+  padding-left: 16px;
 }
 .search {
   position: relative;

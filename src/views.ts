@@ -1588,15 +1588,68 @@ function stepRow(ctx: Ctx, ticket: string, s: StepRow): string {
   return `<li class="${cls}" data-key="s-${s.n}"${hidden}><span class="check" data-n="${s.n}"></span><span class="s-title">${line(ctx, s.title)}</span>${doing}${evidence}${stepMenu(ticket, s)}</li>`;
 }
 
+type Folder = { name: string; path: string; files: FileEntry[]; folders: Folder[] };
+
+function fileTree(files: FileEntry[]): Folder {
+  const root: Folder = { name: "", path: "", files: [], folders: [] };
+  for (const f of files) {
+    let at = root;
+    for (const name of f.path.split("/").slice(0, -1)) {
+      let next = at.folders.find((d) => d.name === name);
+      if (next === undefined) {
+        next = { name, path: at.path === "" ? name : `${at.path}/${name}`, files: [], folders: [] };
+        at.folders.push(next);
+      }
+      at = next;
+    }
+    at.files.push(f);
+  }
+  return root;
+}
+
+function filesIn(d: Folder): FileEntry[] {
+  return [...d.files, ...d.folders.flatMap(filesIn)];
+}
+
+function baseName(path: string): string {
+  return path.slice(path.lastIndexOf("/") + 1);
+}
+
+function readmeFirst(a: FileEntry, b: FileEntry): number {
+  const readme = (f: FileEntry) => Number(/^readme(\.|$)/i.test(baseName(f.path)));
+  return readme(b) - readme(a) || a.path.localeCompare(b.path);
+}
+
+function fileRow(ctx: Ctx, id: string, f: FileEntry): string {
+  const raw = show(f.path) === "raw";
+  const href = fileHref(id, f.path, raw);
+  const target = raw ? ` target="_blank" rel="noreferrer"` : "";
+  return `<li class="file"><a class="f-path" href="${esc(href)}"${target}>${esc(baseName(f.path))}</a><span class="f-size">${sizeText(f.size)}</span><span class="ts" title="${esc(f.modified)}">${ago(ctx, f.modified)}</span></li>`;
+}
+
+function folderRow(ctx: Ctx, id: string, d: Folder): string {
+  const inside = filesIn(d);
+  const size = inside.reduce((n, f) => n + f.size, 0);
+  const latest =
+    inside
+      .map((f) => f.modified)
+      .sort()
+      .at(-1) ?? "";
+  const count = `${inside.length} file${inside.length === 1 ? "" : "s"}`;
+  return `<li class="folder"><details data-key="folder-${esc(id)}/${esc(d.path)}"><summary class="file"><span class="f-path">${esc(d.name)}/</span><span class="f-count">${count}</span><span class="f-size">${sizeText(size)}</span><span class="ts" title="${esc(latest)}">${ago(ctx, latest)}</span></summary>${fileList(ctx, id, d)}</details></li>`;
+}
+
+function fileList(ctx: Ctx, id: string, d: Folder): string {
+  const rows = [
+    ...d.files.sort(readmeFirst).map((f) => fileRow(ctx, id, f)),
+    ...d.folders.sort((a, b) => a.name.localeCompare(b.name)).map((x) => folderRow(ctx, id, x)),
+  ];
+  return `<ul class="rows files">${rows.join("")}</ul>`;
+}
+
 function filesSection(ctx: Ctx, id: string, files: FileEntry[]): string {
   const menu = moreMenu("menu-files", [menuItem("copy", "Copy folder path", { copy: ticketFolder(ctx.files, id) })]);
-  const rows = files.map((f) => {
-    const raw = show(f.path) === "raw";
-    const href = fileHref(id, f.path, raw);
-    const target = raw ? ` target="_blank" rel="noreferrer"` : "";
-    return `<li class="file"><a class="f-path" href="${esc(href)}"${target}>${esc(f.path)}</a><span class="f-size">${sizeText(f.size)}</span><span class="ts" title="${esc(f.modified)}">${ago(ctx, f.modified)}</span></li>`;
-  });
-  return section("Files", files.length, `<ul class="rows files">${rows.join("")}</ul>`, "files-sec", menu);
+  return section("Files", files.length, fileList(ctx, id, fileTree(files)), "files-sec", menu);
 }
 
 export function fileBody(ctx: Ctx, id: string, path: string, live: Live): string {
