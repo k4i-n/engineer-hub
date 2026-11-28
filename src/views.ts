@@ -412,7 +412,7 @@ function workspace(ctx: Ctx, url: string | null): string | null {
   return ctx.config.slackWorkspaces.length < 2 ? null : workspaceOf(url);
 }
 
-type Part = string | { html: string } | null;
+type Part = string | { html: string; text: string } | null;
 
 function sourceLine(parts: Part[]): string {
   return parts
@@ -421,10 +421,18 @@ function sourceLine(parts: Part[]): string {
     .join(" · ");
 }
 
+function sourceText(parts: Part[]): string {
+  return parts
+    .map((p) => (p === null || typeof p === "string" ? p : p.text))
+    .filter((p) => p !== null && p !== "")
+    .join(" · ");
+}
+
 function wsFilter(name: string | null): Part {
   if (name === null) return null;
   return {
     html: `<button type="button" class="ws-filter" data-ws-filter="${esc(name)}" title="Show only ${esc(name)} in Slack rows">${esc(name)}</button>`,
+    text: name,
   };
 }
 
@@ -542,7 +550,8 @@ function sendNeed(ctx: Ctx, d: DraftRow): Need {
   const url = draftUrl(ctx, d);
   const noLink =
     url === null ? `<span class="chip tone-grey" title="this draft names no thread or PR">no link</span>` : "";
-  const sub = sourceLine([d.channel, d.ticket_id === null ? itemName(d.item) : null]);
+  const source = [d.channel, d.ticket_id === null ? itemName(d.item) : null];
+  const sub = sourceLine(source);
   const more = draftMore(ctx, [d], false);
   const oneLine = d.verdict === null && more.drafts === undefined;
   const title =
@@ -556,7 +565,7 @@ function sendNeed(ctx: Ctx, d: DraftRow): Need {
     tone: "teal",
     title: oneLine ? title + noLink : title,
     sub,
-    ...(oneLine ? { oneLine: sub } : {}),
+    ...(oneLine ? { oneLine: sourceText(source) } : {}),
     body: d.body,
     ...more,
     ask: askChips("", [verdictPill(d), draftButtons(ctx, d, "chip-btn", url), oneLine ? "" : noLink]),
@@ -656,7 +665,7 @@ function itemNeed(ctx: Ctx, i: ItemRow): Need {
     tone: v.tone,
     title: (oneLine ? avatar(i.avatar) : "") + linker(ctx)(url, withoutTicket(itemTitle(i), i.ticket_id), "need-title"),
     sub: avatar(i.avatar) + sourceLine(source),
-    ...(oneLine ? { oneLine: sourceLine([...source, ...drafts.map((d) => `draft ${d.label}`)]) } : {}),
+    ...(oneLine ? { oneLine: sourceText([...source, ...drafts.map((d) => `draft ${d.label}`)]) } : {}),
     ...moreText(i),
     ...draftMore(ctx, drafts, true),
     ask: itemAsk(ctx, i) + draftChips(ctx, drafts, url, !oneLine),
@@ -714,7 +723,7 @@ function needRow(ctx: Ctx, n: Need, pinned: boolean, showVerb: boolean | "inline
     : `<span class="n-caret"></span>`;
   const mark = n.today === true ? `<span class="pill tone-blue plan-mark" title="In today's plan">today</span>` : "";
   const verb = showVerb === "inline" ? `<span class="verb verb-inline">${esc(n.verb)}</span>` : "";
-  const hover = n.oneLine ? ` title="${n.oneLine}"` : "";
+  const hover = n.oneLine ? ` title="${esc(n.oneLine)}"` : "";
   const subText = `${dimLabel}${n.sub === "" || dimLabel === "" ? "" : " · "}${n.sub}`;
   const subBody = n.id?.shown
     ? `<span class="sub-text">${subText}</span><span class="row-id">${esc(n.id.shown)}</span>`

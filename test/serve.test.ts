@@ -1189,6 +1189,28 @@ describe("serve", () => {
     assert.doesNotMatch(page, /data-name="slack"/);
   });
 
+  test("a one-line Slack row with a second workspace keeps its hover text plain", async () => {
+    await hub(["slack", "add", "acme"]);
+    await hub(["slack", "add", "beta"]);
+    const url = "https://beta.slack.com/archives/C70/p1763440000654321";
+    await hub(
+      ["item", "put", "--stdin"],
+      JSON.stringify({
+        source: "slack",
+        kind: "message",
+        url,
+        title: "check the export?",
+        author: "yui",
+        needs_me: true,
+      }),
+    );
+    await hub(["item", "ask", url, "Reply", "today?"]);
+    const html = await (await fetch(`${server.url}/?part=1`)).text();
+    const row = /<li class="need[^"]*one-line[^"]*" data-key="item-\d+"[\s\S]*?<\/li>/.exec(html)?.[0] ?? "";
+    assert.match(row, /<span class="need-main" title="slack · beta · yui"><span class="need-line">/);
+    assert.doesNotMatch(row, /Slack rows">beta<\/button> · yui">/);
+  });
+
   test("Settings adds and removes a Slack workspace like hub slack add and remove", async () => {
     const call = (path: string, body: object = {}) =>
       fetch(`${server.url}/api/v1${path}`, {
