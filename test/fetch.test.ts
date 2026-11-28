@@ -1088,6 +1088,7 @@ describe("slack", () => {
       await hub("items", "--source", "slack"),
       /slack\/message \| #web · me: Shipped the fix, can you look\? \| sent/,
     );
+    assert.match(await hub("brief"), /can you look\? \| https:\S+\n {4}> Shipped the fix, can you look\?\n/);
     assert.match(await hub("waits"), /no open waits/);
     const auth = JSON.parse(calls.find((c) => c[0] === "http")?.[3] ?? "{}");
     assert.equal(auth.Authorization, "Bearer xoxp-1");

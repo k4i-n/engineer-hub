@@ -1788,7 +1788,7 @@ describe("brief for judging", () => {
     await ok("slack", "add", "acme");
     await ok("slack", "add", "beta");
     stdin = [
-      '{"source":"slack","kind":"message","url":"https://acme.slack.com/archives/C1/p1763350000000100","title":"#web khai: shipped it","author":"me","state":"sent"}',
+      '{"source":"slack","kind":"message","url":"https://acme.slack.com/archives/C1/p1763350000000100","title":"#web khai: shipped it","body":"shipped it\\nstaging is on 1.4","author":"me","state":"sent"}',
       '{"source":"slack","kind":"message","url":"https://acme.slack.com/archives/C1/p1763350000000200","title":"#ops ana: on call?","state":"mention","needs_me":true}',
     ].join("\n");
     await ok("item", "put", "--stdin");
@@ -1796,7 +1796,7 @@ describe("brief for judging", () => {
     assert.match(brief, /^hub fetches itself, do not read: github, slack\n/);
     assert.match(
       brief,
-      /to judge, the user's sent messages:\n {2}#\d+ \| #web khai: shipped it \| https:\/\/acme\.slack\.com\/archives\/C1\/p1763350000000100/,
+      /to judge, the user's sent messages:\n {2}#\d+ \| #web khai: shipped it \| https:\/\/acme\.slack\.com\/archives\/C1\/p1763350000000100\n {4}> shipped it\n {4}> staging is on 1\.4\n/,
     );
     const tracked = brief.slice(brief.indexOf("tracked:"));
     assert.doesNotMatch(tracked, /shipped it/);

@@ -13,11 +13,11 @@ Call `brief`. Its first line names the sources hub fetches itself: never read th
 
 ## 2. Judge the sent messages
 
-For each row under "to judge" (its title is `#channel author: text`, then the permalink):
+For each row under "to judge" (its title is `#channel author: text`, then the permalink, then the whole message quoted with `> `):
 
 | The message | Record |
 |---|---|
-| Clearly an unsent draft's message: same channel or thread, same person, same ask, in any wording | `posted` with `id`, `label`, `channel`, `sent_ref` (the permalink), `sent_text` (the message as sent) |
+| Clearly an unsent draft's message: same channel or thread, same person, same ask, in any wording | `posted` with `id`, `label`, `channel`, `sent_ref` (the permalink), `sent_text` (the quoted message, exactly, with nothing added) |
 | Fills a draft whose wording is pending | the same call; it keeps the posted time and adds the wording |
 | Might be a draft's message but you are not sure | `match` with `id`, `label`, `sent_text`, `sent_ref`; the engineer answers yes or no on the dashboard |
 | No draft, but clearly about a known ticket | `log` with `id`, `text` (one line: what was said, to whom), `kind: "slack"`, `source: "sync"`, `ref` |

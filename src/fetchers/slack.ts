@@ -636,6 +636,7 @@ async function fetchSlack(sys: System, ctx: Ctx, cursor: string | null, spec: Ke
       kind: "message",
       url: m.permalink,
       title: await line(dir, me, myName, m),
+      body: await full(dir, m),
       author: "me",
       state: "sent",
       needs_me: false,

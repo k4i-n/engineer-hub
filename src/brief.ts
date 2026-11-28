@@ -17,11 +17,19 @@ const MAX_ROWS = 40;
 const MAX_LINE = 160;
 const FIRST_LOOK_MS = 86_400_000;
 
-function section(title: string, lines: string[]): string[] {
+function section(title: string, lines: string[], whole = false): string[] {
   if (lines.length === 0) return [`${title}: none`];
-  const shown = lines.slice(0, MAX_ROWS).map((l) => `  ${cut(l, MAX_LINE)}`);
+  const shown = lines.slice(0, MAX_ROWS).map((l) => `  ${whole ? l : cut(l, MAX_LINE)}`);
   const more = lines.length > MAX_ROWS ? [`  (+${lines.length - MAX_ROWS} more)`] : [];
   return [`${title}:`, ...shown, ...more];
+}
+
+function quoted(text: string | null): string {
+  if (text === null) return "";
+  return text
+    .split("\n")
+    .map((l) => `\n    > ${l}`)
+    .join("");
 }
 
 function firstLine(text: string): string {
@@ -101,7 +109,8 @@ export function brief(ctx: Ctx): Result {
     ),
     ...section(
       "to judge, the user's sent messages",
-      toJudge.map((i) => `#${i.id} | ${i.title ?? ""} | ${i.url ?? i.ref}`),
+      toJudge.map((i) => `${cut(`#${i.id} | ${i.title ?? ""} | ${i.url ?? i.ref}`, MAX_LINE)}${quoted(i.body)}`),
+      true,
     ),
     ...section("tracked", items.filter((i) => i.state !== "sent").map(itemLine)),
     ...section(
